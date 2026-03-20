@@ -1,0 +1,83 @@
+# /etc/systemd/system/vuln-reports.service
+#
+# Systemd unit file for the Vulnerability Management Report Scheduler.
+# Runs scheduler.py --mode daemon as a long-lived background service.
+#
+# Installation (run as root):
+#   sudo cp deploy/vuln-reports.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable vuln-reports
+#   sudo systemctl start vuln-reports
+#   sudo systemctl status vuln-reports
+#
+# Logs:
+#   sudo journalctl -u vuln-reports -f
+#   sudo journalctl -u vuln-reports --since "1 hour ago"
+
+[Unit]
+Description=Vulnerability Management Report Scheduler
+Documentation=file:///opt/vuln-reporting/RUNBOOK.MD
+After=network.target
+Wants=network-online.target
+
+[Service]
+# -----------------------------------------------------------------------
+# Identity — run as a dedicated non-login service account, never as root
+# -----------------------------------------------------------------------
+User=vuln-reports
+Group=vuln-reports
+
+# -----------------------------------------------------------------------
+# Working directory and environment
+# -----------------------------------------------------------------------
+WorkingDirectory=/opt/vuln-reporting
+
+# Load credentials from .env file.
+# All SMTP_* and TVM_* variables defined in .env are injected into the
+# process environment.  Never commit .env to version control.
+EnvironmentFile=/opt/vuln-reporting/.env
+
+# -----------------------------------------------------------------------
+# Execution
+# -----------------------------------------------------------------------
+ExecStart=/opt/vuln-reporting/.venv/bin/python scheduler.py --mode daemon
+
+# Attempt a clean reload by sending SIGTERM and waiting for the process
+# to exit gracefully (scheduler.py catches SIGTERM and waits for any
+# in-progress report job to finish before exiting).
+KillSignal=SIGTERM
+TimeoutStopSec=120
+
+# -----------------------------------------------------------------------
+# Restart policy — recover automatically from crashes
+# -----------------------------------------------------------------------
+Restart=on-failure
+RestartSec=30
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# -----------------------------------------------------------------------
+# Logging — stdout and stderr are captured by journald automatically
+# -----------------------------------------------------------------------
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vuln-reports
+
+# -----------------------------------------------------------------------
+# Security hardening (RHEL 9 / systemd 252+)
+# -----------------------------------------------------------------------
+# Prevent the process from gaining additional privileges
+NoNewPrivileges=true
+
+# Give the service a private /tmp
+PrivateTmp=true
+
+# Allow network access (required for Tenable API and SMTP delivery)
+# PrivateNetwork is NOT set so that outbound connections work.
+
+# Restrict write access: only the project directory and logs are writable.
+# Adjust ReadWritePaths if you change OUTPUT_DIR or LOG_DIR in config.py.
+ReadWritePaths=/opt/vuln-reporting/output /opt/vuln-reporting/logs /opt/vuln-reporting/data/cache
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,350 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<!--
+  Vulnerability Management Report Email Template
+  -----------------------------------------------
+  Jinja2 template rendered by delivery/email_template.py.
+  Rules enforced throughout:
+    - Inline CSS only — no <style> block, no external stylesheet.
+    - Table-based layout for all structural elements (Outlook compatibility).
+    - width="" attributes on <td>, NOT CSS width properties.
+    - bgcolor="" attribute in addition to background-color style.
+    - All Jinja2 variables have fallback defaults via the `default` filter.
+
+  Variables expected:
+    group_name         (str)
+    report_title       (str)
+    generated_at       (str)  — pre-formatted UTC string
+    tag_filter_label   (str)  — "Environment = Production" or "All Assets"
+    kpi_metrics        (list[{label: str, value: str}])  — 4–5 items
+    charts             (list[str])  — CID strings e.g. ["chart_1", "chart_2"]
+    attached_reports   (list[{name: str, description: str}])
+    sla_table          (list[{severity: str, days: int, vpr_range: str, color: str, bg_color: str}])
+    reply_to           (str)
+    excel_omitted      (bool)  — True if Excel was dropped due to attachment size
+-->
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ report_title | default("Vulnerability Management Report") }}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #F4F6F9; font-family: Arial, Helvetica, sans-serif;">
+
+<!-- =========================================================
+     OUTER WRAPPER — constrains width for desktop clients
+     ========================================================= -->
+<table border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F4F6F9"
+       style="background-color: #F4F6F9;">
+  <tr>
+    <td align="center" valign="top" style="padding: 20px 10px;">
+
+      <!-- INNER CARD — 620px fixed width -->
+      <table border="0" cellpadding="0" cellspacing="0" width="620"
+             style="max-width: 620px; background-color: #FFFFFF; border: 1px solid #DDDFE2;">
+
+        <!-- =====================================================
+             SECTION 1 — HEADER BAND
+             ===================================================== -->
+        <tr>
+          <td bgcolor="#1F3864" style="background-color: #1F3864; padding: 0;">
+            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td style="padding: 22px 28px 18px 28px;">
+                  <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 11pt; color: #B0BEC5; letter-spacing: 1px;
+                             text-transform: uppercase;">
+                    Vulnerability Management
+                  </p>
+                  <p style="margin: 6px 0 0 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 20pt; font-weight: bold; color: #FFFFFF; line-height: 1.2;">
+                    {{ report_title | default("Weekly Report") }}
+                  </p>
+                  <p style="margin: 8px 0 0 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 9pt; color: #90A4AE;">
+                    Generated: {{ generated_at | default("—") }}
+                    &nbsp;&nbsp;|&nbsp;&nbsp;
+                    Group: {{ group_name | default("—") }}
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- =====================================================
+             SECTION 2 — SCOPE BANNER
+             ===================================================== -->
+        <tr>
+          <td bgcolor="#E8EAF6" style="background-color: #E8EAF6;
+                                       border-left: 5px solid #1F3864;
+                                       padding: 10px 24px;">
+            <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                       font-size: 10pt; color: #1F3864; font-weight: bold;">
+              &#128269;&nbsp; Scope:&nbsp;
+              <span style="font-weight: normal;">
+                {{ tag_filter_label | default("All Assets") }}
+              </span>
+            </p>
+          </td>
+        </tr>
+
+        <!-- =====================================================
+             SECTION 3 — KPI TILES
+             ===================================================== -->
+        <tr>
+          <td style="padding: 20px 20px 10px 20px; background-color: #FFFFFF;">
+            <p style="margin: 0 0 12px 0; font-family: Arial, Helvetica, sans-serif;
+                       font-size: 11pt; font-weight: bold; color: #1F3864;
+                       border-bottom: 2px solid #E8EAF6; padding-bottom: 6px;">
+              Key Metrics
+            </p>
+            <!-- KPI tile grid — one row, up to 5 cells -->
+            <table border="0" cellpadding="0" cellspacing="6" width="100%">
+              <tr>
+                {% set ns = namespace(count=kpi_metrics | length) %}
+                {% for metric in kpi_metrics %}
+                <td align="center" valign="top" bgcolor="#F5F7FA"
+                    style="background-color: #F5F7FA; border: 1px solid #DDDFE2;
+                           padding: 14px 8px; vertical-align: top;">
+                  <p style="margin: 0 0 6px 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 8pt; color: #757575; text-transform: uppercase;
+                             letter-spacing: 0.5px;">
+                    {{ metric.label | default("Metric") }}
+                  </p>
+                  <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 18pt; font-weight: bold;
+                             color: {{ metric.color | default('#1F3864') }};">
+                    {{ metric.value | default("N/A") }}
+                  </p>
+                  {% if metric.sub_label is defined and metric.sub_label %}
+                  <p style="margin: 4px 0 0 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 8pt; color: #9E9E9E;">
+                    {{ metric.sub_label }}
+                  </p>
+                  {% endif %}
+                </td>
+                {% else %}
+                <!-- Fallback if kpi_metrics is empty -->
+                <td align="center" bgcolor="#F5F7FA"
+                    style="background-color: #F5F7FA; border: 1px solid #DDDFE2;
+                           padding: 14px 8px;">
+                  <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 9pt; color: #9E9E9E;">
+                    Metrics not available for this group.
+                  </p>
+                </td>
+                {% endfor %}
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- =====================================================
+             SECTION 4 — INLINE CHARTS
+             ===================================================== -->
+        {% if charts %}
+        <tr>
+          <td style="padding: 16px 20px 8px 20px; background-color: #FFFFFF;">
+            <p style="margin: 0 0 12px 0; font-family: Arial, Helvetica, sans-serif;
+                       font-size: 11pt; font-weight: bold; color: #1F3864;
+                       border-bottom: 2px solid #E8EAF6; padding-bottom: 6px;">
+              Charts
+            </p>
+            {% for cid in charts[:3] %}
+            <table border="0" cellpadding="0" cellspacing="0" width="100%"
+                   style="margin-bottom: 14px;">
+              <tr>
+                <td align="center" style="padding: 4px 0;">
+                  <img src="cid:{{ cid }}" alt="Report chart {{ loop.index }}"
+                       width="560"
+                       style="display: block; max-width: 560px; width: 100%;
+                              height: auto; border: 1px solid #DDDFE2;" />
+                </td>
+              </tr>
+            </table>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
+
+        <!-- =====================================================
+             SECTION 5 — ATTACHED REPORTS LIST
+             ===================================================== -->
+        <tr>
+          <td style="padding: 16px 20px; background-color: #FFFFFF;">
+            <p style="margin: 0 0 12px 0; font-family: Arial, Helvetica, sans-serif;
+                       font-size: 11pt; font-weight: bold; color: #1F3864;
+                       border-bottom: 2px solid #E8EAF6; padding-bottom: 6px;">
+              Attached Reports
+            </p>
+            {% if excel_omitted | default(false) %}
+            <table border="0" cellpadding="0" cellspacing="0" width="100%"
+                   style="margin-bottom: 10px;">
+              <tr>
+                <td bgcolor="#FFF9C4" style="background-color: #FFF9C4;
+                                             border-left: 4px solid #FBC02D;
+                                             padding: 8px 12px;">
+                  <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 9pt; color: #5D4037;">
+                    <strong>Note:</strong> Excel attachments were omitted because the
+                    total attachment size exceeded the configured limit. PDF reports
+                    are attached below.
+                  </p>
+                </td>
+              </tr>
+            </table>
+            {% endif %}
+            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+              {% for report in attached_reports %}
+              <tr>
+                <td style="padding: 5px 0; border-bottom: 1px solid #F0F0F0;
+                            vertical-align: top;">
+                  <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                    <tr>
+                      <td width="18" valign="top"
+                          style="font-family: Arial, Helvetica, sans-serif;
+                                 font-size: 10pt; color: #1F3864; padding-top: 1px;">
+                        &#8227;
+                      </td>
+                      <td style="font-family: Arial, Helvetica, sans-serif;
+                                 font-size: 10pt; color: #212121;">
+                        <strong>{{ report.name }}</strong>
+                        {% if report.description %}
+                        &mdash;
+                        <span style="color: #757575; font-size: 9pt;">
+                          {{ report.description }}
+                        </span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td style="font-family: Arial, Helvetica, sans-serif;
+                            font-size: 9pt; color: #9E9E9E; padding: 6px 0;">
+                  No reports attached.
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+          </td>
+        </tr>
+
+        <!-- =====================================================
+             SECTION 6 — SLA REFERENCE TABLE
+             ===================================================== -->
+        <tr>
+          <td style="padding: 16px 20px; background-color: #F9FAFB;">
+            <p style="margin: 0 0 10px 0; font-family: Arial, Helvetica, sans-serif;
+                       font-size: 11pt; font-weight: bold; color: #1F3864;
+                       border-bottom: 2px solid #E8EAF6; padding-bottom: 6px;">
+              SLA Reference
+            </p>
+            <table border="0" cellpadding="0" cellspacing="0" width="100%"
+                   style="border-collapse: collapse;">
+              <!-- Header row -->
+              <tr>
+                <td width="28%" bgcolor="#1F3864"
+                    style="background-color: #1F3864; padding: 7px 10px;
+                           border: 1px solid #DDDFE2;">
+                  <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 9pt; font-weight: bold; color: #FFFFFF;">
+                    Severity
+                  </p>
+                </td>
+                <td width="24%" bgcolor="#1F3864"
+                    style="background-color: #1F3864; padding: 7px 10px;
+                           border: 1px solid #DDDFE2;">
+                  <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 9pt; font-weight: bold; color: #FFFFFF;">
+                    SLA Window
+                  </p>
+                </td>
+                <td bgcolor="#1F3864"
+                    style="background-color: #1F3864; padding: 7px 10px;
+                           border: 1px solid #DDDFE2;">
+                  <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 9pt; font-weight: bold; color: #FFFFFF;">
+                    VPR Score Range
+                  </p>
+                </td>
+              </tr>
+              <!-- Data rows -->
+              {% for row in sla_table %}
+              <tr>
+                <td width="28%" bgcolor="{{ row.bg_color | default('#FFFFFF') }}"
+                    style="background-color: {{ row.bg_color | default('#FFFFFF') }};
+                           padding: 6px 10px; border: 1px solid #DDDFE2;">
+                  <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 9pt; font-weight: bold;
+                             color: {{ row.color | default('#212121') }};">
+                    {{ row.severity }}
+                  </p>
+                </td>
+                <td width="24%" style="padding: 6px 10px; border: 1px solid #DDDFE2;
+                                        background-color: #FFFFFF;">
+                  <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 9pt; color: #212121;">
+                    {{ row.days }} days
+                  </p>
+                </td>
+                <td style="padding: 6px 10px; border: 1px solid #DDDFE2;
+                            background-color: #FFFFFF;">
+                  <p style="margin: 0; font-family: Arial, Helvetica, sans-serif;
+                             font-size: 9pt; color: #212121;">
+                    {{ row.vpr_range }}
+                  </p>
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+          </td>
+        </tr>
+
+        <!-- =====================================================
+             SECTION 7 — FOOTER
+             ===================================================== -->
+        <tr>
+          <td bgcolor="#37474F" style="background-color: #37474F; padding: 16px 24px;">
+            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td style="font-family: Arial, Helvetica, sans-serif;
+                            font-size: 8pt; color: #90A4AE; line-height: 1.6;">
+                  <p style="margin: 0 0 4px 0;">
+                    <strong style="color: #B0BEC5;">Reply-To:</strong>
+                    <a href="mailto:{{ reply_to | default('') }}"
+                       style="color: #90A4AE; text-decoration: none;">
+                      {{ reply_to | default("security@company.com") }}
+                    </a>
+                  </p>
+                  <p style="margin: 0 0 4px 0;">
+                    <strong style="color: #B0BEC5;">Generated:</strong>
+                    {{ generated_at | default("—") }} UTC
+                  </p>
+                  <p style="margin: 0;">
+                    To update recipients, report scope, or delivery schedule,
+                    contact:
+                    <a href="mailto:{{ reply_to | default('') }}"
+                       style="color: #90A4AE; text-decoration: underline;">
+                      {{ reply_to | default("security@company.com") }}
+                    </a>
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+      <!-- end INNER CARD -->
+      </table>
+
+    </td>
+  </tr>
+</table>
+<!-- end OUTER WRAPPER -->
+
+</body>
+</html>

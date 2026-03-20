@@ -1,0 +1,42 @@
+# Tenable SDK
+pyTenable==1.5.2
+
+# Data manipulation
+pandas==2.2.3
+numpy==2.2.4
+
+# Excel output
+openpyxl==3.1.5
+
+# Charts and visualization
+matplotlib==3.10.1
+plotly==6.0.1
+kaleido==0.2.1  # Static image export for Plotly
+
+# PDF generation
+weasyprint==65.1
+
+# Environment and config
+python-dotenv==1.1.0
+PyYAML==6.0.2
+
+# Scheduling
+APScheduler==3.11.0
+
+# Email
+Jinja2==3.1.6
+
+# Retry / backoff
+tenacity==9.1.2
+
+# CLI output
+rich==14.0.0
+
+# Data caching
+pyarrow==19.0.1  # Required for parquet read/write via pandas
+
+# YAML schema validation
+jsonschema==4.23.0
+
+# Timezone support
+tzdata==2025.2
