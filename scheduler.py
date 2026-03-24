@@ -4,17 +4,18 @@ scheduler.py — Flexible report scheduler supporting three execution modes.
 MODE 1: APScheduler daemon (always-on process)
     python scheduler.py --mode daemon
 
-    Reads delivery_config.yaml on startup and schedules all 'weekly' groups
-    using APScheduler CronTrigger (server local time).  Hot-reloads the config
-    every 5 minutes — reschedules changed groups without a restart.
-    Handles SIGTERM/SIGINT gracefully: waits for any in-progress job to finish
-    before exiting.
+    Reads delivery_config.yaml on startup and schedules all 'weekly' and
+    'monthly' groups using APScheduler CronTrigger (server local time).
+    Hot-reloads the config every 5 minutes — reschedules changed groups
+    without a restart.  Handles SIGTERM/SIGINT gracefully: waits for any
+    in-progress job to finish before exiting.
 
 MODE 2: Single-run for cron / Windows Task Scheduler
     python scheduler.py --mode run-due
 
-    Reads delivery_config.yaml, runs all groups whose day_of_week + time match
-    the current time within a ±10-minute window, then exits cleanly.
+    Reads delivery_config.yaml, runs all groups whose schedule matches the
+    current time within a ±10-minute window (day_of_week + time for weekly
+    groups; day_of_month + time for monthly groups), then exits cleanly.
     Designed to be called every 5–10 minutes by an external scheduler.
 
 MODE 3: Manual / on-demand
@@ -129,11 +130,13 @@ _config_mtime: float = 0.0
 
 def _schedule_groups(scheduler, groups: list[dict]) -> None:
     """
-    (Re)schedule all weekly groups on *scheduler*.
+    (Re)schedule all weekly and monthly groups on *scheduler*.
 
     Removes all previously-scheduled group jobs first (identified by the
     ``group_`` prefix in their job ID), then adds fresh jobs for every group
-    with ``frequency: weekly``.  The ``_reload_check`` meta-job is preserved.
+    with ``frequency: weekly`` or ``frequency: monthly``.  The
+    ``_reload_check`` meta-job is preserved.  Groups with ``frequency:
+    on_demand`` are skipped — they only run when triggered manually.
 
     Safe to call repeatedly — used by both initial setup and hot-reload.
     """
@@ -152,34 +155,82 @@ def _schedule_groups(scheduler, groups: list[dict]) -> None:
     for group in groups:
         schedule   = group.get("schedule") or {}
         group_name = group.get("name", "Unknown Group")
+        frequency  = schedule.get("frequency")
+        time_str   = schedule.get("time", "")
 
-        if schedule.get("frequency") != "weekly":
-            continue
+        if frequency == "weekly":
+            day_name = str(schedule.get("day_of_week", "")).lower().strip()
 
-        day_name = str(schedule.get("day_of_week", "")).lower().strip()
-        time_str = schedule.get("time", "")
+            if day_name not in _DAY_ABBR:
+                logger.warning(
+                    "Group '%s': unknown day_of_week '%s' — not scheduled.",
+                    group_name, day_name,
+                )
+                continue
 
-        if day_name not in _DAY_ABBR:
-            logger.warning(
-                "Group '%s': unknown day_of_week '%s' — not scheduled.",
-                group_name, day_name,
+            try:
+                hour, minute = (int(x) for x in str(time_str).split(":"))
+            except (ValueError, AttributeError):
+                logger.warning(
+                    "Group '%s': invalid time '%s' — not scheduled.",
+                    group_name, time_str,
+                )
+                continue
+
+            trigger = CronTrigger(
+                day_of_week=_DAY_ABBR[day_name],
+                hour=hour,
+                minute=minute,
             )
-            continue
-
-        try:
-            hour, minute = (int(x) for x in str(time_str).split(":"))
-        except (ValueError, AttributeError):
-            logger.warning(
-                "Group '%s': invalid time '%s' — not scheduled.",
-                group_name, time_str,
+            logger.info(
+                "Scheduled: '%s' — every %s at %s (server local time)",
+                group_name, day_name, time_str,
             )
+
+        elif frequency == "monthly":
+            dom_raw = schedule.get("day_of_month")
+
+            if dom_raw is None:
+                logger.warning(
+                    "Group '%s': day_of_month missing — not scheduled.",
+                    group_name,
+                )
+                continue
+
+            try:
+                dom = int(dom_raw)
+                if not (1 <= dom <= 28):
+                    raise ValueError(f"day_of_month {dom} is outside the allowed range 1–28")
+            except (ValueError, TypeError):
+                logger.warning(
+                    "Group '%s': invalid day_of_month '%s' — not scheduled.",
+                    group_name, dom_raw,
+                )
+                continue
+
+            try:
+                hour, minute = (int(x) for x in str(time_str).split(":"))
+            except (ValueError, AttributeError):
+                logger.warning(
+                    "Group '%s': invalid time '%s' — not scheduled.",
+                    group_name, time_str,
+                )
+                continue
+
+            trigger = CronTrigger(
+                day=dom,
+                hour=hour,
+                minute=minute,
+            )
+            logger.info(
+                "Scheduled: '%s' — day %d of each month at %s (server local time)",
+                group_name, dom, time_str,
+            )
+
+        else:
+            # on_demand and unrecognised frequencies are not scheduled in daemon mode
             continue
 
-        trigger = CronTrigger(
-            day_of_week=_DAY_ABBR[day_name],
-            hour=hour,
-            minute=minute,
-        )
         job_id = f"group_{safe_filename(group_name)}"
 
         scheduler.add_job(
@@ -191,14 +242,9 @@ def _schedule_groups(scheduler, groups: list[dict]) -> None:
             misfire_grace_time=600,           # allow up to 10 minutes late
             kwargs={"group_config": group, "trigger_mode": "daemon"},
         )
-
-        logger.info(
-            "Scheduled: '%s' — every %s at %s (server local time)",
-            group_name, day_name, time_str,
-        )
         scheduled_count += 1
 
-    logger.info("Weekly groups scheduled: %d", scheduled_count)
+    logger.info("Groups scheduled (weekly + monthly): %d", scheduled_count)
 
 
 def _make_reload_check(scheduler) -> callable:
@@ -233,7 +279,8 @@ def daemon_mode() -> None:
     """
     Start the APScheduler blocking daemon.
 
-    Schedules all weekly delivery groups and adds a 5-minute hot-reload job.
+    Schedules all weekly and monthly delivery groups and adds a 5-minute
+    hot-reload job.
     SIGTERM and SIGINT are caught; the main thread waits for the signal, then
     calls scheduler.shutdown(wait=True) to let any running jobs finish before
     the process exits.
@@ -258,7 +305,7 @@ def daemon_mode() -> None:
     except FileNotFoundError:
         logger.error("delivery_config.yaml not found at %s", config_path)
 
-    # Schedule all weekly groups
+    # Schedule all weekly and monthly groups
     groups = _load_config()
     _schedule_groups(scheduler, groups)
 

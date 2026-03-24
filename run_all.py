@@ -69,7 +69,7 @@ _VALID_REPORTS: frozenset[str] = frozenset({
     "plugin_cve",
 })
 
-_VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "on_demand"})
+_VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "monthly", "on_demand"})
 
 _VALID_DAYS: frozenset[str] = frozenset({
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
@@ -155,8 +155,9 @@ def _is_due(group_config: dict, now: datetime, window_minutes: int = 10) -> bool
     Return True if *group_config* is scheduled to run within ±*window_minutes*
     of *now* (server local time).
 
-    Only groups with ``frequency: weekly`` are eligible; ``on_demand`` groups
-    are never considered due by this function.
+    Supports ``frequency: weekly`` (matched by day-of-week + time) and
+    ``frequency: monthly`` (matched by day-of-month + time).
+    ``on_demand`` groups are never considered due by this function.
 
     Parameters
     ----------
@@ -167,28 +168,48 @@ def _is_due(group_config: dict, now: datetime, window_minutes: int = 10) -> bool
     window_minutes : int
         How many minutes either side of the configured time to consider a match.
     """
-    schedule = group_config.get("schedule") or {}
-    if schedule.get("frequency") != "weekly":
-        return False
+    schedule  = group_config.get("schedule") or {}
+    frequency = schedule.get("frequency")
+    time_str  = schedule.get("time", "")
 
-    day_name = str(schedule.get("day_of_week", "")).lower().strip()
-    time_str = schedule.get("time", "")
+    if frequency == "weekly":
+        day_name = str(schedule.get("day_of_week", "")).lower().strip()
+        target_weekday = _DAY_TO_WEEKDAY.get(day_name)
+        if target_weekday is None:
+            return False
+        if now.weekday() != target_weekday:
+            return False
 
-    target_weekday = _DAY_TO_WEEKDAY.get(day_name)
-    if target_weekday is None:
-        return False
+        try:
+            h, m = (int(x) for x in str(time_str).split(":"))
+        except (ValueError, AttributeError):
+            return False
 
-    if now.weekday() != target_weekday:
-        return False
+        target_minutes  = h * 60 + m
+        current_minutes = now.hour * 60 + now.minute
+        return abs(current_minutes - target_minutes) <= window_minutes
 
-    try:
-        h, m = (int(x) for x in str(time_str).split(":"))
-    except (ValueError, AttributeError):
-        return False
+    if frequency == "monthly":
+        dom_raw = schedule.get("day_of_month")
+        if dom_raw is None:
+            return False
+        try:
+            dom = int(dom_raw)
+        except (ValueError, TypeError):
+            return False
+        if now.day != dom:
+            return False
 
-    target_minutes  = h * 60 + m
-    current_minutes = now.hour * 60 + now.minute
-    return abs(current_minutes - target_minutes) <= window_minutes
+        try:
+            h, m = (int(x) for x in str(time_str).split(":"))
+        except (ValueError, AttributeError):
+            return False
+
+        target_minutes  = h * 60 + m
+        current_minutes = now.hour * 60 + now.minute
+        return abs(current_minutes - target_minutes) <= window_minutes
+
+    return False
 
 
 # ===========================================================================
@@ -220,6 +241,34 @@ def _validate_group(group: dict) -> list[str]:
             errors.append(f"schedule.day_of_week invalid: {day!r}")
         if not schedule.get("time"):
             errors.append("schedule.time is required when frequency is 'weekly'")
+        else:
+            try:
+                parts = str(schedule["time"]).split(":")
+                if len(parts) != 2:
+                    raise ValueError
+                int(parts[0]); int(parts[1])
+            except (ValueError, AttributeError):
+                errors.append(
+                    f"schedule.time must be HH:MM format, got: {schedule['time']!r}"
+                )
+    elif frequency == "monthly":
+        dom_raw = schedule.get("day_of_month")
+        if dom_raw is None:
+            errors.append(
+                "schedule.day_of_month is required when frequency is 'monthly'"
+            )
+        else:
+            try:
+                dom = int(dom_raw)
+                if not (1 <= dom <= 28):
+                    raise ValueError(f"value {dom} is outside the allowed range 1–28")
+            except (ValueError, TypeError):
+                errors.append(
+                    f"schedule.day_of_month must be an integer between 1 and 28, "
+                    f"got: {dom_raw!r}"
+                )
+        if not schedule.get("time"):
+            errors.append("schedule.time is required when frequency is 'monthly'")
         else:
             try:
                 parts = str(schedule["time"]).split(":")
@@ -286,6 +335,8 @@ def _dry_run(groups: list[dict]) -> int:
         freq      = schedule.get("frequency", "?")
         if freq == "weekly":
             sched_str = f"weekly / {schedule.get('day_of_week','?')} {schedule.get('time','?')}"
+        elif freq == "monthly":
+            sched_str = f"monthly / day {schedule.get('day_of_month','?')} {schedule.get('time','?')}"
         else:
             sched_str = freq
 

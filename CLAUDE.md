@@ -164,7 +164,7 @@ groups:
   - name: "Executive Team"
     description: "Weekly KPI summary for leadership"
     schedule:
-      frequency: weekly # Options: weekly | on_demand
+      frequency: weekly # Options: weekly | monthly | on_demand
       day_of_week: monday # monday–sunday (weekly only)
       time: "07:00" # 24hr, server local time
     filters:
@@ -241,12 +241,35 @@ groups:
         - requestor@company.com
       cc: []
       reply_to: security@company.com
+
+  - name: "Monthly Executive Summary"
+    description: "First of the month full executive package"
+    schedule:
+      frequency: monthly
+      day_of_month: 1       # integer 1–28 (use 28 max to avoid last-day-of-month issues in February)
+      time: "07:00"         # 24hr, server local time
+    filters:
+      tag_category: "Environment"
+      tag_value: "Production"
+    reports:
+      - executive_kpi
+      - trend_analysis
+      - patch_compliance
+    email:
+      subject: "Monthly Vulnerability Management Report — Production"
+      recipients:
+        - ciso@company.com
+      cc:
+        - security-team@company.com
+      reply_to: security@company.com
 ```
 
 ### YAML Schema Rules
 
-- `frequency` must be `weekly`, `monthly` or `on_demand`
-- `day_of_week` and `time` are required when `frequency: weekly` or `frequency: monthly`; ignored for `on_demand`
+- `frequency` must be `weekly`, `monthly`, or `on_demand`
+- `day_of_week` is required when `frequency: weekly`; must be one of `monday`–`sunday`; ignored otherwise
+- `day_of_month` is required when `frequency: monthly`; must be an integer between 1 and 28 (28 max to avoid last-day-of-month issues in February); ignored otherwise
+- `time` is required for `frequency: weekly` and `frequency: monthly`; format `HH:MM` (24-hour, server local time); ignored for `on_demand`
 - `filters` may be empty `{}` to run against all assets
 - `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`
 - `recipients` is a required list; `cc` may be empty
@@ -265,7 +288,7 @@ Build a flexible scheduler supporting three execution modes so teams can adopt w
 python scheduler.py --mode daemon
 ```
 
-- Reads `delivery_config.yaml` on startup and schedules all `weekly` groups via APScheduler `CronTrigger`
+- Reads `delivery_config.yaml` on startup and schedules all `weekly` and `monthly` groups via APScheduler `CronTrigger`
 - Hot-reloads `delivery_config.yaml` every 5 minutes — reschedules changed groups without restart
 - Logs all scheduled jobs and executions to `logs/scheduler.log`
 - Designed to run as a background process via `nohup` or a `systemd` service
@@ -277,7 +300,7 @@ python scheduler.py --mode daemon
 python scheduler.py --mode run-due
 ```
 
-- Reads `delivery_config.yaml` and executes only groups whose `day_of_week` + `time` matches the current time within a ±10-minute window
+- Reads `delivery_config.yaml` and executes only groups whose schedule (`day_of_week` + `time` for weekly; `day_of_month` + `time` for monthly) matches the current time within a ±10-minute window
 - Designed to be called by an external scheduler every 5–10 minutes
 - Example crontab:
   ```

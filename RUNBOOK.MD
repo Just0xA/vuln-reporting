@@ -217,7 +217,8 @@ Edit `delivery_config.yaml` to define who gets what reports and when:
 sudo -u vuln-reports nano /opt/vuln-reporting/delivery_config.yaml
 ```
 
-A minimal working example:
+Three schedule frequencies are supported: `weekly`, `monthly`, and `on_demand`.
+A minimal working example using `weekly`:
 
 ```yaml
 groups:
@@ -241,7 +242,7 @@ groups:
 ```
 
 See [Section 3](#section-3--day-to-day-operations) for detailed instructions on
-adding and modifying groups.
+adding and modifying groups, including how to set up a monthly report delivery.
 
 ---
 
@@ -445,6 +446,59 @@ Run `python run_all.py --dry-run` to validate before the next scheduled run.
 
 ---
 
+### How to set up a monthly report delivery
+
+Monthly groups run once per calendar month on a specific day number at a fixed
+time. Use the `frequency: monthly` + `day_of_month` schedule block:
+
+```yaml
+  - name: "Monthly Executive Summary"
+    description: "First of the month full executive package for leadership"
+    schedule:
+      frequency: monthly
+      day_of_month: 1       # integer 1–28 — see note below about the 28-day maximum
+      time: "07:00"         # 24-hour, server local time
+    filters:
+      tag_category: "Environment"
+      tag_value: "Production"
+    reports:
+      - executive_kpi
+      - trend_analysis
+      - patch_compliance
+    email:
+      subject: "Monthly Vulnerability Management Report — Production"
+      recipients:
+        - ciso@company.com
+      cc:
+        - security-team@company.com
+      reply_to: security@company.com
+```
+
+**Key fields:**
+
+| Field | Description |
+|-------|-------------|
+| `frequency: monthly` | Tells the scheduler to use the monthly trigger. |
+| `day_of_month` | The calendar day on which the group runs (integer, **1–28**). |
+| `time` | Wall-clock time in `HH:MM` 24-hour format (server local time). |
+
+> **Why is the maximum 28?**
+> February has either 28 or 29 days depending on leap year. Setting
+> `day_of_month: 29`, `30`, or `31` would silently skip February and any
+> shorter month. Using **28 as the maximum** guarantees the group fires every
+> month without exception.
+
+After adding the group, validate the configuration:
+
+```bash
+python run_all.py --dry-run
+```
+
+The dry-run summary table will display the monthly group as:
+`monthly / day 1 07:00`
+
+---
+
 ### How to change a report schedule
 
 Edit the `schedule` block for the relevant group:
@@ -576,7 +630,7 @@ The daemon automatically checks for changes to `delivery_config.yaml`
 
 1. All currently-scheduled group jobs are removed.
 2. The updated config is loaded.
-3. All weekly groups are rescheduled with the new settings.
+3. All weekly and monthly groups are rescheduled with the new settings.
 
 You do **not** need to restart the service after editing `delivery_config.yaml`.
 The only exception is if you change `config.py` (SLA values, paths) — those

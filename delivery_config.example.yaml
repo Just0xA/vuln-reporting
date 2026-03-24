@@ -1,0 +1,81 @@
+groups:
+  - name: "Executive Team"
+    description: "Weekly KPI summary for leadership"
+    schedule:
+      frequency: weekly # Options: weekly | monthly| on_demand
+      day_of_week: monday # monday–sunday; required if frequency is weekly or monthly
+      time: "07:00" # 24hr, server local time; required if frequency is weekly or monthly
+    filters:
+      tag_category: "Environment"
+      tag_value: "Production"
+    reports:
+      - executive_kpi
+      - trend_analysis
+    email:
+      subject: "Weekly Vulnerability Management Summary — Production"
+      recipients:
+        - ciso@company.com
+        - vp-it@company.com
+      cc:
+        - security-team@company.com
+      reply_to: security@company.com
+
+  - name: "Finance Remediation Team"
+    description: "Weekly SLA and patch status scoped to Finance assets"
+    schedule:
+      frequency: weekly
+      day_of_week: tuesday
+      time: "08:00"
+    filters:
+      tag_category: "Business Unit"
+      tag_value: "Finance"
+    reports:
+      - sla_remediation
+      - patch_compliance
+      - asset_risk
+    email:
+      subject: "Finance BU — Weekly Vulnerability Remediation Report"
+      recipients:
+        - finance-it-lead@company.com
+        - patching-team@company.com
+      cc: []
+      reply_to: security@company.com
+
+  - name: "Security Analysts — Full Detail"
+    description: "Weekly full-suite delivery for the security team, all assets"
+    schedule:
+      frequency: weekly
+      day_of_week: monday
+      time: "06:00"
+    filters: {} # Empty = all assets, no tag filter
+    reports:
+      - executive_kpi
+      - sla_remediation
+      - asset_risk
+      - patch_compliance
+      - trend_analysis
+      - plugin_cve
+    email:
+      subject: "Weekly Full Vulnerability Report Suite"
+      recipients:
+        - analyst1@company.com
+        - analyst2@company.com
+      cc: []
+      reply_to: security@company.com
+
+  - name: "Ad-Hoc Production Snapshot"
+    description: "On-demand only — triggered manually via CLI"
+    schedule:
+      frequency: on_demand
+    filters:
+      tag_category: "Environment"
+      tag_value: "Production"
+    reports:
+      - executive_kpi
+      - sla_remediation
+    email:
+      subject: "On-Demand Production Vulnerability Snapshot"
+      recipients:
+        - requestor@company.com
+      cc: []
+      reply_to: security@company.com

@@ -1,0 +1,182 @@
+# delivery_config.schema.yaml
+# JSON Schema (draft-07) expressed as YAML for delivery_config.yaml validation.
+# Compatible with VS Code YAML extension, pre-commit yaml-schema hooks, and CI validators.
+#
+# To enable schema validation in VS Code add this to .vscode/settings.json:
+#   "yaml.schemas": { "./delivery_config.schema.yaml": "delivery_config.yaml" }
+
+$schema: "http://json-schema.org/draft-07/schema#"
+title: "Vulnerability Management Reporting Suite — Delivery Configuration"
+description: "Defines recipient groups, schedules, tag filters, report selections, and email delivery settings."
+type: object
+required:
+  - groups
+additionalProperties: false
+
+properties:
+  groups:
+    type: array
+    description: "List of delivery groups. Each group runs independently."
+    minItems: 0
+    items:
+      $ref: "#/definitions/group"
+
+# ---------------------------------------------------------------------------
+definitions:
+# ---------------------------------------------------------------------------
+
+  group:
+    type: object
+    description: "A single delivery group — one schedule, one filter scope, one email thread."
+    required:
+      - name
+      - schedule
+      - reports
+      - email
+    additionalProperties: false
+    properties:
+
+      name:
+        type: string
+        description: "Unique human-readable group name. Used in logs, output folders, and the delivery audit log."
+        minLength: 1
+
+      description:
+        type: string
+        description: "Optional free-text description shown in dry-run output."
+
+      schedule:
+        $ref: "#/definitions/schedule"
+
+      filters:
+        $ref: "#/definitions/filters"
+
+      reports:
+        type: array
+        description: "Ordered list of report slugs to generate for this group."
+        minItems: 1
+        items:
+          type: string
+          enum:
+            - executive_kpi
+            - sla_remediation
+            - asset_risk
+            - patch_compliance
+            - trend_analysis
+            - plugin_cve
+
+      email:
+        $ref: "#/definitions/email"
+
+  # -------------------------------------------------------------------------
+  schedule:
+    type: object
+    description: "When and how often this group runs."
+    required:
+      - frequency
+    additionalProperties: false
+    properties:
+
+      frequency:
+        type: string
+        description: "Run cadence. 'weekly' fires every week on day_of_week+time. 'monthly' fires once per month on day_of_month+time. 'on_demand' only runs when triggered manually."
+        enum:
+          - weekly
+          - monthly
+          - on_demand
+
+      day_of_week:
+        type: string
+        description: "Required when frequency is 'weekly'. The day on which the group runs. Ignored for monthly and on_demand."
+        enum:
+          - monday
+          - tuesday
+          - wednesday
+          - thursday
+          - friday
+          - saturday
+          - sunday
+
+      day_of_month:
+        type: integer
+        description: "Required when frequency is 'monthly'. The calendar day on which the group runs. Maximum 28 to ensure compatibility with February."
+        minimum: 1
+        maximum: 28
+
+      time:
+        type: string
+        description: "Required when frequency is 'weekly' or 'monthly'. Wall-clock time in HH:MM format (24-hour, server local time). Ignored for on_demand."
+        pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+
+    # Conditional: day_of_week required for weekly; day_of_month + time required for monthly
+    if:
+      properties:
+        frequency:
+          const: weekly
+    then:
+      required:
+        - day_of_week
+        - time
+    else:
+      if:
+        properties:
+          frequency:
+            const: monthly
+      then:
+        required:
+          - day_of_month
+          - time
+
+  # -------------------------------------------------------------------------
+  filters:
+    type: object
+    description: "Tenable tag filter. Use an empty object {} to run against all assets."
+    additionalProperties: false
+    properties:
+      tag_category:
+        type: string
+        description: "Tenable tag category name (exact match, case-sensitive)."
+      tag_value:
+        type: string
+        description: "Tenable tag value within the category (exact match, case-sensitive)."
+    dependencies:
+      tag_category:
+        - tag_value
+      tag_value:
+        - tag_category
+
+  # -------------------------------------------------------------------------
+  email:
+    type: object
+    description: "Email delivery settings for this group."
+    required:
+      - subject
+      - recipients
+    additionalProperties: false
+    properties:
+
+      subject:
+        type: string
+        description: "Email subject line."
+        minLength: 1
+
+      recipients:
+        type: array
+        description: "Primary recipients. Must contain at least one address."
+        minItems: 1
+        items:
+          type: string
+          format: email
+
+      cc:
+        type: array
+        description: "CC recipients. May be empty."
+        items:
+          type: string
+          format: email
+        default: []
+
+      reply_to:
+        type: string
+        description: "Reply-to address shown in the email footer."
+        format: email
