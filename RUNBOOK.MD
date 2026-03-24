@@ -64,6 +64,7 @@ sudo dnf install -y gcc libffi-devel openssl-devel cairo-devel pango-devel
 ### Step 3 — Configure SELinux
 
 RHEL 9 runs SELinux in enforcing mode by default. The scheduler needs to:
+
 - Make outbound HTTPS connections to Tenable's cloud API
 - Make outbound SMTP connections (port 587 or 465)
 - Write files to `output/`, `logs/`, and `data/cache/`
@@ -110,7 +111,7 @@ Copy or clone the project to `/opt/vuln-reporting/`:
 
 ```bash
 # Option A — git clone (if you have a repository)
-sudo git clone https://your-repo-url/vuln-reporting.git /opt/vuln-reporting
+sudo git clone https://github.com/Just0xA/vuln-reporting.git /opt/vuln-reporting
 
 # Option B — copy from a local machine using scp
 scp -r /local/path/to/vuln-reporting user@server:/opt/
@@ -270,6 +271,7 @@ sudo -u vuln-reports bash -c "cd /opt/vuln-reporting && source .venv/bin/activat
 ```
 
 This will:
+
 1. Connect to Tenable and fetch vulnerability data
 2. Generate PDF, Excel, and chart files
 3. Save everything to `output/YYYY-MM-DD_HH-MM_<group-name>/`
@@ -288,6 +290,7 @@ sudo -u vuln-reports bash -c "cd /opt/vuln-reporting && source .venv/bin/activat
 ```
 
 Check your inbox (and spam folder). The email should contain:
+
 - A formatted HTML body with KPI tiles
 - PDF report(s) attached
 - Excel report(s) attached
@@ -348,13 +351,13 @@ Add this line (adjust the path if your project is not in `/opt/vuln-reporting/`)
 
 **What each part means:**
 
-| Part | Meaning |
-|------|---------|
-| `*/10 * * * *` | Run every 10 minutes, every hour, every day |
-| `cd /opt/vuln-reporting` | Switch to the project directory first |
-| `/opt/vuln-reporting/.venv/bin/python` | Use the virtual environment's Python |
-| `scheduler.py --mode run-due` | Check if any group is due and run it |
-| `>> .../logs/cron.log 2>&1` | Append all output (stdout and stderr) to the cron log |
+| Part                                   | Meaning                                               |
+| -------------------------------------- | ----------------------------------------------------- |
+| `*/10 * * * *`                         | Run every 10 minutes, every hour, every day           |
+| `cd /opt/vuln-reporting`               | Switch to the project directory first                 |
+| `/opt/vuln-reporting/.venv/bin/python` | Use the virtual environment's Python                  |
+| `scheduler.py --mode run-due`          | Check if any group is due and run it                  |
+| `>> .../logs/cron.log 2>&1`            | Append all output (stdout and stderr) to the cron log |
 
 ### Verify cron is working
 
@@ -365,11 +368,13 @@ tail -f /opt/vuln-reporting/logs/cron.log
 ```
 
 You should see entries like:
+
 ```
 2026-03-23 07:00:07 [INFO] — No groups are due at Sunday 07:00 — exiting.
 ```
 
 And when a group is actually due:
+
 ```
 2026-03-23 07:00:07 [INFO] — 1 group(s) due at Monday 07:00: ['Security Team']
 2026-03-23 07:01:34 [INFO] — Group 'Security Team' done in 87.2s (status=success)
@@ -384,17 +389,19 @@ And when a group is actually due:
 ### How to add a recipient to an existing group
 
 1. Open `delivery_config.yaml` in a text editor:
+
    ```bash
    nano /opt/vuln-reporting/delivery_config.yaml
    ```
 
 2. Find the group by its `name` field. Add the new address to the
    `recipients` list:
+
    ```yaml
    email:
      recipients:
        - existing@company.com
-       - newperson@company.com    # ← add this line
+       - newperson@company.com # ← add this line
    ```
 
 3. Save the file. The scheduler's hot-reload picks up the change within
@@ -420,26 +427,26 @@ Add a new entry to the `groups` list in `delivery_config.yaml`. Copy an
 existing group as a starting point and change the values:
 
 ```yaml
-  - name: "Finance Team — Weekly Report"
-    description: "SLA and patch status for Finance business unit"
-    schedule:
-      frequency: weekly
-      day_of_week: tuesday    # monday | tuesday | wednesday | thursday | friday | saturday | sunday
-      time: "08:00"           # 24-hour, server local time
-    filters:
-      tag_category: "Business Unit"   # must match exact Tenable tag category name
-      tag_value: "Finance"            # must match exact Tenable tag value
-    reports:
-      - sla_remediation         # choose from: executive_kpi, sla_remediation,
-      - patch_compliance        # asset_risk, patch_compliance, trend_analysis,
-      - asset_risk              # plugin_cve
-    email:
-      subject: "Finance BU — Weekly Vulnerability Report"
-      recipients:
-        - finance-it@company.com
-      cc:
-        - security@company.com
-      reply_to: security@company.com
+- name: "Finance Team — Weekly Report"
+  description: "SLA and patch status for Finance business unit"
+  schedule:
+    frequency: weekly
+    day_of_week: tuesday # monday | tuesday | wednesday | thursday | friday | saturday | sunday
+    time: "08:00" # 24-hour, server local time
+  filters:
+    tag_category: "Business Unit" # must match exact Tenable tag category name
+    tag_value: "Finance" # must match exact Tenable tag value
+  reports:
+    - sla_remediation # choose from: executive_kpi, sla_remediation,
+    - patch_compliance # asset_risk, patch_compliance, trend_analysis,
+    - asset_risk # plugin_cve
+  email:
+    subject: "Finance BU — Weekly Vulnerability Report"
+    recipients:
+      - finance-it@company.com
+    cc:
+      - security@company.com
+    reply_to: security@company.com
 ```
 
 Run `python run_all.py --dry-run` to validate before the next scheduled run.
@@ -452,35 +459,35 @@ Monthly groups run once per calendar month on a specific day number at a fixed
 time. Use the `frequency: monthly` + `day_of_month` schedule block:
 
 ```yaml
-  - name: "Monthly Executive Summary"
-    description: "First of the month full executive package for leadership"
-    schedule:
-      frequency: monthly
-      day_of_month: 1       # integer 1–28 — see note below about the 28-day maximum
-      time: "07:00"         # 24-hour, server local time
-    filters:
-      tag_category: "Environment"
-      tag_value: "Production"
-    reports:
-      - executive_kpi
-      - trend_analysis
-      - patch_compliance
-    email:
-      subject: "Monthly Vulnerability Management Report — Production"
-      recipients:
-        - ciso@company.com
-      cc:
-        - security-team@company.com
-      reply_to: security@company.com
+- name: "Monthly Executive Summary"
+  description: "First of the month full executive package for leadership"
+  schedule:
+    frequency: monthly
+    day_of_month: 1 # integer 1–28 — see note below about the 28-day maximum
+    time: "07:00" # 24-hour, server local time
+  filters:
+    tag_category: "Environment"
+    tag_value: "Production"
+  reports:
+    - executive_kpi
+    - trend_analysis
+    - patch_compliance
+  email:
+    subject: "Monthly Vulnerability Management Report — Production"
+    recipients:
+      - ciso@company.com
+    cc:
+      - security-team@company.com
+    reply_to: security@company.com
 ```
 
 **Key fields:**
 
-| Field | Description |
-|-------|-------------|
-| `frequency: monthly` | Tells the scheduler to use the monthly trigger. |
-| `day_of_month` | The calendar day on which the group runs (integer, **1–28**). |
-| `time` | Wall-clock time in `HH:MM` 24-hour format (server local time). |
+| Field                | Description                                                    |
+| -------------------- | -------------------------------------------------------------- |
+| `frequency: monthly` | Tells the scheduler to use the monthly trigger.                |
+| `day_of_month`       | The calendar day on which the group runs (integer, **1–28**).  |
+| `time`               | Wall-clock time in `HH:MM` 24-hour format (server local time). |
 
 > **Why is the maximum 28?**
 > February has either 28 or 29 days depending on leap year. Setting
@@ -506,8 +513,8 @@ Edit the `schedule` block for the relevant group:
 ```yaml
 schedule:
   frequency: weekly
-  day_of_week: wednesday    # changed from monday
-  time: "09:30"             # changed from 07:00
+  day_of_week: wednesday # changed from monday
+  time: "09:30" # changed from 07:00
 ```
 
 The scheduler picks up the change within 5 minutes (hot-reload).
@@ -688,12 +695,14 @@ when starting the service or running reports.
 **Check these things:**
 
 1. Confirm `TVM_ACCESS_KEY` and `TVM_SECRET_KEY` are correct in `.env`:
+
    ```bash
    # Print the variable names present (never prints values)
    grep -E "^TVM_" /opt/vuln-reporting/.env | cut -d= -f1
    ```
 
 2. Test the connection manually:
+
    ```bash
    cd /opt/vuln-reporting && source .venv/bin/activate
    python tenable_client.py
@@ -715,12 +724,15 @@ shows `status: failed` with an SMTP error message.
 **Check these things:**
 
 1. Verify SMTP credentials:
+
    ```bash
    python run_all.py --group "Your Group" --no-email
    ```
+
    If this succeeds, the problem is SMTP-specific.
 
 2. Check the delivery log for the error message:
+
    ```bash
    python delivery/delivery_log.py --failures
    ```
@@ -736,9 +748,11 @@ shows `status: failed` with an SMTP error message.
 ### Report generated but email not received
 
 1. Check the delivery log to confirm delivery was attempted and succeeded:
+
    ```bash
    python delivery/delivery_log.py --recent 5
    ```
+
    If `status` shows `success`, the email was accepted by the SMTP server.
 
 2. Ask the recipient to check their spam/junk folder.
@@ -779,10 +793,12 @@ sudo systemctl restart vuln-reports
 **Check these things:**
 
 1. Confirm the server's local time and timezone:
+
    ```bash
    timedatectl
    date
    ```
+
    The scheduler uses server local time. If the server is in UTC but your
    `delivery_config.yaml` uses local business hours, the jobs will fire at
    the wrong wall-clock time.
@@ -791,11 +807,13 @@ sudo systemctl restart vuln-reports
    local time.
 
 3. Check the scheduler logs for the job being scheduled:
+
    ```bash
    sudo journalctl -u vuln-reports | grep "Scheduled:"
    ```
 
 4. Verify the service is running:
+
    ```bash
    sudo systemctl status vuln-reports
    ```
@@ -826,16 +844,19 @@ filter the `vpr_score` column for blank cells.
 permissions.
 
 1. Check the SELinux audit log for denials:
+
    ```bash
    sudo ausearch -m avc -ts recent
    ```
 
 2. If you see denials related to `python3.11` making network connections:
+
    ```bash
    sudo setsebool -P httpd_can_network_connect on
    ```
 
 3. If you see denials for file writes to `output/` or `logs/`:
+
    ```bash
    sudo restorecon -Rv /opt/vuln-reporting/
    ```
@@ -888,11 +909,13 @@ concurrent reads well, but concurrent writes can briefly contend.
 **Resolution:**
 
 1. Check if there are any stuck Python processes:
+
    ```bash
    ps aux | grep python
    ```
 
 2. If you see orphaned processes from a previous failed run, kill them:
+
    ```bash
    sudo kill <PID>
    ```
@@ -913,38 +936,38 @@ concurrent reads well, but concurrent writes can briefly contend.
 
 ### Project structure
 
-| File / Directory | Description | Safe to edit? |
-|-----------------|-------------|---------------|
-| `.env` | Credentials and overrides (never commit) | Yes — add/change values |
-| `.env.example` | Template for onboarding new deployments | No |
-| `config.py` | SLA windows, severity colours, shared constants | SLA values only |
-| `tenable_client.py` | Authenticated Tenable API client factory | No |
-| `delivery_config.yaml` | Recipient groups, schedules, report selections | **Yes — primary ops file** |
-| `delivery_config.schema.yaml` | JSON Schema for YAML validation in editors/CI | No |
-| `scheduler.py` | Three-mode scheduler (daemon / run-due / manual) | No |
-| `run_all.py` | Master report runner; defines `run_group()` | No |
-| `data/fetchers.py` | All Tenable API fetch functions with parquet caching | No |
-| `utils/sla_calculator.py` | SLA status calculations applied to all reports | No |
-| `utils/tag_helper.py` | Tag discovery and asset filtering helpers | No |
-| `utils/formatters.py` | Formatting utilities (dates, labels, file names) | No |
-| `exporters/chart_exporter.py` | Matplotlib and Plotly chart generation | No |
-| `exporters/excel_exporter.py` | Excel file builder (openpyxl) | No |
-| `exporters/pdf_exporter.py` | PDF builder (WeasyPrint HTML→PDF) | No |
-| `reports/executive_kpi.py` | Executive KPI Dashboard report | No |
-| `reports/sla_remediation.py` | SLA & Remediation Tracking report | No |
-| `reports/asset_risk.py` | Asset Risk Scoring report | No |
-| `reports/patch_compliance.py` | Patch Compliance & Vulnerability Age report | No |
-| `reports/trend_analysis.py` | Trend Analysis over time report | No |
-| `reports/plugin_cve.py` | Plugin / CVE Breakdown report | No |
-| `delivery/email_sender.py` | SMTP delivery with attachments and inline charts | No |
-| `delivery/email_template.py` | Jinja2 email body renderer | No |
-| `delivery/delivery_log.py` | SQLite delivery audit log + CLI inspector | No |
-| `templates/report_email.html` | Jinja2 HTML email template | No (design changes require developer) |
-| `deploy/vuln-reports.service` | systemd unit file | Yes — update paths/account name |
-| `requirements.txt` | Pinned Python dependency versions | No |
-| `logs/` | Application logs, scheduler logs, delivery_log.db | Do not delete manually |
-| `output/` | Generated reports (timestamped sub-folders per run) | Safe to archive/delete old folders |
-| `data/cache/` | Parquet cache files (reused within the same run date) | Safe to delete — will be rebuilt |
+| File / Directory              | Description                                           | Safe to edit?                         |
+| ----------------------------- | ----------------------------------------------------- | ------------------------------------- |
+| `.env`                        | Credentials and overrides (never commit)              | Yes — add/change values               |
+| `.env.example`                | Template for onboarding new deployments               | No                                    |
+| `config.py`                   | SLA windows, severity colours, shared constants       | SLA values only                       |
+| `tenable_client.py`           | Authenticated Tenable API client factory              | No                                    |
+| `delivery_config.yaml`        | Recipient groups, schedules, report selections        | **Yes — primary ops file**            |
+| `delivery_config.schema.yaml` | JSON Schema for YAML validation in editors/CI         | No                                    |
+| `scheduler.py`                | Three-mode scheduler (daemon / run-due / manual)      | No                                    |
+| `run_all.py`                  | Master report runner; defines `run_group()`           | No                                    |
+| `data/fetchers.py`            | All Tenable API fetch functions with parquet caching  | No                                    |
+| `utils/sla_calculator.py`     | SLA status calculations applied to all reports        | No                                    |
+| `utils/tag_helper.py`         | Tag discovery and asset filtering helpers             | No                                    |
+| `utils/formatters.py`         | Formatting utilities (dates, labels, file names)      | No                                    |
+| `exporters/chart_exporter.py` | Matplotlib and Plotly chart generation                | No                                    |
+| `exporters/excel_exporter.py` | Excel file builder (openpyxl)                         | No                                    |
+| `exporters/pdf_exporter.py`   | PDF builder (WeasyPrint HTML→PDF)                     | No                                    |
+| `reports/executive_kpi.py`    | Executive KPI Dashboard report                        | No                                    |
+| `reports/sla_remediation.py`  | SLA & Remediation Tracking report                     | No                                    |
+| `reports/asset_risk.py`       | Asset Risk Scoring report                             | No                                    |
+| `reports/patch_compliance.py` | Patch Compliance & Vulnerability Age report           | No                                    |
+| `reports/trend_analysis.py`   | Trend Analysis over time report                       | No                                    |
+| `reports/plugin_cve.py`       | Plugin / CVE Breakdown report                         | No                                    |
+| `delivery/email_sender.py`    | SMTP delivery with attachments and inline charts      | No                                    |
+| `delivery/email_template.py`  | Jinja2 email body renderer                            | No                                    |
+| `delivery/delivery_log.py`    | SQLite delivery audit log + CLI inspector             | No                                    |
+| `templates/report_email.html` | Jinja2 HTML email template                            | No (design changes require developer) |
+| `deploy/vuln-reports.service` | systemd unit file                                     | Yes — update paths/account name       |
+| `requirements.txt`            | Pinned Python dependency versions                     | No                                    |
+| `logs/`                       | Application logs, scheduler logs, delivery_log.db     | Do not delete manually                |
+| `output/`                     | Generated reports (timestamped sub-folders per run)   | Safe to archive/delete old folders    |
+| `data/cache/`                 | Parquet cache files (reused within the same run date) | Safe to delete — will be rebuilt      |
 
 ---
 
@@ -976,11 +999,11 @@ output/
 
 **Suggested retention policy:**
 
-| Folder age | Action |
-|-----------|--------|
-| < 90 days | Keep in place |
+| Folder age  | Action                                          |
+| ----------- | ----------------------------------------------- |
+| < 90 days   | Keep in place                                   |
 | 90–180 days | Archive to cold storage (zip + move off server) |
-| > 180 days | Delete |
+| > 180 days  | Delete                                          |
 
 Automate cleanup with a weekly cron job:
 
@@ -996,38 +1019,45 @@ Before escalating to the development team or opening a support ticket,
 collect the following information:
 
 **1. Python version**
+
 ```bash
 /opt/vuln-reporting/.venv/bin/python --version
 ```
 
 **2. The error message**
+
 ```bash
 sudo journalctl -u vuln-reports --since "1 hour ago" | grep -E "ERROR|CRITICAL|Exception|Traceback"
 ```
 
 **3. The delivery log entry for the failed run**
+
 ```bash
 cd /opt/vuln-reporting && source .venv/bin/activate
 python delivery/delivery_log.py --failures
 ```
+
 Copy the relevant row (group name, timestamp, error message).
 
 **4. Which group failed**
 Exact name as it appears in `delivery_config.yaml`.
 
 **5. Which `.env` variable names are present** (never include values)
+
 ```bash
 grep -E "^[A-Z_]+=." /opt/vuln-reporting/.env | cut -d= -f1
 ```
 
 **6. Whether the issue is reproducible manually**
+
 ```bash
 python run_all.py --group "Failing Group Name" --no-email
 ```
+
 Note whether this succeeds or fails, and the full output.
 
 ---
 
-*This document covers the operational aspects of the Vulnerability Management
-Reporting Suite.  For architecture details, API integration notes, and
-development guidelines, see `CLAUDE.md` in the project root.*
+_This document covers the operational aspects of the Vulnerability Management
+Reporting Suite. For architecture details, API integration notes, and
+development guidelines, see `CLAUDE.md` in the project root._
