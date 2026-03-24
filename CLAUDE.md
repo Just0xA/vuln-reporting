@@ -245,8 +245,8 @@ groups:
 
 ### YAML Schema Rules
 
-- `frequency` must be `weekly` or `on_demand`
-- `day_of_week` and `time` are required when `frequency: weekly`; ignored for `on_demand`
+- `frequency` must be `weekly`, `monthly` or `on_demand`
+- `day_of_week` and `time` are required when `frequency: weekly` or `frequency: monthly`; ignored for `on_demand`
 - `filters` may be empty `{}` to run against all assets
 - `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`
 - `recipients` is a required list; `cc` may be empty

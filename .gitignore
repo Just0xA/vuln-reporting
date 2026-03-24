@@ -10,6 +10,7 @@ output/
 logs/
 data/cache/
 *.parquet
+delivery_config.yaml
 
 # =============================================================================
 # Python
