@@ -18,7 +18,8 @@ import sys
 
 from dotenv import load_dotenv
 from tenable.io import TenableIO
-from tenable.errors import APIError, AuthenticationError
+from tenable.errors import APIError
+from restfly.errors import UnauthorizedError as AuthenticationError
 
 from config import LOG_LEVEL, LOG_DIR
 
