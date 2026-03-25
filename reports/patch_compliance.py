@@ -117,7 +117,7 @@ _AGE_BUCKET_TIERS: dict[str, str] = {
 
 def _fetch_and_prepare(
     tio,
-    run_id: str,
+    cache_dir: Path,
     tag_category: Optional[str],
     tag_value: Optional[str],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -130,13 +130,13 @@ def _fetch_and_prepare(
     raw_assets_df is kept separately for per-tag-group compliance calculations
     that require the full tag string for each asset.
     """
-    logger.info("[%s] Fetching vulnerability data (run_id=%s)…", REPORT_NAME, run_id)
+    logger.info("[%s] Fetching vulnerability data…", REPORT_NAME)
     vulns_df = fetch_vulnerabilities(
-        tio, run_id, tag_category=tag_category, tag_value=tag_value
+        tio, cache_dir, tag_category=tag_category, tag_value=tag_value
     )
 
     logger.info("[%s] Fetching asset data…", REPORT_NAME)
-    assets_df = fetch_assets(tio, run_id)
+    assets_df = fetch_assets(tio, cache_dir)
 
     if vulns_df.empty:
         logger.warning("[%s] No vulnerabilities returned.", REPORT_NAME)
@@ -730,6 +730,7 @@ def run_report(
     tag_value: Optional[str] = None,
     output_dir: Optional[Path] = None,
     generated_at: Optional[datetime] = None,
+    cache_dir: Optional[Path] = None,
 ) -> dict:
     """
     Run the Patch Compliance & Vulnerability Age report end-to-end.
@@ -739,13 +740,16 @@ def run_report(
     tio : TenableIO
         Authenticated Tenable client.
     run_id : str
-        Cache key — share this value across all reports in one group execution.
+        Used for naming the default output directory.
     tag_category, tag_value : str, optional
         Tag filter for asset scoping.
     output_dir : Path, optional
         Directory for all output files.  Defaults to OUTPUT_DIR/<run_id>/<slug>/.
     generated_at : datetime, optional
         Override the report timestamp (defaults to UTC now).
+    cache_dir : Path, optional
+        Run-scoped parquet cache directory.  Pass the same path to all reports
+        in one group execution so they share cached API data.
 
     Returns
     -------
@@ -754,6 +758,12 @@ def run_report(
     """
     if generated_at is None:
         generated_at = datetime.now(tz=timezone.utc)
+    if cache_dir is None:
+        from config import CACHE_DIR  # noqa: PLC0415
+        cache_dir = CACHE_DIR / generated_at.strftime("%Y-%m-%d_%H-%M")
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
     if output_dir is None:
         output_dir = OUTPUT_DIR / safe_filename(run_id) / REPORT_SLUG
     output_dir = Path(output_dir)
@@ -762,10 +772,13 @@ def run_report(
     charts_dir = output_dir / "charts"
     scope_str  = f"{tag_category} = {tag_value}" if tag_category and tag_value else "All Assets"
 
-    logger.info("=== %s | scope=%s | run_id=%s ===", REPORT_NAME, scope_str, run_id)
+    logger.info(
+        "=== %s | scope=%s | run_id=%s | cache=%s ===",
+        REPORT_NAME, scope_str, run_id, cache_dir,
+    )
 
     # Phase 1: data
-    df, assets_df = _fetch_and_prepare(tio, run_id, tag_category, tag_value)
+    df, assets_df = _fetch_and_prepare(tio, cache_dir, tag_category, tag_value)
 
     # Phase 2: metrics
     metrics = _compute_metrics(df, assets_df, tag_category)
@@ -816,18 +829,21 @@ Examples:
     parser.add_argument("--output-dir",   default=None, metavar="DIR",
                         help="Output directory (default: output/<run-id>/patch_compliance/)")
     parser.add_argument("--run-id",       default=None, metavar="ID",
-                        help="Cache key / run identifier (default: today YYYY-MM-DD)")
+                        help="Run identifier used for output directory naming (default: today YYYY-MM-DD)")
+    parser.add_argument("--cache-dir",    default=None, metavar="DIR",
+                        help="Parquet cache directory (default: data/cache/<today>/)")
     parser.add_argument("--no-cache",     action="store_true",
                         help="Purge existing parquet cache before fetching")
 
     args = parser.parse_args()
 
-    run_id = args.run_id or datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
-    out    = Path(args.output_dir) if args.output_dir else None
+    run_id    = args.run_id or datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    out       = Path(args.output_dir) if args.output_dir else None
+    from config import CACHE_DIR
+    cache_dir = Path(args.cache_dir) if args.cache_dir else CACHE_DIR / run_id
 
     if args.no_cache:
-        from config import CACHE_DIR
-        for f in CACHE_DIR.glob(f"{run_id}_vulns_*.parquet"):
+        for f in cache_dir.glob("vulns_*.parquet"):
             f.unlink()
             logger.info("Purged cache: %s", f)
 
@@ -840,6 +856,7 @@ Examples:
         tag_category=args.tag_category,
         tag_value=args.tag_value,
         output_dir=out,
+        cache_dir=cache_dir,
     )
 
     print(f"\nReport complete:")

@@ -34,6 +34,24 @@ from tenacity import (
 
 from config import CACHE_DIR, SEVERITY_LEVEL_MAP, vpr_to_severity
 
+# ---------------------------------------------------------------------------
+# Type-coercion helper
+# ---------------------------------------------------------------------------
+
+def _first_str(val) -> str:
+    """
+    Return a plain string regardless of whether the Tenable API returned a
+    single string, a list of strings, or None / falsy.
+
+    The vulnerability export wraps some asset fields (e.g. operating_system)
+    in a list on certain asset types while returning a bare string on others.
+    Passing the raw value directly to pandas produces an object-dtype column
+    with mixed list / str values that pyarrow refuses to serialise.
+    """
+    if isinstance(val, list):
+        return str(val[0]) if val else ""
+    return str(val) if val else ""
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -59,15 +77,15 @@ _retry_policy = dict(
 # Internal helpers
 # ===========================================================================
 
-def _cache_path(run_id: str, dataset: str) -> Path:
-    """Return the parquet cache path for a given run and dataset name."""
-    return CACHE_DIR / f"{run_id}_{dataset}.parquet"
+def _cache_path(cache_dir: Path, dataset: str) -> Path:
+    """Return the parquet cache path for a given cache directory and dataset name."""
+    return cache_dir / f"{dataset}.parquet"
 
 
 def _load_cache(path: Path) -> Optional[pd.DataFrame]:
     """Return cached DataFrame if the file exists, else None."""
     if path.exists():
-        logger.info("Loading cached data from %s", path)
+        logger.info("[CACHE HIT] Loading %s from cache", path.name)
         return pd.read_parquet(path)
     return None
 
@@ -75,6 +93,7 @@ def _load_cache(path: Path) -> Optional[pd.DataFrame]:
 def _save_cache(df: pd.DataFrame, path: Path) -> None:
     """Persist DataFrame to parquet, logging any write errors non-fatally."""
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(path, index=False)
         logger.debug("Cached %d rows to %s", len(df), path)
     except Exception as exc:  # noqa: BLE001
@@ -88,7 +107,7 @@ def _save_cache(df: pd.DataFrame, path: Path) -> None:
 @retry(**_retry_policy)
 def fetch_vulnerabilities(
     tio,
-    run_id: str = "latest",
+    cache_dir: Path,
     *,
     tag_category: Optional[str] = None,
     tag_value: Optional[str] = None,
@@ -97,15 +116,16 @@ def fetch_vulnerabilities(
     Export all vulnerability findings via tio.exports.vulns().
 
     Optionally scoped to assets matching a specific tag category/value pair.
-    Results are cached per run_id so subsequent calls within the same run
+    Results are cached in cache_dir so subsequent calls within the same run
     return the cached DataFrame instantly.
 
     Parameters
     ----------
     tio : TenableIO
         Authenticated Tenable client.
-    run_id : str
-        Unique identifier for this run (used as the cache key prefix).
+    cache_dir : Path
+        Run-scoped directory for parquet cache files.  All reports in the
+        same group execution must pass the same path so they share the cache.
     tag_category : str, optional
         Tenable tag category to filter by (e.g. "Business Unit").
     tag_value : str, optional
@@ -129,13 +149,13 @@ def fetch_vulnerabilities(
         tag_category, tag_value
     """
     dataset = f"vulns_{tag_category or 'all'}_{tag_value or 'all'}"
-    cache = _cache_path(run_id, dataset)
+    cache = _cache_path(cache_dir, dataset)
     cached = _load_cache(cache)
     if cached is not None:
         return cached
 
     logger.info(
-        "Fetching vulnerabilities from Tenable (tag=%s:%s) …",
+        "[API FETCH] Fetching vulns from Tenable API (tag=%s:%s)",
         tag_category,
         tag_value,
     )
@@ -144,7 +164,7 @@ def fetch_vulnerabilities(
 
     # Build tag filter if both category and value are provided
     if tag_category and tag_value:
-        asset_ids = fetch_assets_by_tag(tio, run_id, tag_category=tag_category, tag_value=tag_value)
+        asset_ids = fetch_assets_by_tag(tio, cache_dir, tag_category=tag_category, tag_value=tag_value)
         if asset_ids.empty:
             logger.warning("No assets found for tag %s=%s; returning empty DataFrame.", tag_category, tag_value)
             return pd.DataFrame()
@@ -182,7 +202,7 @@ def fetch_vulnerabilities(
                 "asset_ipv4": asset.get("ipv4", ""),
                 "asset_fqdn": asset.get("fqdn", ""),
                 "asset_netbios": asset.get("netbios", ""),
-                "operating_system": asset.get("operating_system", ""),
+                "operating_system": _first_str(asset.get("operating_system")),
                 # Plugin / finding info
                 "plugin_id": plugin.get("id", ""),
                 "plugin_name": plugin.get("name", ""),
@@ -224,19 +244,19 @@ def fetch_vulnerabilities(
 @retry(**_retry_policy)
 def fetch_assets(
     tio,
-    run_id: str = "latest",
+    cache_dir: Path,
 ) -> pd.DataFrame:
     """
     Export all asset records via tio.exports.assets().
 
-    Results are cached per run_id.
+    Results are cached in cache_dir.
 
     Parameters
     ----------
     tio : TenableIO
         Authenticated Tenable client.
-    run_id : str
-        Unique identifier for this run.
+    cache_dir : Path
+        Run-scoped directory for parquet cache files.
 
     Returns
     -------
@@ -246,12 +266,12 @@ def fetch_assets(
         first_seen, last_seen, last_scan_time,
         tags (list serialized as JSON string), network_name
     """
-    cache = _cache_path(run_id, "assets")
+    cache = _cache_path(cache_dir, "assets")
     cached = _load_cache(cache)
     if cached is not None:
         return cached
 
-    logger.info("Fetching assets from Tenable …")
+    logger.info("[API FETCH] Fetching assets from Tenable API")
     rows: list[dict] = []
 
     with Progress(
@@ -299,30 +319,30 @@ def fetch_assets(
 
 
 @retry(**_retry_policy)
-def fetch_tags(tio, run_id: str = "latest") -> pd.DataFrame:
+def fetch_tags(tio, cache_dir: Path) -> pd.DataFrame:
     """
     Retrieve all tag categories and values via tio.tags.list().
 
-    Caches results per run_id.
+    Caches results in cache_dir.
 
     Parameters
     ----------
     tio : TenableIO
         Authenticated Tenable client.
-    run_id : str
-        Unique identifier for this run.
+    cache_dir : Path
+        Run-scoped directory for parquet cache files.
 
     Returns
     -------
     pd.DataFrame
         Columns: tag_uuid, category_name, value, description, asset_count
     """
-    cache = _cache_path(run_id, "tags")
+    cache = _cache_path(cache_dir, "tags")
     cached = _load_cache(cache)
     if cached is not None:
         return cached
 
-    logger.info("Fetching tag definitions from Tenable …")
+    logger.info("[API FETCH] Fetching tag definitions from Tenable API")
     rows: list[dict] = []
 
     for tag in tio.tags.list():
@@ -343,7 +363,7 @@ def fetch_tags(tio, run_id: str = "latest") -> pd.DataFrame:
 @retry(**_retry_policy)
 def fetch_assets_by_tag(
     tio,
-    run_id: str = "latest",
+    cache_dir: Path,
     *,
     tag_category: str,
     tag_value: str,
@@ -356,7 +376,8 @@ def fetch_assets_by_tag(
     Parameters
     ----------
     tio : TenableIO
-    run_id : str
+    cache_dir : Path
+        Run-scoped directory for parquet cache files.
     tag_category : str
     tag_value : str
 
@@ -366,15 +387,15 @@ def fetch_assets_by_tag(
         Columns: asset_id, hostname, ipv4
     """
     dataset = f"tagged_assets_{tag_category}_{tag_value}"
-    cache = _cache_path(run_id, dataset)
+    cache = _cache_path(cache_dir, dataset)
     cached = _load_cache(cache)
     if cached is not None:
         return cached
 
-    logger.info("Fetching assets tagged %s=%s …", tag_category, tag_value)
+    logger.info("[API FETCH] Fetching assets tagged %s=%s from Tenable API", tag_category, tag_value)
 
     # Find matching tag UUID
-    tags_df = fetch_tags(tio, run_id)
+    tags_df = fetch_tags(tio, cache_dir)
     match = tags_df[
         (tags_df["category_name"].str.lower() == tag_category.lower())
         & (tags_df["value"].str.lower() == tag_value.lower())
@@ -472,28 +493,36 @@ def enrich_vulns_with_assets(
 
 if __name__ == "__main__":
     import argparse
+    from datetime import datetime, timezone
     from tenable_client import get_client
 
     parser = argparse.ArgumentParser(description="Standalone data fetch test")
     parser.add_argument("--dataset", choices=["vulns", "assets", "tags"], default="tags")
     parser.add_argument("--tag-category", default=None)
     parser.add_argument("--tag-value", default=None)
-    parser.add_argument("--run-id", default="test")
+    parser.add_argument("--cache-dir", default=None,
+                        help="Cache directory path (default: data/cache/<today>)")
     args = parser.parse_args()
+
+    _cache_dir = (
+        Path(args.cache_dir)
+        if args.cache_dir
+        else CACHE_DIR / datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    )
 
     tio = get_client()
 
     if args.dataset == "vulns":
         df = fetch_vulnerabilities(
             tio,
-            args.run_id,
+            _cache_dir,
             tag_category=args.tag_category,
             tag_value=args.tag_value,
         )
     elif args.dataset == "assets":
-        df = fetch_assets(tio, args.run_id)
+        df = fetch_assets(tio, _cache_dir)
     else:
-        df = fetch_tags(tio, args.run_id)
+        df = fetch_tags(tio, _cache_dir)
 
     print(df.head(10).to_string())
     print(f"\nTotal rows: {len(df)}")

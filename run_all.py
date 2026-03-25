@@ -51,7 +51,7 @@ from rich.table import Table
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import LOG_DIR, LOG_LEVEL, OUTPUT_DIR, ROOT_DIR
+from config import CACHE_DIR, LOG_DIR, LOG_LEVEL, OUTPUT_DIR, ROOT_DIR
 from utils.formatters import report_timestamp, safe_filename
 
 logger = logging.getLogger(__name__)
@@ -404,6 +404,7 @@ def run_group(
     *,
     tio=None,
     run_id: Optional[str] = None,
+    cache_dir: Optional[Path] = None,
     base_output_dir: Optional[Path] = None,
     no_email: bool = False,
     recipient_override: Optional[list[str]] = None,
@@ -462,6 +463,10 @@ def run_group(
         generated_at = datetime.now(tz=timezone.utc)
     if run_id is None:
         run_id = generated_at.strftime("%Y-%m-%d")
+    if cache_dir is None:
+        cache_dir = CACHE_DIR / generated_at.strftime("%Y-%m-%d_%H-%M")
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
     if base_output_dir is None:
         base_output_dir = OUTPUT_DIR
 
@@ -525,6 +530,7 @@ def run_group(
                 tag_value=tag_value,
                 output_dir=report_output_dir,
                 generated_at=generated_at,
+                cache_dir=cache_dir,
             )
             report_outputs[slug]  = result
             reports_generated.append(slug)
@@ -759,9 +765,12 @@ Examples:
     if args.recipients:
         recipient_override = [r.strip() for r in args.recipients.split(",") if r.strip()]
 
-    # Shared run_id so all groups in this batch share the parquet cache
+    # Shared run_id and cache_dir so all groups in this batch share the parquet cache
     generated_at = datetime.now(tz=timezone.utc)
     run_id       = generated_at.strftime("%Y-%m-%d")
+    cache_dir    = CACHE_DIR / generated_at.strftime("%Y-%m-%d_%H-%M")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Run cache directory: %s", cache_dir)
 
     # ------------------------------------------------------------------
     # Execute each group (failures in one group never stop the others)
@@ -773,6 +782,7 @@ Examples:
             group,
             tio=tio,
             run_id=run_id,
+            cache_dir=cache_dir,
             no_email=args.no_email,
             recipient_override=recipient_override,
             tag_category_override=args.tag_category,
