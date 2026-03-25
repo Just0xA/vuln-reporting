@@ -162,13 +162,10 @@ def fetch_vulnerabilities(
 
     export_filters: dict = {"state": ["open", "reopened"]}
 
-    # Build tag filter if both category and value are provided
+    # Scope to tag if both category and value are provided.
+    # tio.exports.vulns() accepts tags as a list of (category, value) tuples.
     if tag_category and tag_value:
-        asset_ids = fetch_assets_by_tag(tio, cache_dir, tag_category=tag_category, tag_value=tag_value)
-        if asset_ids.empty:
-            logger.warning("No assets found for tag %s=%s; returning empty DataFrame.", tag_category, tag_value)
-            return pd.DataFrame()
-        export_filters["asset_id"] = asset_ids["asset_id"].tolist()
+        export_filters["tags"] = [(tag_category, tag_value)]
 
     rows: list[dict] = []
 
@@ -394,22 +391,10 @@ def fetch_assets_by_tag(
 
     logger.info("[API FETCH] Fetching assets tagged %s=%s from Tenable API", tag_category, tag_value)
 
-    # Find matching tag UUID
-    tags_df = fetch_tags(tio, cache_dir)
-    match = tags_df[
-        (tags_df["category_name"].str.lower() == tag_category.lower())
-        & (tags_df["value"].str.lower() == tag_value.lower())
-    ]
-
-    if match.empty:
-        logger.warning("Tag '%s=%s' not found in Tenable.", tag_category, tag_value)
-        return pd.DataFrame(columns=["asset_id", "hostname", "ipv4"])
-
-    tag_uuid = match.iloc[0]["tag_uuid"]
-
-    # Export assets filtered by this tag
+    # tio.exports.assets() accepts tags as a list of (category, value) tuples.
+    # No UUID lookup is required — the API resolves the tag internally.
     rows: list[dict] = []
-    for asset in tio.exports.assets(tag_uuids=[tag_uuid]):
+    for asset in tio.exports.assets(tags=[(tag_category, tag_value)]):
         ipv4_list = asset.get("ipv4s") or asset.get("ipv4", []) or []
         hostname_list = asset.get("hostnames") or asset.get("hostname", []) or []
         rows.append({
