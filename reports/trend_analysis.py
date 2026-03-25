@@ -130,13 +130,13 @@ def _build_month_windows(n_months: int, as_of: datetime) -> list[tuple]:
         period_end = (
             pd.Timestamp(anchor)
             .to_period("M")
-            .to_timestamp("M")          # last day of the month, midnight
+            .to_timestamp(how="E")      # last day of the month, midnight
             .tz_localize("UTC")
         )
         period_start = (
             pd.Timestamp(anchor)
             .to_period("M")
-            .to_timestamp("MS")         # first day of the month
+            .to_timestamp()             # first day of the month (default how='S')
             .tz_localize("UTC")
         )
         label = period_end.strftime("%b %Y")

@@ -321,7 +321,7 @@ def _compute_breach_trend(
         # Last moment of the month that was i months ago
         month_anchor = (as_of.replace(day=1) - pd.DateOffset(months=i))
         month_end = (
-            pd.Timestamp(month_anchor).to_period("M").to_timestamp("M")
+            pd.Timestamp(month_anchor).to_period("M").to_timestamp(how="E")
             .tz_localize("UTC")
         )
         label = month_end.strftime("%b %Y")
