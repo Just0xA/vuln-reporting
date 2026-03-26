@@ -1496,23 +1496,160 @@ def _build_email_summary(
 
 def run_report(
     tio,
-    cache_dir: Path,
-    output_dir: Path,
+    run_id: str,
     tag_category: Optional[str] = None,
     tag_value: Optional[str] = None,
-    as_of: Optional[datetime] = None,
-    no_email: bool = False,
+    output_dir: Optional[Path] = None,
+    generated_at: Optional[datetime] = None,
+    cache_dir: Optional[Path] = None,
 ) -> dict:
     """
-    Main entry point called by run_all.py.
+    Main entry point called by ``run_all.py`` and ``scheduler.py``.
+
+    Signature matches the convention used by all other report modules so
+    ``run_all.py`` can call it uniformly.
+
+    Parameters
+    ----------
+    tio : TenableIO
+        Authenticated Tenable client.
+    run_id : str
+        Date string (``YYYY-MM-DD``) used to name the default output directory
+        when *output_dir* is not provided.
+    tag_category, tag_value : str, optional
+        Tag filter for asset scoping.
+    output_dir : Path, optional
+        Where to write Excel and PDF files.  Created if it does not exist.
+        Defaults to ``OUTPUT_DIR / run_id / "ops_remediation"``.
+    generated_at : datetime, optional
+        Report timestamp.  Defaults to UTC now.
+    cache_dir : Path, optional
+        Parquet cache directory shared across the batch run.
+        Defaults to ``CACHE_DIR / run_id``.
 
     Returns
     -------
     dict
-        ``{"pdf": Path, "excel": Path, "charts": []}`` for run_all.py
-        compatibility.  Charts list is always empty for this report.
+        ``{"pdf": Path, "excel": Path, "charts": [], "metrics": dict}``
+        compatible with ``run_all.py`` / ``email_sender.py``.
     """
-    raise NotImplementedError("Step 5 — run_report() not yet implemented.")
+    if generated_at is None:
+        generated_at = datetime.now(tz=timezone.utc)
+    if cache_dir is None:
+        cache_dir = CACHE_DIR / (run_id or generated_at.strftime("%Y-%m-%d"))
+    if output_dir is None:
+        output_dir = OUTPUT_DIR / (run_id or generated_at.strftime("%Y-%m-%d")) / REPORT_SLUG
+    output_dir = Path(output_dir)
+    cache_dir  = Path(cache_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(
+        "[%s] Starting | filter=%s=%s | output=%s",
+        REPORT_NAME,
+        tag_category or "*",
+        tag_value    or "*",
+        output_dir,
+    )
+
+    # ------------------------------------------------------------------
+    # Step 1: Fetch and prepare data
+    # ------------------------------------------------------------------
+    vulns_df, assets_df = _fetch_and_prepare(
+        tio          = tio,
+        cache_dir    = cache_dir,
+        tag_category = tag_category,
+        tag_value    = tag_value,
+        as_of        = generated_at,
+    )
+
+    unscanned_df = _identify_unscanned_assets(assets_df, as_of=generated_at)
+
+    scanned_ids   = set(assets_df["asset_id"]) - set(unscanned_df["asset_id"])
+    vulns_scanned = vulns_df[vulns_df["asset_id"].isin(scanned_ids)]
+
+    plugin_df = _group_by_plugin(vulns_scanned)
+
+    summary = _compute_summary_metrics(
+        vulns_df     = vulns_scanned,
+        plugin_df    = plugin_df,
+        assets_df    = assets_df,
+        unscanned_df = unscanned_df,
+        tag_category = tag_category,
+        tag_value    = tag_value,
+        as_of        = generated_at,
+    )
+
+    # ------------------------------------------------------------------
+    # Step 2: Build Excel
+    # ------------------------------------------------------------------
+    slug_str   = safe_filename(f"{tag_category or 'all'}_{tag_value or 'assets'}")
+    excel_path = output_dir / f"ops_remediation_{slug_str}.xlsx"
+
+    overdue_df = vulns_scanned[
+        vulns_scanned["ops_sla_status"] == OPS_SLA_OVERDUE
+    ].sort_values(
+        ["severity", "days_open"],
+        ascending=[True, False],
+        na_position="last",
+        key=lambda s: s.map(SEVERITY_RANK) if s.name == "severity" else s,
+    )
+
+    _build_excel(
+        plugin_df    = plugin_df,
+        overdue_df   = overdue_df,
+        unscanned_df = unscanned_df,
+        summary      = summary,
+        output_path  = excel_path,
+        tag_category = tag_category,
+        tag_value    = tag_value,
+    )
+
+    # ------------------------------------------------------------------
+    # Step 3: Build PDF
+    # ------------------------------------------------------------------
+    pdf_path = output_dir / f"ops_remediation_{slug_str}.pdf"
+
+    urgent_df = vulns_scanned[
+        vulns_scanned["ops_sla_status"] == OPS_SLA_URGENT
+    ].sort_values(
+        ["severity", "days_remaining"],
+        ascending=[True, True],
+        na_position="last",
+        key=lambda s: s.map(SEVERITY_RANK) if s.name == "severity" else s,
+    )
+
+    _build_pdf(
+        plugin_df    = plugin_df,
+        overdue_df   = overdue_df,
+        urgent_df    = urgent_df,
+        unscanned_df = unscanned_df,
+        summary      = summary,
+        output_path  = pdf_path,
+        tag_category = tag_category,
+        tag_value    = tag_value,
+    )
+
+    # ------------------------------------------------------------------
+    # Step 4: Build email metrics
+    # ------------------------------------------------------------------
+    email_metrics = _build_email_summary(
+        summary      = summary,
+        tag_category = tag_category,
+        tag_value    = tag_value,
+    )
+
+    logger.info(
+        "[%s] Complete | excel=%s | pdf=%s",
+        REPORT_NAME, excel_path.name, pdf_path.name,
+    )
+
+    return {
+        "pdf":     pdf_path,
+        "excel":   excel_path,
+        "charts":  [],
+        "metrics": email_metrics,
+    }
 
 
 # ===========================================================================

@@ -67,6 +67,7 @@ _VALID_REPORTS: frozenset[str] = frozenset({
     "patch_compliance",
     "trend_analysis",
     "plugin_cve",
+    "ops_remediation",
 })
 
 _VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "monthly", "on_demand"})
@@ -89,6 +90,7 @@ _REPORT_MODULE_MAP: dict[str, str] = {
     "patch_compliance": "reports.patch_compliance",
     "trend_analysis":   "reports.trend_analysis",
     "plugin_cve":       "reports.plugin_cve",
+    "ops_remediation":  "reports.ops_remediation",
 }
 
 # Required .env variables checked during --dry-run
