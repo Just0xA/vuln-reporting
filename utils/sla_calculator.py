@@ -165,60 +165,45 @@ def apply_sla_to_df(
             df[col] = None
         return df
 
-    df = df.copy()
-
     # Coerce first_found to UTC-aware datetime if not already
     if not pd.api.types.is_datetime64_any_dtype(df["first_found"]):
-        df["first_found"] = pd.to_datetime(df["first_found"], utc=True, errors="coerce")
+        first_found = pd.to_datetime(df["first_found"], utc=True, errors="coerce")
     elif df["first_found"].dt.tz is None:
-        df["first_found"] = df["first_found"].dt.tz_localize("UTC")
+        first_found = df["first_found"].dt.tz_localize("UTC")
+    else:
+        first_found = df["first_found"]
 
-    df["remediated"] = df["state"].str.lower().isin(["fixed", "remediated"])
-
-    # Vectorized days_open
     as_of_ts = pd.Timestamp(as_of)
-    df["days_open"] = (as_of_ts - df["first_found"]).dt.days.fillna(-1).astype(int)
+    remediated = df["state"].str.lower().isin(["fixed", "remediated"])
+    days_open = (as_of_ts - first_found).dt.days.fillna(-1).astype(int)
+    sla_days = df["severity"].str.lower().map(SLA_DAYS)
+    days_remaining = sla_days - days_open
+    is_overdue = ~remediated & sla_days.notna() & (days_open > sla_days)
 
-    # SLA days lookup (using severity column)
-    df["sla_days"] = df["severity"].str.lower().map(SLA_DAYS)
-
-    # days_remaining: positive = time left, negative = overdue
-    df["days_remaining"] = df["sla_days"] - df["days_open"]
-
-    # is_overdue: not remediated AND days_open exceeds SLA AND SLA exists
-    df["is_overdue"] = (
-        ~df["remediated"]
-        & df["sla_days"].notna()
-        & (df["days_open"] > df["sla_days"])
+    df = df.assign(
+        first_found=first_found,
+        remediated=remediated,
+        days_open=days_open,
+        sla_days=sla_days,
+        days_remaining=days_remaining,
+        is_overdue=is_overdue,
     )
 
     # sla_status string label
+    import numpy as np
     conditions = [
         df["remediated"],
         df["severity"].str.lower() == "info",
         df["is_overdue"],
     ]
     choices = ["Remediated", "N/A", "Overdue"]
-    df["sla_status"] = pd.Series(
-        pd.Categorical(
-            pd.np.select(conditions, choices, default="Within SLA")
-            if hasattr(pd, "np")
-            else _np_select_fallback(df, conditions, choices),
-            categories=["Within SLA", "Overdue", "Remediated", "N/A"],
-        )
+    sla_status = pd.Categorical(
+        np.select(conditions, choices, default="Within SLA"),
+        categories=["Within SLA", "Overdue", "Remediated", "N/A"],
     )
+    df = df.assign(sla_status=pd.Series(sla_status, index=df.index))
 
     return df
-
-
-def _np_select_fallback(
-    df: pd.DataFrame,
-    conditions: list,
-    choices: list,
-) -> pd.Series:
-    """Fallback for np.select without importing numpy at module level."""
-    import numpy as np
-    return np.select(conditions, choices, default="Within SLA")
 
 
 # ===========================================================================

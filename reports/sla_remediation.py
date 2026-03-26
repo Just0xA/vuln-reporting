@@ -52,7 +52,12 @@ from config import (
     SEVERITY_ORDER,
     SLA_DAYS,
 )
-from data.fetchers import fetch_assets, fetch_vulnerabilities, enrich_vulns_with_assets
+from data.fetchers import (
+    enrich_vulns_with_assets,
+    fetch_all_assets,
+    fetch_all_vulnerabilities,
+    filter_by_tag,
+)
 from exporters.chart_exporter import line_chart, stacked_bar_chart
 from exporters.excel_exporter import export_to_excel
 from exporters.pdf_exporter import build_pdf
@@ -132,18 +137,22 @@ def _fetch_and_prepare(
     ``severity_native`` is never used as the primary severity source.
     """
     logger.info("[%s] Fetching vulnerability data…", REPORT_NAME)
-    vulns_df = fetch_vulnerabilities(
-        tio, cache_dir, tag_category=tag_category, tag_value=tag_value
-    )
+    vulns_df = fetch_all_vulnerabilities(tio, cache_dir)
 
     if vulns_df.empty:
         logger.warning("[%s] No vulnerabilities returned.", REPORT_NAME)
         return vulns_df
 
     logger.info("[%s] Fetching asset data…", REPORT_NAME)
-    assets_df = fetch_assets(tio, cache_dir)
+    assets_df = fetch_all_assets(tio, cache_dir)
 
     df = enrich_vulns_with_assets(vulns_df, assets_df)
+    df = filter_by_tag(df, tag_category, tag_value)
+
+    if df.empty:
+        logger.warning("[%s] No vulnerabilities match tag filter.", REPORT_NAME)
+        return df
+
     df = apply_sla_to_df(df)
 
     logger.info(

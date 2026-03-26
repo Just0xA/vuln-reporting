@@ -64,7 +64,12 @@ from config import (
     SEVERITY_LABELS,
     SEVERITY_ORDER,
 )
-from data.fetchers import enrich_vulns_with_assets, fetch_assets, fetch_vulnerabilities
+from data.fetchers import (
+    enrich_vulns_with_assets,
+    fetch_all_assets,
+    fetch_all_vulnerabilities,
+    filter_by_tag,
+)
 from exporters.chart_exporter import donut_chart, horizontal_bar_chart, save_matplotlib_figure
 from exporters.excel_exporter import export_to_excel
 from exporters.pdf_exporter import build_pdf
@@ -115,18 +120,24 @@ def _fetch_and_prepare(
     (enriched_vulns_df, raw_assets_df)
     """
     logger.info("[%s] Fetching vulnerability data…", REPORT_NAME)
-    vulns_df = fetch_vulnerabilities(
-        tio, cache_dir, tag_category=tag_category, tag_value=tag_value
-    )
+    vulns_df = fetch_all_vulnerabilities(tio, cache_dir)
 
     logger.info("[%s] Fetching asset data…", REPORT_NAME)
-    assets_df = fetch_assets(tio, cache_dir)
+    assets_df = fetch_all_assets(tio, cache_dir)
 
     if vulns_df.empty:
         logger.warning("[%s] No vulnerabilities returned.", REPORT_NAME)
+        assets_df = filter_by_tag(assets_df, tag_category, tag_value)
         return vulns_df, assets_df
 
     df = enrich_vulns_with_assets(vulns_df, assets_df)
+    df = filter_by_tag(df, tag_category, tag_value)
+    assets_df = filter_by_tag(assets_df, tag_category, tag_value)
+
+    if df.empty:
+        logger.warning("[%s] No vulnerabilities match tag filter.", REPORT_NAME)
+        return df, assets_df
+
     df = apply_sla_to_df(df)
 
     logger.info(

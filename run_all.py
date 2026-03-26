@@ -464,7 +464,7 @@ def run_group(
     if run_id is None:
         run_id = generated_at.strftime("%Y-%m-%d")
     if cache_dir is None:
-        cache_dir = CACHE_DIR / generated_at.strftime("%Y-%m-%d_%H-%M")
+        cache_dir = CACHE_DIR / generated_at.strftime("%Y-%m-%d")
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     if base_output_dir is None:
@@ -506,6 +506,42 @@ def run_group(
                 "email_status":      "not_attempted",
                 "error":             err_msg,
             }
+
+    # ------------------------------------------------------------------
+    # Structured group-start log (3c)
+    # ------------------------------------------------------------------
+    filter_str = (
+        f"{tag_category}={tag_value}"
+        if tag_category and tag_value
+        else "all assets"
+    )
+    logger.info(
+        "[INFO] Starting group: %s | Filter: %s | Cache: %s",
+        group_name, filter_str, cache_dir,
+    )
+
+    # ------------------------------------------------------------------
+    # Pre-fetch: warm the run-scoped parquet cache before any report runs.
+    # All reports in this group — and all other groups in the same
+    # run_all.py invocation that share cache_dir — will load from
+    # [CACHE HIT] instead of triggering their own Tenable export API call.
+    # A failure here is non-fatal: each report will fall back to fetching
+    # individually, which is the existing behaviour.
+    # ------------------------------------------------------------------
+    try:
+        from data.fetchers import (  # noqa: PLC0415
+            fetch_all_assets,
+            fetch_all_vulnerabilities,
+        )
+        logger.info("[%s] Pre-fetching: vulns_all + assets_all…", group_name)
+        fetch_all_vulnerabilities(tio, cache_dir)
+        fetch_all_assets(tio, cache_dir)
+        logger.info("[%s] Pre-fetch complete.", group_name)
+    except Exception as exc:
+        logger.warning(
+            "[%s] Pre-fetch failed (%s) — reports will attempt to fetch individually.",
+            group_name, exc,
+        )
 
     # ------------------------------------------------------------------
     # Run each configured report
@@ -768,7 +804,7 @@ Examples:
     # Shared run_id and cache_dir so all groups in this batch share the parquet cache
     generated_at = datetime.now(tz=timezone.utc)
     run_id       = generated_at.strftime("%Y-%m-%d")
-    cache_dir    = CACHE_DIR / generated_at.strftime("%Y-%m-%d_%H-%M")
+    cache_dir    = CACHE_DIR / generated_at.strftime("%Y-%m-%d")
     cache_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Run cache directory: %s", cache_dir)
 

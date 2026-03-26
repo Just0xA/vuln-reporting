@@ -81,24 +81,42 @@ def _html_escape(text: str) -> str:
     )
 
 
-def _df_to_html_table(df: pd.DataFrame, severity_col: Optional[str] = "severity") -> str:
+def _df_to_html_table(
+    df: pd.DataFrame,
+    severity_col: Optional[str] = "severity",
+    col_widths: Optional[dict] = None,
+) -> str:
     """
     Convert a DataFrame to a styled HTML table string.
 
     Applies severity-based background colors to the *severity_col* column
     and alternating row fills for readability.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+    severity_col : str, optional
+        Column name to apply severity-based background coloring.
+    col_widths : dict, optional
+        Mapping of column header name → CSS width string (e.g. ``{"Plugin Name": "26%"}``).
+        When provided the table is rendered with ``table-layout: fixed`` and each
+        ``<th>`` receives an explicit ``width`` style, preventing WeasyPrint from
+        sizing columns on content length.
     """
     col_style = (
-        f"font-family: Arial, sans-serif; font-size: 9pt; color: {_TEXT}; "
+        f"font-family: Arial, sans-serif; font-size: 8pt; color: {_TEXT}; "
         f"border: 1px solid {_BORDER}; padding: 4px 6px; "
-        "vertical-align: middle; white-space: nowrap;"
+        "vertical-align: top; word-wrap: break-word; overflow-wrap: break-word;"
     )
     header_style = (
-        f"font-family: Arial, sans-serif; font-size: 9pt; font-weight: bold; "
+        f"font-family: Arial, sans-serif; font-size: 8pt; font-weight: bold; "
         f"color: {_WHITE}; background-color: {_ACCENT}; "
         f"border: 1px solid {_BORDER}; padding: 5px 7px; text-align: left;"
     )
     alt_fill = _ACCENT_LIGHT
+
+    # table-layout: fixed is required for explicit column widths to be honoured
+    table_layout = "table-layout: fixed; " if col_widths else ""
 
     # Coerce datetimes to strings
     df = df.copy()
@@ -107,12 +125,15 @@ def _df_to_html_table(df: pd.DataFrame, severity_col: Optional[str] = "severity"
             df[col] = df[col].dt.strftime("%Y-%m-%d").fillna("")
 
     lines: list[str] = [
-        f'<table style="border-collapse: collapse; width: 100%; margin: 8px 0;">'
+        f'<table style="{table_layout}border-collapse: collapse; width: 100%; margin: 8px 0;">'
     ]
     # Header row
     lines.append("<thead><tr>")
     for col in df.columns:
-        lines.append(f'<th style="{header_style}">{_html_escape(col)}</th>')
+        width_style = ""
+        if col_widths and col in col_widths:
+            width_style = f" width: {col_widths[col]};"
+        lines.append(f'<th style="{header_style}{width_style}">{_html_escape(col)}</th>')
     lines.append("</tr></thead>")
 
     # Data rows
@@ -129,10 +150,10 @@ def _df_to_html_table(df: pd.DataFrame, severity_col: Optional[str] = "severity"
                 bg = _SEV_BG.get(sev_key, row_bg)
                 fg = _SEV_COLORS.get(sev_key, _TEXT)
                 cell_style = (
-                    f"font-family: Arial, sans-serif; font-size: 9pt; "
+                    f"font-family: Arial, sans-serif; font-size: 8pt; "
                     f"font-weight: bold; color: {fg}; background-color: {bg}; "
                     f"border: 1px solid {_BORDER}; padding: 4px 6px; "
-                    "vertical-align: middle; white-space: nowrap;"
+                    "vertical-align: top; word-wrap: break-word; overflow-wrap: break-word;"
                 )
             display_val = _html_escape("" if pd.isna(val) else val)
             lines.append(f'<td style="{cell_style}">{display_val}</td>')
@@ -332,6 +353,27 @@ def _build_html(
         color: {_ACCENT};
         margin: 14px 0 4px 0;
     }}
+    table {{
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+        font-size: 8pt;
+    }}
+    th, td {{
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        padding: 4px 6px;
+        vertical-align: top;
+        text-align: left;
+    }}
+    th {{
+        background-color: {_ACCENT};
+        color: {_WHITE};
+        font-weight: bold;
+    }}
+    tr:nth-child(even) {{
+        background-color: {_ACCENT_LIGHT};
+    }}
     """
 
     # ------------------------------------------------------------------
@@ -366,6 +408,7 @@ def _build_html(
         text            = section.get("text")
         chart_png_path  = section.get("chart_png_path")
         sev_col         = section.get("severity_col", "severity")
+        col_widths      = section.get("col_widths")
 
         parts: list[str] = [f'<div class="section">']
         if heading:
@@ -394,7 +437,7 @@ def _build_html(
                     f"Full data available in the Excel attachment.</em></p>"
                 )
                 df = df.head(max_rows_inline)
-            parts.append(_df_to_html_table(df, severity_col=sev_col))
+            parts.append(_df_to_html_table(df, severity_col=sev_col, col_widths=col_widths))
 
         parts.append("</div>")
         body_parts.append("\n".join(parts))

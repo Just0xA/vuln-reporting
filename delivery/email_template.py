@@ -86,6 +86,7 @@ _REPORT_DESCRIPTIONS: dict[str, str] = {
     "patch_compliance": "Patch compliance — vulnerability age buckets, oldest unpatched vulns, per-tag compliance",
     "trend_analysis":   "Trend analysis — monthly open vuln trend, MTTR trend, SLA compliance over time",
     "plugin_cve":       "Plugin / CVE breakdown — top plugins, top CVEs, exploitable vulns, CVSS distribution",
+    "ops_remediation":  "Operations remediation — plugin-grouped overdue findings, SLA state breakdown, unscanned assets",
 }
 
 
@@ -126,6 +127,11 @@ def build_kpi_metrics(
         """Return the metrics sub-dict for a slug, or empty dict."""
         output = report_outputs.get(slug, {})
         return output.get("metrics", {}) if isinstance(output, dict) else {}
+
+    # ops_remediation carries pre-built tiles — return them directly if present
+    ops_m = _metrics_from("ops_remediation")
+    if ops_m and "kpi_tiles" in ops_m:
+        return ops_m["kpi_tiles"]
 
     # Prefer executive_kpi metrics; fall back to sla_remediation for SLA fields
     exec_m = _metrics_from("executive_kpi")
