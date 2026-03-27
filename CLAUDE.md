@@ -130,7 +130,8 @@ vuln-reporting/
 │   ├── asset_risk.py
 │   ├── patch_compliance.py
 │   ├── trend_analysis.py
-│   └── plugin_cve.py
+│   ├── plugin_cve.py
+│   └── ops_remediation.py
 ├── exporters/
 │   ├── excel_exporter.py
 │   ├── pdf_exporter.py
@@ -271,7 +272,7 @@ groups:
 - `day_of_month` is required when `frequency: monthly`; must be an integer between 1 and 28 (28 max to avoid last-day-of-month issues in February); ignored otherwise
 - `time` is required for `frequency: weekly` and `frequency: monthly`; format `HH:MM` (24-hour, server local time); ignored for `on_demand`
 - `filters` may be empty `{}` to run against all assets
-- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`
+- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`
 - `recipients` is a required list; `cc` may be empty
 - Validate the YAML schema on startup and exit with a clear error if misconfigured
 - Build a `delivery_config.schema.yaml` (JSON Schema format) so the config can be validated by editors and CI
@@ -374,7 +375,7 @@ Build a Jinja2 HTML email template that is:
 - Structured with these sections in order:
   1. **Header band**: Report title + date generated
   2. **Scope banner**: Filter applied or "All Assets"
-  3. **KPI tiles** (4–5 metric boxes, table-based layout for email client compatibility): Total Criticals, % Within SLA, Overdue High+Critical, MTTR
+  3. **KPI tiles** (4–5 metric boxes, table-based layout for email client compatibility): Total Criticals, % Within SLA, Overdue High+Critical, MTTR. If `ops_remediation` is in the run, its pre-built `kpi_tiles` from `metrics` are used directly and take priority over the generic tile logic.
   4. **Inline charts**: `<img src="cid:chart_N">` placeholders — up to 3 charts
   5. **Attached reports list**: bullet list with report name + one-line description
   6. **SLA reference table**: 4-row table
@@ -536,6 +537,35 @@ Prints a `rich` summary table on completion: group name, reports generated, deli
 
 ---
 
+### 7. `reports/ops_remediation.py` — Operations Remediation
+
+**Audience:** Operations / Remediation Teams
+
+Operationally focused report that groups overdue findings by plugin to provide actionable remediation priorities, surfaces risk management posture (accepted/recast findings), and tracks recurring vulnerabilities.
+
+**Excel Tabs (7 total):**
+1. **Summary** — KPI snapshot: severity counts, overdue totals, SLA compliance %, exploitability breakdown (exploit available / functional exploit / high maturity), risk management counts (accepted, recast, expiring/expired rules, recurring findings)
+2. **Overdue by Plugin** — Plugins with overdue findings grouped and ranked; columns: Plugin ID, Plugin Name, CVE(s), Exploit Available, Exploit Code Maturity, Severity, VPR Score, Overdue Critical/High/Medium/Low, Total Overdue, Oldest Days Overdue, Affected Assets, SLA Days
+3. **Overdue Findings Detail** — Row-per-finding detail for all overdue vulns; columns: Asset, IP, Plugin ID, Plugin Name, Severity, VPR Score, Days Overdue, First Found, SLA Due Date, CVE(s), Exploit Available
+4. **Unscanned Assets** — Assets not seen in the scan window; columns: Asset Name, IP Address, Last Seen, Days Since Last Scan, Tags
+5. **Risk Acceptances & Recasts** — Active accepted/recast findings from the vuln export enriched with recast rules API; columns: Plugin ID, Plugin Name, Modification Type, Recast Reason, Original Severity, Current Severity, VPR Score, Date Opened, Expiration Date, Days Until Expiry, Affected Assets, Rule UUID
+6. **Recurring Vulnerabilities** — Findings where `resurfaced_date` is populated (closed then reopened); columns: Plugin ID, Plugin Name, Asset Name, IP Address, Original First Found, Date Closed, Date Reopened, Last Seen, Current State, Severity, VPR Score, Exploit Available, Exploit Maturity
+7. **Report Info** — Metadata: report parameters, run timestamp, tab reference guide, field availability notes
+
+**PDF:** Executive summary with KPI tiles, SLA compliance table, overdue breakdown by severity, top 10 overdue plugins table (page-break forced before Top 5 Priority Plugins table), risk management summary
+
+**Email KPI tiles (5):** Open Criticals, Overdue Critical+High, Critical+High Within SLA, Exploitable Overdue, Recurring Findings. Includes narrative sentences for elevated risk signals (recurring findings, expired/expiring rules, accepted/recast counts).
+
+**Key data sources:**
+- Primary: `tio.exports.vulns()` — `severity_modification_type` field (`"recasted"` / `"accepted"` / `"none"`) is the authoritative source for risk modifications
+- Enrichment: `POST /v1/recast/rules/search` — provides expiration dates, original severity, and `created_at` for risk modification rows; only present when a rule exists
+- `expires_at` is absent from the API response when no expiration has been set (treat as "Never")
+- VPR score for accepted findings (which may have NaN `vpr_score` in a scoped export) is sourced from `vulns_all.parquet` by plugin ID
+
+**Outputs:** Excel (7 tabs), PDF, no charts (chart list returned as `[]` in metrics dict)
+
+---
+
 ## Shared Utilities
 
 ### `utils/sla_calculator.py`
@@ -568,13 +598,19 @@ Plotly `.html` (interactive) + `.png` (static) for both attachment and inline us
 
 ## Data Fetching Guidelines (`data/fetchers.py`)
 
-- `tio.exports.vulns()` for bulk vulnerability data
+- `tio.exports.vulns()` for bulk vulnerability data — includes `severity_modification_type`, `recast_rule_uuid`, and `recast_reason` fields for risk management tracking
 - `tio.exports.assets()` for asset enrichment
 - `tio.tags.list()` for tag discovery
+- `POST /v1/recast/rules/search` (`fetch_recast_rules()`) — returns active recast/accept rules with filter trees, expiration dates, original severity, and `created_at`; used as optional enrichment by `ops_remediation`
 - Cache fetched data to local `.parquet` during each run to avoid redundant API calls across reports in the same group execution
+- Cache folders are named by **local machine date** (`YYYY-MM-DD`), not UTC. At the start of each `run_all.py` batch, cache folders from prior days are automatically deleted — only the current day's cache is retained.
 - `tenacity` exponential backoff for rate limiting
 - All fetch functions return a normalized `pd.DataFrame`
 - `rich` progress bars for all long-running fetches
+
+### Recast rules filter structure
+
+The recast rules API returns a `filter` field that can be an arbitrary AND/OR tree of conditions. Supported filter properties include: Plugin ID (`definition.id`), Asset ID, IPv4, IPv6, FQDN, Network, CVE, Plugin Output, Protocol, and Tags — in any combination. Use `_summarize_filter()` to convert the filter tree to a human-readable string. Plugin ID is only extractable when the filter is a flat `{"property": "definition.id", ...}` condition or a single-item `and/or` wrapping one.
 
 ---
 
@@ -582,7 +618,7 @@ Plotly `.html` (interactive) + `.png` (static) for both attachment and inline us
 
 - `if __name__ == "__main__":` with `argparse` on every script
 - Full docstrings and type hints throughout
-- Timezone-aware datetime handling (UTC)
+- Timezone-aware datetime handling: report timestamps use UTC; cache folder names use local machine timezone
 - `logging` module with rotating file handlers (`logs/app.log`)
 - No silent failures — log all errors; on multi-group runs, failures in one group must not stop others
 - `requirements.txt` with pinned versions
@@ -628,6 +664,7 @@ Plotly `.html` (interactive) + `.png` (static) for both attachment and inline us
 - [ ] `reports/patch_compliance.py`
 - [ ] `reports/trend_analysis.py`
 - [ ] `reports/plugin_cve.py`
+- [x] `reports/ops_remediation.py`
 - [ ] `delivery/email_sender.py`
 - [ ] `delivery/email_template.py`
 - [ ] `templates/report_email.html`

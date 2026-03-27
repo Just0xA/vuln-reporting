@@ -1,0 +1,13 @@
+{
+  "snapshots": [
+    {
+      "month": "2026-03",
+      "tag_filter": "Owner=Configuration Management",
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "generated_at": "2026-03-27T10:36:32Z"
+    }
+  ]
+}

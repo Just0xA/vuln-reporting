@@ -327,6 +327,115 @@ def fetch_all_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
 
 
 @retry(**_retry_policy)
+def fetch_fixed_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
+    """
+    Fetch ALL fixed/remediated vulnerability findings from Tenable.
+
+    Used by ``reports/management_summary.py`` to compute MTTR metrics.
+    The ``time_taken_to_fix`` field (seconds) is the primary MTTR source;
+    ``(last_fixed - first_found)`` is the fallback.
+
+    Caches to ``<cache_dir>/vulns_fixed.parquet``.  Informational findings
+    are excluded (no SLA; MTTR is meaningless for them).
+
+    Parameters
+    ----------
+    tio : TenableIO
+        Authenticated Tenable client.
+    cache_dir : Path
+        Run-scoped directory for parquet cache files.
+
+    Returns
+    -------
+    pd.DataFrame
+        Same column schema as ``fetch_all_vulnerabilities()`` but containing
+        only state=fixed findings.
+    """
+    cache = _cache_path(cache_dir, "vulns_fixed")
+    cached = _load_cache(cache)
+    if cached is not None:
+        return cached
+
+    logger.info("[API FETCH] Fetching fixed vulnerabilities from Tenable API")
+
+    export_filters: dict = {"state": ["fixed"]}
+    rows: list[dict] = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Streaming fixed vulnerability export…", total=None)
+
+        for vuln in tio.exports.vulns(**export_filters):
+            asset       = vuln.get("asset", {})
+            plugin      = vuln.get("plugin", {})
+            severity_id = vuln.get("severity_id", 0)
+
+            severity_native = SEVERITY_LEVEL_MAP.get(severity_id, "info")
+            vpr_data        = plugin.get("vpr") or {}
+            vpr_score       = vpr_data.get("score")
+            severity        = vpr_to_severity(vpr_score, fallback=severity_native)
+
+            if severity == "info":
+                progress.advance(task)
+                continue
+
+            vpr_v2          = plugin.get("vpr_v2") or {}
+            vpr_drivers     = vpr_data.get("drivers") or {}
+            exploit_maturity = (
+                vpr_v2.get("exploit_code_maturity")
+                or vpr_drivers.get("exploit_code_maturity")
+                or ""
+            )
+
+            os_raw = asset.get("operating_system", [])
+            if isinstance(os_raw, list):
+                operating_system = ", ".join(str(v) for v in os_raw if v)
+            else:
+                operating_system = str(os_raw) if os_raw else ""
+
+            rows.append({
+                "asset_uuid":      asset.get("uuid", ""),
+                "hostname":        asset.get("hostname", ""),
+                "ipv4":            asset.get("ipv4", ""),
+                "mac_address":     asset.get("mac_address", ""),
+                "operating_system": operating_system,
+                "plugin_id":       plugin.get("id", ""),
+                "plugin_name":     plugin.get("name", ""),
+                "plugin_family":   plugin.get("family", ""),
+                "vpr_score":       vpr_score,
+                "severity":        severity,
+                "severity_native": severity_native,
+                "severity_level":  severity_id,
+                "cve_list":        ", ".join(plugin.get("cve", []) or []),
+                "cvss_base_score": plugin.get("cvss_base_score"),
+                "cvss3_score":     plugin.get("cvss3_base_score"),
+                "exploit_available":     plugin.get("exploit_available", False),
+                "exploit_code_maturity": str(exploit_maturity).upper(),
+                "first_found":  vuln.get("first_found", ""),
+                "last_found":   vuln.get("last_found", ""),
+                "last_fixed":   vuln.get("last_fixed", ""),
+                "state":        vuln.get("state", ""),
+                "finding_id":   vuln.get("finding_id", ""),
+                "severity_modification_type": vuln.get("severity_modification_type", "NONE"),
+                "recast_rule_uuid":           vuln.get("recast_rule_uuid", ""),
+                "recast_reason":              vuln.get("recast_reason", ""),
+                "resurfaced_date":            vuln.get("resurfaced_date", ""),
+                "time_taken_to_fix":          vuln.get("time_taken_to_fix"),
+            })
+            progress.advance(task)
+
+    df = pd.DataFrame(rows)
+    df = _normalize_vuln_dates(df)
+    logger.info("Fetched %d fixed vulnerability records (Informational excluded).", len(df))
+    _save_cache(df, cache)
+    return df
+
+
+@retry(**_retry_policy)
 def fetch_all_assets(tio, cache_dir: Path) -> pd.DataFrame:
     """
     Fetch ALL asset records from Tenable.
