@@ -39,6 +39,96 @@ from config import CACHE_DIR, SEVERITY_LEVEL_MAP, vpr_to_severity
 # Type-coercion helper
 # ---------------------------------------------------------------------------
 
+def _extract_plugin_id_from_filter(filter_dict: dict) -> Optional[str]:
+    """
+    Recursively search a Tenable recast rule ``filter`` structure for the
+    ``definition.id`` condition that carries the plugin_id.
+
+    The filter can be nested arbitrarily (e.g. ``{and: [{or: [...]}, {property:
+    "definition.id", ...}]}``) so we recurse through every ``and`` / ``or``
+    level until we find the plugin id condition.
+
+    Returns the plugin_id as a string, or None if not found.
+    """
+    if not isinstance(filter_dict, dict):
+        return None
+    # Flat filter: {"property": "definition.id", "operator": "eq", "value": "123"}
+    if filter_dict.get("property") == "definition.id" and filter_dict.get("operator") == "eq":
+        return str(filter_dict.get("value", ""))
+    # Nested filter under "and" / "or" keys — recurse
+    for key in ("and", "or"):
+        for cond in (filter_dict.get(key) or []):
+            if not isinstance(cond, dict):
+                continue
+            if cond.get("property") == "definition.id" and cond.get("operator") == "eq":
+                return str(cond.get("value", ""))
+            result = _extract_plugin_id_from_filter(cond)
+            if result:
+                return result
+    return None
+
+
+# Human-readable property labels for filter conditions
+_FILTER_PROP_LABELS: dict[str, str] = {
+    "definition.id":   "Plugin ID",
+    "asset.ipv4":      "IPv4",
+    "asset.ipv6":      "IPv6",
+    "asset.fqdn":      "FQDN",
+    "asset.id":        "Asset ID",
+    "asset.tags":      "Tag",
+    "asset.network":   "Network",
+    "cve":             "CVE",
+    "plugin.output":   "Plugin Output",
+    "protocol":        "Protocol",
+}
+
+
+def _summarize_filter(filter_dict: dict, _depth: int = 0) -> str:
+    """
+    Convert a Tenable recast rule filter tree into a compact human-readable string.
+
+    Examples:
+        {"and": [{"property": "definition.id", "operator": "eq", "value": "57582"}]}
+        → "Plugin ID: 57582"
+
+        {"and": [{"property": "asset.ipv4", ...}, {"property": "definition.id", ...}]}
+        → "IPv4: 10.0.0.1 AND Plugin ID: 57582"
+
+    Truncates to 120 chars for display. Returns "No filter" for empty input.
+    """
+    if not isinstance(filter_dict, dict) or not filter_dict:
+        return "No filter"
+
+    # Flat leaf condition
+    if "property" in filter_dict and "operator" in filter_dict:
+        prop  = filter_dict.get("property", "")
+        op    = filter_dict.get("operator", "eq")
+        value = filter_dict.get("value", "")
+        label = _FILTER_PROP_LABELS.get(prop, prop)
+        op_str = "" if op == "eq" else f" ({op})"
+        return f"{label}{op_str}: {value}"
+
+    parts: list[str] = []
+    for junction in ("and", "or"):
+        conditions = filter_dict.get(junction) or []
+        if not conditions:
+            continue
+        sep = f" {junction.upper()} "
+        sub_parts = [
+            _summarize_filter(c, _depth + 1)
+            for c in conditions
+            if isinstance(c, dict)
+        ]
+        joined = sep.join(p for p in sub_parts if p and p != "No filter")
+        if joined:
+            parts.append(f"({joined})" if _depth > 0 and len(sub_parts) > 1 else joined)
+
+    result = " AND ".join(parts) if parts else "No filter"
+    if len(result) > 120:
+        result = result[:117] + "..."
+    return result
+
+
 def _first_str(val) -> str:
     """
     Return a plain string regardless of whether the Tenable API returned a
@@ -159,7 +249,8 @@ def fetch_all_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
             severity_id = vuln.get("severity_id", 0)
 
             severity_native = SEVERITY_LEVEL_MAP.get(severity_id, "info")
-            vpr_score       = (plugin.get("vpr") or {}).get("score")
+            vpr_data        = plugin.get("vpr") or {}
+            vpr_score       = vpr_data.get("score")
             severity        = vpr_to_severity(vpr_score, fallback=severity_native)
 
             # Exclude Informational — no SLA obligation; reduces export size.
@@ -167,39 +258,59 @@ def fetch_all_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
                 progress.advance(task)
                 continue
 
+            # Exploit code maturity — prefer vpr_v2 if present, fall back to
+            # vpr.drivers.exploit_code_maturity.  Normalize to uppercase.
+            vpr_v2       = plugin.get("vpr_v2") or {}
+            vpr_drivers  = vpr_data.get("drivers") or {}
+            exploit_maturity = (
+                vpr_v2.get("exploit_code_maturity")
+                or vpr_drivers.get("exploit_code_maturity")
+                or ""
+            )
+
+            # Operating system — vuln export returns a list on some asset types
+            os_raw = asset.get("operating_system", [])
+            if isinstance(os_raw, list):
+                operating_system = ", ".join(str(v) for v in os_raw if v)
+            else:
+                operating_system = str(os_raw) if os_raw else ""
+
             rows.append({
-                # Asset identifiers
-                "asset_id":        asset.get("uuid", ""),
-                "asset_hostname":  asset.get("hostname", ""),
-                "asset_ipv4":      asset.get("ipv4", ""),
-                "asset_fqdn":      asset.get("fqdn", ""),
-                "asset_netbios":   asset.get("netbios", ""),
-                "operating_system": _first_str(asset.get("operating_system")),
+                # Asset identifiers — asset_uuid matches assets_df.asset_uuid
+                "asset_uuid":      asset.get("uuid", ""),
+                "hostname":        asset.get("hostname", ""),
+                "ipv4":            asset.get("ipv4", ""),
+                "mac_address":     asset.get("mac_address", ""),
+                "operating_system": operating_system,
                 # Plugin / finding info
                 "plugin_id":       plugin.get("id", ""),
                 "plugin_name":     plugin.get("name", ""),
                 "plugin_family":   plugin.get("family", ""),
-                "plugin_publication_date":  plugin.get("publication_date", ""),
-                "plugin_modification_date": plugin.get("modification_date", ""),
                 # Severity — VPR-derived is the canonical field
                 "vpr_score":       vpr_score,
                 "severity":        severity,
                 "severity_native": severity_native,
                 "severity_level":  severity_id,
                 # CVE / CVSS
-                "cve_list":            ",".join(plugin.get("cve", []) or []),
-                "cvss_base_score":     plugin.get("cvss_base_score"),
-                "cvss_v3_base_score":  plugin.get("cvss3_base_score"),
-                "cvss_temporal_score": plugin.get("cvss_temporal_score"),
+                "cve_list":        ", ".join(plugin.get("cve", []) or []),
+                "cvss_base_score": plugin.get("cvss_base_score"),
+                "cvss3_score":     plugin.get("cvss3_base_score"),
                 # Exploit
-                "exploit_available":   plugin.get("exploit_available", False),
-                "exploitability_ease": plugin.get("exploitability_ease", ""),
+                "exploit_available":    plugin.get("exploit_available", False),
+                "exploit_code_maturity": str(exploit_maturity).upper(),
                 # Dates
-                "first_found": vuln.get("first_found", ""),
-                "last_found":  vuln.get("last_found", ""),
-                "last_fixed":  vuln.get("last_fixed", ""),
-                # State
-                "state": vuln.get("state", ""),
+                "first_found":  vuln.get("first_found", ""),
+                "last_found":   vuln.get("last_found", ""),
+                "last_fixed":   vuln.get("last_fixed", ""),
+                # State / identity
+                "state":        vuln.get("state", ""),
+                "finding_id":   vuln.get("finding_id", ""),
+                # Risk management
+                "severity_modification_type": vuln.get("severity_modification_type", "NONE"),
+                "recast_rule_uuid":           vuln.get("recast_rule_uuid", ""),
+                "recast_reason":              vuln.get("recast_reason", ""),
+                "resurfaced_date":            vuln.get("resurfaced_date", ""),
+                "time_taken_to_fix":          vuln.get("time_taken_to_fix"),
                 # NOTE: tags are NOT included here — the vuln export asset
                 # sub-object does not populate asset.tags reliably.  Tag data
                 # is joined from the asset export by enrich_vulns_with_assets().
@@ -254,52 +365,202 @@ def fetch_all_assets(tio, cache_dir: Path) -> pd.DataFrame:
         task = progress.add_task("Streaming full asset export…", total=None)
 
         for asset in tio.exports.assets():
-            ipv4_list     = asset.get("ipv4s")     or asset.get("ipv4", [])     or []
-            fqdn_list     = asset.get("fqdns")     or asset.get("fqdn", [])     or []
-            hostname_list = asset.get("hostnames") or asset.get("hostname", []) or []
+            ipv4_list     = asset.get("ipv4s")          or []
+            fqdn_list     = asset.get("fqdns")          or []
+            hostname_list = asset.get("hostnames")      or []
+            mac_list      = asset.get("mac_addresses")  or []
             os_list       = asset.get("operating_systems") or []
+            sources       = asset.get("sources")        or []
 
-            raw_tags = asset.get("tags") or []
-            tag_strings = []
+            # Tags — build two representations:
+            #   tags     : "Category=Value;Category=Value" (used by filter_by_tag)
+            #   tags_str : "Key: Value, Key: Value"        (display in Excel/PDF)
+            raw_tags    = asset.get("tags") or []
+            tag_filter_parts  = []   # for filter_by_tag() compat
+            tag_display_parts = []   # for human display
             for t in raw_tags:
                 if not isinstance(t, dict):
                     continue
-                # Tenable API uses different field names across versions:
-                #   category_name (newer)  |  tag_key / key (older)
-                #   value         (newer)  |  tag_value     (older)
-                # Use a fallback chain so both formats are handled.
-                category = (
-                    t.get("category_name")
-                    or t.get("tag_key")
-                    or t.get("key")
-                    or ""
-                )
-                value = (
-                    t.get("value")
-                    or t.get("tag_value")
-                    or ""
-                )
+                # API uses "key" for category name in the asset export
+                category = t.get("key") or t.get("category_name") or t.get("tag_key") or ""
+                value    = t.get("value") or t.get("tag_value") or ""
                 if category and value:
-                    tag_strings.append(f"{category}={value}")
+                    tag_filter_parts.append(f"{category}={value}")
+                    tag_display_parts.append(f"{category}: {value}")
+
+            source_name = sources[0].get("name", "") if sources else ""
 
             rows.append({
-                "asset_id":         asset.get("id", ""),
-                "hostname":         (hostname_list[0] if hostname_list else ""),
-                "ipv4":             (ipv4_list[0]     if ipv4_list     else ""),
-                "fqdn":             (fqdn_list[0]     if fqdn_list     else ""),
-                "operating_system": (os_list[0]       if os_list       else ""),
-                "network_name":     asset.get("network_name", ""),
-                "first_seen":       asset.get("first_seen", ""),
-                "last_seen":        asset.get("last_seen", ""),
-                "last_scan_time":   asset.get("last_scan_time", ""),
-                "tags":             ";".join(tag_strings),
-                "agent_uuid":       asset.get("agent_uuid", ""),
+                # UUID — asset export uses "id", not "uuid"
+                "asset_uuid":        asset.get("id", ""),
+                # Identity
+                "hostname":          hostname_list[0] if hostname_list else (fqdn_list[0] if fqdn_list else ""),
+                "ipv4":              ipv4_list[0]    if ipv4_list    else "",
+                "mac_address":       mac_list[0]     if mac_list     else "",
+                "fqdn":              fqdn_list[0]    if fqdn_list    else "",
+                "operating_system":  os_list[0]      if os_list      else "",
+                "network_name":      asset.get("network_name", ""),
+                # Scan dates
+                "last_seen":                    asset.get("last_seen"),
+                "last_scan_time":               asset.get("last_scan_time"),
+                "last_licensed_scan_date":      asset.get("last_licensed_scan_date"),
+                "last_authenticated_scan_date": asset.get("last_authenticated_scan_date"),
+                "first_seen":                   asset.get("first_seen", ""),
+                "has_plugin_results":           asset.get("has_plugin_results"),
+                # Source
+                "source_name":       source_name,
+                "is_connector_asset": any("Connector" in (s.get("name") or "") for s in sources),
+                # Tags
+                "tags":              ";".join(tag_filter_parts),   # filter_by_tag compat
+                "tags_str":          ", ".join(tag_display_parts), # display
+                # Misc
+                "agent_uuid":        asset.get("agent_uuid", ""),
             })
             progress.advance(task)
 
     df = pd.DataFrame(rows)
     df = _normalize_asset_dates(df)
     logger.info("Fetched %d asset records.", len(df))
+    _save_cache(df, cache)
+    return df
+
+
+# ===========================================================================
+# Recast / Accept rules — direct REST call (not wrapped by pyTenable for IO)
+# ===========================================================================
+
+def fetch_recast_rules(tio, cache_dir: Path) -> pd.DataFrame:
+    """
+    Fetch all active HOST recast and accept rules from the Tenable
+    ``POST /v1/recast/rules/search`` endpoint.
+
+    pyTenable does not wrap this endpoint for Tenable.io.  Authentication
+    uses the same ``TVM_ACCESS_KEY`` / ``TVM_SECRET_KEY`` / ``TVM_URL``
+    environment variables as the rest of the project.
+
+    Only ``resource_type == "HOST"`` rules with ``action`` of ``RECAST`` or
+    ``ACCEPT`` are returned.  ``CHANGE_RESULT`` / ``ACCEPT_RESULT`` rules
+    (Host Audit / compliance scans) are silently dropped.  Disabled rules
+    are also excluded.
+
+    Caches to ``<cache_dir>/recast_rules.parquet``.
+
+    Parameters
+    ----------
+    tio : TenableIO
+        Authenticated Tenable client (used only to confirm connectivity;
+        the direct HTTP call uses env-var credentials).
+    cache_dir : Path
+        Run-scoped directory for parquet cache files.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: rule_id, rule_name, plugin_id (int, nullable),
+        action, new_severity, original_severity, expires_at, created_at.
+        Empty DataFrame on error or when no rules exist.
+    """
+    import os
+    import requests as _requests
+
+    cache = _cache_path(cache_dir, "recast_rules")
+    cached = _load_cache(cache)
+    if cached is not None:
+        return cached
+
+    base_url   = os.getenv("TVM_URL", "https://cloud.tenable.com").rstrip("/")
+    access_key = os.getenv("TVM_ACCESS_KEY", "")
+    secret_key = os.getenv("TVM_SECRET_KEY", "")
+
+    if not access_key or not secret_key:
+        logger.warning(
+            "fetch_recast_rules: TVM_ACCESS_KEY / TVM_SECRET_KEY not set "
+            "— returning empty DataFrame"
+        )
+        return pd.DataFrame(columns=[
+            "rule_id", "rule_name", "plugin_id", "action",
+            "new_severity", "original_severity", "expires_at", "created_at",
+        ])
+
+    headers = {
+        "accept":       "application/json",
+        "content-type": "application/json",
+        "X-ApiKeys":    f"accessKey={access_key};secretKey={secret_key}",
+    }
+
+    all_rules: list[dict] = []
+    payload: dict = {"resource_type": ["HOST"]}
+
+    logger.info("[API FETCH] Fetching recast/accept rules from Tenable API")
+
+    while True:
+        try:
+            resp = _requests.post(
+                f"{base_url}/v1/recast/rules/search",
+                json=payload,
+                headers=headers,
+                timeout=30,
+            )
+            resp.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("fetch_recast_rules: API call failed: %s", exc)
+            break
+
+        data       = resp.json()
+        all_rules.extend(data.get("rules") or [])
+        next_cursor = (data.get("pagination") or {}).get("next")
+        if not next_cursor:
+            break
+        payload["next"] = next_cursor
+
+    rows: list[dict] = []
+    for rule in all_rules:
+        rule_value = rule.get("rule_value") or {}
+        action     = rule_value.get("action", "")
+
+        # Only vulnerability recasts / acceptances — skip compliance audit actions
+        if action not in ("RECAST", "ACCEPT"):
+            continue
+
+        # Skip disabled rules
+        if (rule.get("disabled_details") or {}).get("disabled", False):
+            continue
+
+        raw_pid   = _extract_plugin_id_from_filter(rule.get("filter") or {})
+        plugin_id = int(raw_pid) if raw_pid and str(raw_pid).isdigit() else None
+
+        filter_summary = _summarize_filter(rule.get("filter") or {})
+
+        # expires_at is only present in the response when an expiry has been set.
+        # Absence means "Never expires".
+        expires_at_val = rule.get("expires_at") or "Never"
+
+        rows.append({
+            "rule_id":           rule.get("rule_id", ""),
+            "rule_name":         rule.get("rule_name", ""),
+            "plugin_id":         plugin_id,
+            "filter_summary":    filter_summary,
+            "action":            action,
+            "new_severity":      rule_value.get("severity", ""),        # current severity after rule
+            "original_severity": rule_value.get("original_severity"),   # original severity before rule (None for ACCEPT)
+            "expires_at":        expires_at_val,
+            "created_at":        rule.get("created_at", ""),
+        })
+
+    _EMPTY_COLS = [
+        "rule_id", "rule_name", "plugin_id", "action",
+        "new_severity", "original_severity", "expires_at", "created_at",
+    ]
+    df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=_EMPTY_COLS)
+
+    if not df.empty:
+        for col in ("expires_at", "created_at"):
+            if col in df.columns:
+                df[col] = _parse_iso_utc(df[col])
+
+    logger.info(
+        "fetch_recast_rules: %d active HOST RECAST/ACCEPT rules loaded.", len(df)
+    )
     _save_cache(df, cache)
     return df
 
@@ -755,7 +1016,7 @@ def _normalize_vuln_dates(df: pd.DataFrame) -> pd.DataFrame:
     """Cast date columns in the vulnerability DataFrame to UTC datetimes."""
     updates = {
         col: _parse_iso_utc(df[col])
-        for col in ("first_found", "last_found", "last_fixed")
+        for col in ("first_found", "last_found", "last_fixed", "resurfaced_date")
         if col in df.columns
     }
     return df.assign(**updates) if updates else df
@@ -765,7 +1026,13 @@ def _normalize_asset_dates(df: pd.DataFrame) -> pd.DataFrame:
     """Cast date columns in the asset DataFrame to UTC datetimes."""
     updates = {
         col: _parse_iso_utc(df[col])
-        for col in ("first_seen", "last_seen", "last_scan_time")
+        for col in (
+            "first_seen",
+            "last_seen",
+            "last_scan_time",
+            "last_licensed_scan_date",
+            "last_authenticated_scan_date",
+        )
         if col in df.columns
     }
     return df.assign(**updates) if updates else df
@@ -798,26 +1065,39 @@ def enrich_vulns_with_assets(
         Enriched vulnerability DataFrame.
     """
     asset_cols = [
-        "asset_id",
+        "asset_uuid",
         "operating_system",
         "network_name",
         "first_seen",
         "last_seen",
+        "last_licensed_scan_date",
+        "last_authenticated_scan_date",
+        "mac_address",
         "tags",
+        "tags_str",
+        "source_name",
+        "is_connector_asset",
     ]
     available = [c for c in asset_cols if c in assets_df.columns]
-    enriched = vulns_df.merge(assets_df[available], on="asset_id", how="left")
+
+    # Drop columns that exist in vulns_df and would be overwritten by the join
+    # (operating_system and mac_address can appear in both — prefer the richer
+    # asset-export version which normalises list fields cleanly).
+    drop_from_vulns = [c for c in ("operating_system", "mac_address") if c in vulns_df.columns and c in available]
+    vulns_base = vulns_df.drop(columns=drop_from_vulns) if drop_from_vulns else vulns_df
+
+    enriched = vulns_base.merge(assets_df[available], on="asset_uuid", how="left")
 
     # Diagnostic: report join success rate so key mismatches are visible.
     if "tags" in enriched.columns:
         matched = enriched["tags"].notna().sum()
         logger.info(
             "enrich_vulns_with_assets: %d/%d vuln rows matched an asset "
-            "(tags populated). vuln asset_id sample: %s | asset asset_id sample: %s",
+            "(tags populated). vuln asset_uuid sample: %s | asset asset_uuid sample: %s",
             matched,
             len(enriched),
-            vulns_df["asset_id"].dropna().head(3).tolist(),
-            assets_df["asset_id"].dropna().head(3).tolist(),
+            vulns_df["asset_uuid"].dropna().head(3).tolist(),
+            assets_df["asset_uuid"].dropna().head(3).tolist(),
         )
 
     return enriched

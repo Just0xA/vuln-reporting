@@ -59,6 +59,7 @@ from data.fetchers import (
     enrich_vulns_with_assets,
     fetch_all_assets,
     fetch_all_vulnerabilities,
+    fetch_recast_rules,
     filter_by_tag,
 )
 from utils.formatters import report_timestamp, safe_filename
@@ -106,6 +107,23 @@ OPS_SLA_FONT_BOLD: dict[str, bool] = {
 
 # Severity rank map for sort ordering (Critical = 0, sorts first)
 SEVERITY_RANK: dict[str, int] = {s: i for i, s in enumerate(SEVERITY_ORDER)}
+
+# Exploit code maturity rank (lower number = higher risk, sorts first).
+# Values match the uppercase-normalized strings stored by fetch_all_vulnerabilities.
+MATURITY_RANK: dict[str, int] = {
+    "HIGH":       0,
+    "FUNCTIONAL": 1,
+    "POC":        2,
+    "UNPROVEN":   3,
+    "":           4,
+}
+_MATURITY_DISPLAY: dict[str, str] = {
+    "HIGH":       "Yes (High)",
+    "FUNCTIONAL": "Yes (Functional)",
+    "POC":        "Yes (PoC)",
+    "UNPROVEN":   "Yes (Unproven)",
+}
+_MATURITY_EXPLOITABLE = frozenset({"HIGH", "FUNCTIONAL"})
 
 # Assets with no scan or scan older than this threshold are flagged as unscanned
 UNSCANNED_THRESHOLD_DAYS: int = 30
@@ -208,7 +226,7 @@ def _fetch_and_prepare(
 
     logger.info(
         "[%s] Prepared %d vulnerability records across %d unique assets.",
-        REPORT_NAME, len(df), df["asset_id"].nunique(),
+        REPORT_NAME, len(df), df["asset_uuid"].nunique(),
     )
     return df, assets_df
 
@@ -276,13 +294,19 @@ def _identify_unscanned_assets(
     assets_df: pd.DataFrame,
     as_of: Optional[datetime] = None,
     threshold_days: int = UNSCANNED_THRESHOLD_DAYS,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Identify assets that have not been scanned recently.
+    Identify assets that have not been scanned recently and split the asset
+    list into scanned and unscanned subsets.
 
-    An asset is considered unscanned when:
-      - ``last_scan_time`` is null / NaT  (never scanned), OR
-      - ``last_scan_time`` is more than ``threshold_days`` before ``as_of``
+    Scan date resolution order (first non-null wins per asset):
+      1. ``last_licensed_scan_date`` — Tenable licensed scan timestamp
+      2. ``last_scan_time``          — general last-seen-by-scanner timestamp
+      3. ``last_seen``               — last discovery event (fallback)
+
+    An asset is considered **unscanned** when:
+      - The resolved scan date is null / NaT  (never scanned), OR
+      - The resolved scan date is more than ``threshold_days`` before ``as_of``
 
     Unscanned assets must be excluded from vulnerability counts and SLA
     calculations — their absence from scan data means we cannot make
@@ -292,8 +316,9 @@ def _identify_unscanned_assets(
     ----------
     assets_df : pd.DataFrame
         Full scoped asset DataFrame from ``fetch_all_assets()`` after tag filter.
-        Must contain ``asset_id``, ``hostname``, ``ipv4``, ``tags``,
-        ``last_scan_time``, and optionally ``operating_system``.
+        Must contain ``asset_uuid``, ``hostname``, ``ipv4``, ``tags``.
+        Should contain at least one of ``last_licensed_scan_date``,
+        ``last_scan_time``, ``last_seen``.
     as_of : datetime, optional
         Reference timestamp for age calculation.  Defaults to UTC now.
     threshold_days : int
@@ -301,74 +326,94 @@ def _identify_unscanned_assets(
 
     Returns
     -------
-    pd.DataFrame
-        Subset of ``assets_df`` for unscanned assets with computed columns:
-            - ``last_scan_date``   : formatted date string or "Never"
-            - ``days_since_scan``  : int days since last scan, or None if never
-        Sorted by ``days_since_scan`` descending (never-scanned first, then
-        oldest scan first).
+    tuple[pd.DataFrame, pd.DataFrame]
+        ``(scanned_df, unscanned_df)``
+
+        *scanned_df* — assets with a recent scan; preserves all ``assets_df``
+        columns plus ``last_scan_date`` (formatted string) and
+        ``days_since_scan`` (int).
+
+        *unscanned_df* — subset for unscanned assets with the same computed
+        columns, sorted by ``days_since_scan`` descending (never-scanned
+        first, then oldest scan first).
     """
     if as_of is None:
         as_of = datetime.now(tz=timezone.utc)
 
+    _empty_cols = [
+        "asset_uuid", "hostname", "ipv4", "tags",
+        "mac_address", "last_seen", "last_licensed_scan_date",
+        "source_name", "last_scan_date", "days_since_scan",
+        "operating_system",
+    ]
     if assets_df.empty:
-        return pd.DataFrame(columns=[
-            "asset_id", "hostname", "ipv4", "tags",
-            "last_scan_date", "days_since_scan", "operating_system",
-        ])
+        empty = pd.DataFrame(columns=_empty_cols)
+        return empty.copy(), empty.copy()
 
     as_of_ts = pd.Timestamp(as_of)
 
-    # Coerce last_scan_time to UTC-aware datetime
-    if "last_scan_time" in assets_df.columns:
-        last_scan = pd.to_datetime(assets_df["last_scan_time"], utc=True, errors="coerce")
-    else:
-        last_scan = pd.Series(pd.NaT, index=assets_df.index, dtype="datetime64[ns, UTC]")
+    def _coerce_utc(col_name: str) -> "pd.Series":
+        if col_name in assets_df.columns:
+            return pd.to_datetime(assets_df[col_name], utc=True, errors="coerce")
+        return pd.Series(pd.NaT, index=assets_df.index, dtype="datetime64[ns, UTC]")
 
-    days_since = (as_of_ts - last_scan).dt.days
-    df = assets_df.assign(last_scan_time=last_scan, days_since_scan=days_since)
+    # Resolve best available scan date per asset
+    licensed  = _coerce_utc("last_licensed_scan_date")
+    scan_time = _coerce_utc("last_scan_time")
+    last_seen = _coerce_utc("last_seen")
+
+    best_scan = licensed.combine_first(scan_time).combine_first(last_seen)
+
+    days_since = (as_of_ts - best_scan).dt.days
+    df = assets_df.assign(
+        _best_scan_date=best_scan,
+        days_since_scan=days_since,
+    )
 
     # Classify unscanned
-    never_scanned  = df["last_scan_time"].isna()
+    never_scanned  = df["_best_scan_date"].isna()
     stale_scan     = df["days_since_scan"] > threshold_days
     unscanned_mask = never_scanned | stale_scan
 
-    # Build result with computed columns
-    result_base = df[unscanned_mask]
-    last_scan_date = result_base["last_scan_time"].apply(
-        lambda ts: "Never" if pd.isna(ts) else ts.strftime("%Y-%m-%d")
-    )
-    sort_key = result_base["days_since_scan"].fillna(999_999)
-    result = (
-        result_base.assign(last_scan_date=last_scan_date, _sort_key=sort_key)
+    # Add formatted last_scan_date column to all rows
+    df = df.assign(
+        last_scan_date=df["_best_scan_date"].apply(
+            lambda ts: "Never" if pd.isna(ts) else ts.strftime("%Y-%m-%d")
+        )
+    ).drop(columns="_best_scan_date")
+
+    # --- unscanned subset ------------------------------------------------
+    unscanned_base = df[unscanned_mask]
+    sort_key = unscanned_base["days_since_scan"].fillna(999_999)
+    unscanned_result = (
+        unscanned_base.assign(_sort_key=sort_key)
         .sort_values("_sort_key", ascending=False)
         .drop(columns="_sort_key")
         .reset_index(drop=True)
     )
-
-    # Select and order output columns for downstream use
-    output_cols = [
-        "asset_id",
-        "hostname",
-        "ipv4",
-        "tags",
-        "last_scan_date",
-        "days_since_scan",
+    out_cols = [
+        "asset_uuid", "hostname", "ipv4", "tags",
+        "mac_address", "last_seen", "last_licensed_scan_date",
+        "source_name", "last_scan_date", "days_since_scan",
         "operating_system",
     ]
-    # Only include columns that actually exist in the DataFrame
-    output_cols = [c for c in output_cols if c in result.columns]
-    result = result[output_cols]
+    out_cols = [c for c in out_cols if c in unscanned_result.columns]
+    unscanned_result = unscanned_result[out_cols]
 
-    n_never  = int(never_scanned.sum())
-    n_stale  = int(stale_scan.sum())
+    # --- scanned subset --------------------------------------------------
+    scanned_result = df[~unscanned_mask].reset_index(drop=True)
+
+    n_never = int(never_scanned.sum())
+    n_stale = int(stale_scan.sum())
     logger.info(
-        "[%s] Unscanned assets: %d total "
+        "[%s] Asset scan classification: %d scanned, %d unscanned "
         "(never scanned: %d, last scan >%d days ago: %d)",
-        REPORT_NAME, len(result), n_never, threshold_days, n_stale,
+        REPORT_NAME,
+        len(scanned_result), len(unscanned_result),
+        n_never, threshold_days, n_stale,
     )
 
-    return result
+    return scanned_result, unscanned_result
 
 
 def _format_cves(series: pd.Series) -> str:
@@ -403,6 +448,403 @@ def _format_cves(series: pd.Series) -> str:
     if len(cves) <= 3:
         return ", ".join(cves)
     return ", ".join(cves[:3]) + f" +{len(cves) - 3} more"
+
+
+def _compute_exploitability_metrics(vulns_df: pd.DataFrame) -> dict:
+    """
+    Return exploitability counts keyed by unique plugin_id.
+
+    Parameters
+    ----------
+    vulns_df : pd.DataFrame
+        Scanned vulnerability rows (post-filter, post-SLA).
+
+    Returns
+    -------
+    dict
+        ``{known_exploit: int, functional: int, high_maturity: int}``
+    """
+    if vulns_df.empty:
+        return {"known_exploit": 0, "functional": 0, "high_maturity": 0}
+
+    plugins = vulns_df.drop_duplicates(subset=["plugin_id"]).copy()
+
+    known_exploit = int(
+        plugins["exploit_available"].fillna(False).astype(bool).sum()
+        if "exploit_available" in plugins.columns else 0
+    )
+    functional_count = int(
+        (plugins["exploit_code_maturity"] == "FUNCTIONAL").sum()
+        if "exploit_code_maturity" in plugins.columns else 0
+    )
+    high_count = int(
+        (plugins["exploit_code_maturity"] == "HIGH").sum()
+        if "exploit_code_maturity" in plugins.columns else 0
+    )
+    return {
+        "known_exploit": known_exploit,
+        "functional":    functional_count,
+        "high_maturity": high_count,
+    }
+
+
+def _get_top_priority_plugins(
+    vulns_df: pd.DataFrame,
+    n: int = 5,
+) -> pd.DataFrame:
+    """
+    Return up to *n* plugins with FUNCTIONAL or HIGH exploit maturity,
+    ranked by maturity (FUNCTIONAL first), then VPR score desc, then
+    affected asset count desc.
+
+    Parameters
+    ----------
+    vulns_df : pd.DataFrame
+        Scanned vulnerability rows with ``exploit_code_maturity``,
+        ``plugin_id``, ``plugin_name``, ``vpr_score``, ``asset_uuid``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: plugin_name, vpr_score, exploit_code_maturity,
+        affected_assets.  Empty DataFrame if no qualifying plugins.
+    """
+    _RANK = {"FUNCTIONAL": 0, "HIGH": 1}
+
+    if "exploit_code_maturity" not in vulns_df.columns or vulns_df.empty:
+        return pd.DataFrame()
+
+    exploitable = vulns_df[
+        vulns_df["exploit_code_maturity"].isin(["FUNCTIONAL", "HIGH"])
+    ].copy()
+
+    if exploitable.empty:
+        return pd.DataFrame()
+
+    grouped = (
+        exploitable
+        .groupby(["plugin_id", "plugin_name", "exploit_code_maturity"])
+        .agg(
+            vpr_score       = ("vpr_score",   "max"),
+            affected_assets = ("asset_uuid",  "nunique"),
+        )
+        .reset_index()
+    )
+    grouped["maturity_rank"] = (
+        grouped["exploit_code_maturity"].map(_RANK).fillna(99)
+    )
+    return (
+        grouped
+        .sort_values(
+            ["maturity_rank", "vpr_score", "affected_assets"],
+            ascending=[True, False, False],
+        )
+        .head(n)
+        [["plugin_name", "vpr_score", "exploit_code_maturity", "affected_assets"]]
+        .reset_index(drop=True)
+    )
+
+
+def _extract_risk_modifications(
+    vulns_df: pd.DataFrame,
+    assets_df: pd.DataFrame,
+    recast_rules_df: pd.DataFrame,
+    as_of: datetime,
+) -> pd.DataFrame:
+    """
+    Join active recast/accept rules with vulnerability data to produce one row
+    per rule, enriched with plugin context from the vuln export.
+
+    Parameters
+    ----------
+    vulns_df : pd.DataFrame
+        Full vulnerability DataFrame (already filtered to scanned assets).
+    assets_df : pd.DataFrame
+        Asset DataFrame (used for affected asset count per plugin).
+    recast_rules_df : pd.DataFrame
+        Output of ``fetch_recast_rules()`` — one row per rule.
+    as_of : datetime
+        Report generation timestamp (UTC) — used to compute days_until_expiry.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: Plugin ID, Plugin Name, Modification Type, Original Severity,
+        Current Severity, VPR Score, Date Opened, Expiration Date,
+        Days Until Expiry, Affected Assets.
+        Sorted: Accepted first → Recast; then VPR desc; then Affected Assets desc.
+        Empty DataFrame with same columns when no rules exist.
+    """
+    _OUTPUT_COLS = [
+        "Plugin ID", "Plugin Name", "Modification Type", "Recast Reason",
+        "Original Severity", "Current Severity", "VPR Score",
+        "Date Opened", "Expiration Date", "Days Until Expiry",
+        "Affected Assets", "Rule UUID",
+    ]
+
+    if vulns_df.empty or "severity_modification_type" not in vulns_df.columns:
+        return pd.DataFrame(columns=_OUTPUT_COLS)
+
+    # ------------------------------------------------------------------
+    # Step 1: Filter vuln export to accepted / recast findings
+    # ------------------------------------------------------------------
+    _MOD_TYPES = {"recasted", "accepted"}
+    mod_df = vulns_df[
+        vulns_df["severity_modification_type"].str.lower().isin(_MOD_TYPES)
+    ].copy()
+
+    if mod_df.empty:
+        return pd.DataFrame(columns=_OUTPUT_COLS)
+
+    # Normalise plugin_id to int for grouping
+    mod_df = mod_df.assign(
+        plugin_id=pd.to_numeric(mod_df["plugin_id"], errors="coerce"),
+    )
+
+    # Group key: rule UUID + plugin_id (one output row per unique rule×plugin combo)
+    uuid_col = "recast_rule_uuid" if "recast_rule_uuid" in mod_df.columns else None
+    if uuid_col:
+        mod_df = mod_df.assign(
+            _rule_uuid=mod_df[uuid_col].fillna("").astype(str).str.strip()
+        )
+    else:
+        mod_df = mod_df.assign(_rule_uuid="")
+
+    agg = (
+        mod_df
+        .groupby(["_rule_uuid", "plugin_id"], as_index=False, dropna=False)
+        .agg(
+            plugin_name             = ("plugin_name",              "first"),
+            modification_type_raw   = ("severity_modification_type", "first"),
+            current_severity        = ("severity",                 "first"),
+            vpr_score               = ("vpr_score",               "max"),
+            date_opened             = ("first_found",              "min"),
+            affected_assets         = ("asset_uuid",               "nunique"),
+            recast_reason           = ("recast_reason",            "first")
+                                      if "recast_reason" in mod_df.columns
+                                      else ("plugin_name", lambda _: ""),
+        )
+        .reset_index(drop=True)
+    )
+
+    # ------------------------------------------------------------------
+    # Step 2: Enrich with rules API metadata (expiry, original severity,
+    #         filter scope) — optional; gracefully absent if rules API failed
+    # ------------------------------------------------------------------
+    as_of_utc = as_of if as_of.tzinfo is not None else as_of.replace(tzinfo=timezone.utc)
+
+    rule_meta: dict[str, dict] = {}
+    if recast_rules_df is not None and not recast_rules_df.empty:
+        for _, r in recast_rules_df.iterrows():
+            uid = str(r.get("rule_id") or "").strip()
+            if uid:
+                rule_meta[uid] = {
+                    "original_severity": r.get("original_severity"),
+                    "expires_at":        r.get("expires_at"),
+                    "filter_summary":    r.get("filter_summary", ""),
+                }
+
+    def _days_until(exp) -> int | None:
+        if exp is None or (isinstance(exp, str) and exp in ("", "Never")):
+            return None
+        try:
+            ts = pd.Timestamp(exp)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            return (ts - as_of_utc).days
+        except Exception:
+            return None
+
+    def _fmt_date(val) -> str:
+        if val is None or (isinstance(val, str) and val.strip() in ("", "Never")):
+            return "Never"
+        if pd.isna(val):
+            return "Never"
+        try:
+            if hasattr(val, "strftime"):
+                return val.strftime("%Y-%m-%d")
+            return pd.Timestamp(val).strftime("%Y-%m-%d")
+        except Exception:
+            return str(val)[:10]
+
+    def _clean_sev(val) -> str:
+        s = str(val or "").strip().lower()
+        return s.title() if s and s not in {"none", "null", "", "n/a"} else "N/A"
+
+    def _mod_label(raw: str) -> str:
+        return {"recasted": "Recast", "accepted": "Accepted"}.get(
+            str(raw).lower(), str(raw).title()
+        )
+
+    # ------------------------------------------------------------------
+    # Step 3: Build output rows
+    # ------------------------------------------------------------------
+    rows_out = []
+    for _, row in agg.iterrows():
+        uid     = str(row["_rule_uuid"]).strip()
+        meta    = rule_meta.get(uid, {})
+        exp_val = meta.get("expires_at")
+
+        rows_out.append({
+            "Plugin ID":         int(row["plugin_id"]) if pd.notna(row["plugin_id"]) else "",
+            "Plugin Name":       str(row["plugin_name"] or ""),
+            "Modification Type": _mod_label(row["modification_type_raw"]),
+            "Recast Reason":     str(row.get("recast_reason") or ""),
+            "Original Severity": _clean_sev(meta.get("original_severity")),
+            "Current Severity":  _clean_sev(row["current_severity"]),
+            "VPR Score":         round(float(row["vpr_score"]), 1)
+                                 if pd.notna(row["vpr_score"]) else "",
+            "Date Opened":       _fmt_date(row["date_opened"])
+                                 if pd.notna(row["date_opened"]) else "",
+            "Expiration Date":   _fmt_date(exp_val),
+            "Days Until Expiry": _days_until(exp_val) if exp_val else "",
+            "Affected Assets":   int(row["affected_assets"]),
+            "Rule UUID":         uid if uid else "",
+        })
+
+    out = pd.DataFrame(rows_out, columns=_OUTPUT_COLS)
+
+    # Sort: Accepted first → Recast, then VPR desc, then Affected Assets desc
+    _mod_rank = {"Accepted": 0, "Recast": 1}
+    out = out.assign(
+        _mod_rank=out["Modification Type"].map(_mod_rank).fillna(2),
+        _vpr_sort=pd.to_numeric(out["VPR Score"], errors="coerce").fillna(0),
+    ).sort_values(
+        ["_mod_rank", "_vpr_sort", "Affected Assets"],
+        ascending=[True, False, False],
+    ).drop(columns=["_mod_rank", "_vpr_sort"]).reset_index(drop=True)
+
+    return out
+
+
+def _extract_recurring_vulnerabilities(
+    vulns_df: pd.DataFrame,
+    assets_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Identify vulnerabilities that have resurfaced after a prior remediation.
+
+    A vulnerability is recurring when ``resurfaced_date`` is not null
+    (equivalently ``state == "REOPENED"``).  The approximate prior close date
+    is derived as ``resurfaced_date - timedelta(seconds=time_taken_to_fix)``
+    when ``time_taken_to_fix`` is available.
+
+    Parameters
+    ----------
+    vulns_df : pd.DataFrame
+        Full vulnerability DataFrame (already filtered to scanned assets).
+    assets_df : pd.DataFrame
+        Asset DataFrame used to enrich hostname / ipv4.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: Plugin ID, Plugin Name, Asset Name, IP Address,
+        Original First Found, Date Closed, Date Reopened, Last Seen,
+        Current State, Severity, VPR Score, Exploit Available, Exploit Maturity.
+        Sorted: severity rank → VPR desc → Date Reopened desc.
+        Empty DataFrame with same columns when no recurring vulns exist.
+    """
+    from datetime import timedelta
+
+    _OUTPUT_COLS = [
+        "Plugin ID", "Plugin Name", "Asset Name", "IP Address",
+        "Original First Found", "Date Closed", "Date Reopened", "Last Seen",
+        "Current State", "Severity", "VPR Score", "Exploit Available",
+        "Exploit Maturity",
+    ]
+
+    if vulns_df.empty or "resurfaced_date" not in vulns_df.columns:
+        return pd.DataFrame(columns=_OUTPUT_COLS)
+
+    recurring = vulns_df[vulns_df["resurfaced_date"].notna()].copy()
+    if recurring.empty:
+        return pd.DataFrame(columns=_OUTPUT_COLS)
+
+    # Enrich with asset columns
+    if not assets_df.empty and "asset_uuid" in assets_df.columns:
+        _asset_cols = [c for c in ["asset_uuid", "hostname", "ipv4"] if c in assets_df.columns]
+        _lookup = assets_df[_asset_cols].drop_duplicates("asset_uuid")
+        drop_existing = [c for c in ["hostname", "ipv4"] if c in recurring.columns]
+        recurring = (
+            recurring.drop(columns=drop_existing)
+            .merge(_lookup, on="asset_uuid", how="left")
+        )
+
+    # Compute approximate date_closed
+    def _compute_date_closed(row):
+        try:
+            rd = row.get("resurfaced_date")
+            ttf = row.get("time_taken_to_fix")
+            if pd.isna(rd):
+                return "Not Available"
+            if ttf is not None and pd.notna(ttf) and float(ttf) > 0:
+                closed = pd.Timestamp(rd) - timedelta(seconds=float(ttf))
+                return closed.strftime("%Y-%m-%d")
+            return "Not Available"
+        except Exception:
+            return "Not Available"
+
+    recurring = recurring.assign(
+        date_closed_str=recurring.apply(_compute_date_closed, axis=1)
+    )
+
+    # Format date columns
+    def _fmt(val):
+        if pd.isna(val):
+            return ""
+        try:
+            if hasattr(val, "strftime"):
+                return val.strftime("%Y-%m-%d")
+            return str(val)[:10]
+        except Exception:
+            return ""
+
+    # Map fields
+    recurring = recurring.assign(
+        exploit_available_str=recurring["exploit_available"].apply(
+            lambda x: "Yes" if x is True or str(x).lower() in ("true", "1", "yes") else "No"
+        ) if "exploit_available" in recurring.columns else "Unknown",
+        exploit_maturity_str=recurring["exploit_code_maturity"].apply(
+            lambda x: str(x).replace("_", " ").title() if pd.notna(x) and x != "" else "N/A"
+        ) if "exploit_code_maturity" in recurring.columns else "N/A",
+        current_state=recurring["state"].apply(
+            lambda x: "Open" if pd.notna(x) and str(x).upper() in ("OPEN", "REOPENED") else str(x).title()
+        ) if "state" in recurring.columns else "Open",
+    )
+
+    out = pd.DataFrame({
+        "Plugin ID":           recurring["plugin_id"].apply(
+                                   lambda x: int(x) if pd.notna(x) else ""
+                               ) if "plugin_id" in recurring.columns else "",
+        "Plugin Name":         recurring["plugin_name"].fillna("Unknown") if "plugin_name" in recurring.columns else "",
+        "Asset Name":          recurring["hostname"].fillna("Unknown") if "hostname" in recurring.columns else "",
+        "IP Address":          recurring["ipv4"].fillna("") if "ipv4" in recurring.columns else "",
+        "Original First Found": recurring["first_found"].apply(_fmt) if "first_found" in recurring.columns else "",
+        "Date Closed":         recurring["date_closed_str"],
+        "Date Reopened":       recurring["resurfaced_date"].apply(_fmt),
+        "Last Seen":           recurring["last_found"].apply(_fmt) if "last_found" in recurring.columns else "",
+        "Current State":       recurring["current_state"],
+        "Severity":            recurring["severity"].str.title() if "severity" in recurring.columns else "",
+        "VPR Score":           recurring["vpr_score"].apply(
+                                   lambda x: round(float(x), 1) if pd.notna(x) else ""
+                               ) if "vpr_score" in recurring.columns else "",
+        "Exploit Available":   recurring["exploit_available_str"],
+        "Exploit Maturity":    recurring["exploit_maturity_str"],
+    })
+
+    # Sort: severity rank → VPR desc → Date Reopened desc
+    _sev_rank = {s: i for i, s in enumerate(["Critical", "High", "Medium", "Low", "Info"])}
+    out = out.assign(
+        _sev_rank=out["Severity"].map(_sev_rank).fillna(99),
+        _vpr_sort=pd.to_numeric(out["VPR Score"], errors="coerce").fillna(0),
+        _reopened_sort=pd.to_datetime(out["Date Reopened"], errors="coerce"),
+    ).sort_values(
+        ["_sev_rank", "_vpr_sort", "_reopened_sort"],
+        ascending=[True, False, False],
+    ).drop(columns=["_sev_rank", "_vpr_sort", "_reopened_sort"]).reset_index(drop=True)
+
+    return out
 
 
 def _group_by_plugin(df: pd.DataFrame) -> pd.DataFrame:
@@ -440,6 +882,7 @@ def _group_by_plugin(df: pd.DataFrame) -> pd.DataFrame:
             "vpr_score", "cvss_score", "cves", "affected_asset_count",
             "days_open_oldest", "days_open_newest",
             "sla_status", "days_remaining", "exploit_available",
+            "exploit_code_maturity",
         ])
 
     # ------------------------------------------------------------------
@@ -457,18 +900,33 @@ def _group_by_plugin(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     # ------------------------------------------------------------------
-    # Step B: Standard per-plugin aggregations
+    # Step B: Standard per-plugin aggregations.
+    # Add a numeric maturity rank column so we can take the min (worst)
+    # maturity per plugin via a standard "min" aggregation.
     # ------------------------------------------------------------------
+    df = df.assign(
+        _maturity_rank=df["exploit_code_maturity"].map(MATURITY_RANK).fillna(len(MATURITY_RANK))
+        if "exploit_code_maturity" in df.columns
+        else len(MATURITY_RANK)
+    )
     agg = df.groupby("plugin_id").agg(
-        plugin_name         = ("plugin_name",        "first"),
-        plugin_family       = ("plugin_family",       "first"),
-        vpr_score           = ("vpr_score",           "max"),
-        cvss_score          = ("cvss_v3_base_score",  "max"),
-        affected_asset_count= ("asset_id",            "nunique"),
-        days_open_oldest    = ("days_open",           "max"),
-        days_open_newest    = ("days_open",           "min"),
-        exploit_available   = ("exploit_available",   "any"),
+        plugin_name          = ("plugin_name",        "first"),
+        plugin_family        = ("plugin_family",       "first"),
+        vpr_score            = ("vpr_score",           "max"),
+        cvss_score           = ("cvss3_score",         "max"),
+        affected_asset_count = ("asset_uuid",          "nunique"),
+        days_open_oldest     = ("days_open",           "max"),
+        days_open_newest     = ("days_open",           "min"),
+        exploit_available    = ("exploit_available",   "any"),
+        _maturity_rank_min   = ("_maturity_rank",      "min"),
     ).reset_index()
+
+    # Map min maturity rank back to its label string; derive severity in same step
+    _rank_to_maturity = {v: k for k, v in MATURITY_RANK.items()}
+    agg = agg.assign(
+        exploit_code_maturity=agg["_maturity_rank_min"].map(_rank_to_maturity).fillna(""),
+        severity=agg["vpr_score"].apply(lambda v: vpr_to_severity(v, fallback="info")),
+    )
 
     # ------------------------------------------------------------------
     # Step C: CVE aggregation — union of all CVEs per plugin
@@ -481,14 +939,6 @@ def _group_by_plugin(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     # ------------------------------------------------------------------
-    # Step D: Derive severity from max VPR score
-    # (VPR is per-plugin; max handles edge cases from incremental updates)
-    # ------------------------------------------------------------------
-    agg["severity"] = agg["vpr_score"].apply(
-        lambda v: vpr_to_severity(v, fallback="info")
-    )
-
-    # ------------------------------------------------------------------
     # Step E: Merge all aggregated components
     # ------------------------------------------------------------------
     result = (
@@ -498,20 +948,35 @@ def _group_by_plugin(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     # ------------------------------------------------------------------
-    # Step F: Format exploit_available as a human-readable Yes/No string
-    # Step G: Apply the four-level sort order
+    # Step F: Format exploit_available as a human-readable string that
+    #         reflects the highest-risk maturity level per plugin.
+    #         Priority: HIGH > FUNCTIONAL > POC > UNPROVEN > plain Yes > No
+    # Step G: Apply sort order: severity → maturity rank → VPR → asset count
+    #         → days open.  Maturity rank ensures functionally-exploitable
+    #         plugins surface above theoretically-exploitable ones.
     # ------------------------------------------------------------------
-    exploit_fmt = result["exploit_available"].map({True: "Yes", False: "No"}).fillna("No")
-    sev_rank = result["severity"].str.lower().map(SEVERITY_RANK).fillna(99).astype(int)
-    result = result.assign(exploit_available=exploit_fmt, _sev_rank=sev_rank)
+    def _fmt_exploit(row) -> str:
+        mat = row.get("exploit_code_maturity", "")
+        if mat in _MATURITY_DISPLAY:
+            return _MATURITY_DISPLAY[mat]
+        return "Yes" if row.get("exploit_available") else "No"
+
+    exploit_fmt = result.apply(_fmt_exploit, axis=1)
+    sev_rank     = result["severity"].str.lower().map(SEVERITY_RANK).fillna(99).astype(int)
+    mat_rank     = result["_maturity_rank_min"].fillna(len(MATURITY_RANK)).astype(int)
+    result = result.assign(
+        exploit_available=exploit_fmt,
+        _sev_rank=sev_rank,
+        _mat_rank=mat_rank,
+    )
     result = (
         result
         .sort_values(
-            ["_sev_rank", "vpr_score", "affected_asset_count", "days_open_oldest"],
-            ascending=[True, False, False, False],
+            ["_sev_rank", "_mat_rank", "vpr_score", "affected_asset_count", "days_open_oldest"],
+            ascending=[True, True, False, False, False],
             na_position="last",
         )
-        .drop(columns="_sev_rank")
+        .drop(columns=["_sev_rank", "_mat_rank", "_maturity_rank_min"])
         .reset_index(drop=True)
     )
 
@@ -532,11 +997,12 @@ def _group_by_plugin(df: pd.DataFrame) -> pd.DataFrame:
         "sla_status",
         "days_remaining",
         "exploit_available",
+        "exploit_code_maturity",
     ]]
 
     logger.info(
         "[%s] Grouped into %d plugins | %d unique assets affected.",
-        REPORT_NAME, len(result), df["asset_id"].nunique(),
+        REPORT_NAME, len(result), df["asset_uuid"].nunique(),
     )
     return result
 
@@ -631,9 +1097,16 @@ def _compute_summary_metrics(
         (plugin_df["sla_status"] == OPS_SLA_OVERDUE).sum()
     ) if not plugin_df.empty else 0
 
-    exploitable_plugins = int(
-        (plugin_df["exploit_available"] == "Yes").sum()
-    ) if not plugin_df.empty else 0
+    if not plugin_df.empty and "exploit_code_maturity" in plugin_df.columns:
+        exploitable_plugins = int(
+            plugin_df["exploit_code_maturity"].isin(_MATURITY_EXPLOITABLE).sum()
+        )
+    elif not plugin_df.empty:
+        exploitable_plugins = int(
+            plugin_df["exploit_available"].str.startswith("Yes").sum()
+        )
+    else:
+        exploitable_plugins = 0
 
     # Top 5 plugins by affected asset count
     top5 = (
@@ -803,27 +1276,418 @@ def _build_summary_sheet(wb, summary: dict) -> None:
     _w(row, 1, "Unique Plugins with Overdue Findings", font=_label_font, fill=_head_fill)
     _w(row, 2, summary.get("plugins_with_overdue", 0), font=_value_font)
     row += 1
-    _w(row, 1, "Exploitable Plugins", font=_label_font, fill=_alt_fill)
-    _w(row, 2, summary.get("exploitable_plugins", 0), font=_value_font)
-    row += 1
     compliance_pct = round(summary.get("sla_compliance_rate", 0) * 100, 1)
     _w(row, 1, "SLA Compliance Rate (On Track %)", font=_label_font, fill=_head_fill)
     _w(row, 2, f"{compliance_pct}%", font=_value_font)
     row += 2
 
-    # --- Top 5 plugins ---
-    top5 = summary.get("top5_plugins", [])
-    if top5:
-        _w(row, 1, "Top 5 Plugins by Affected Asset Count", font=_section_font)
+    # --- Exploitability section ---
+    _navy_fill  = PatternFill("solid", fgColor="1F3864")
+    _navy_font  = Font(bold=True, size=11, color="FFFFFF", name="Calibri")
+    _exploit_orange_fill = PatternFill("solid", fgColor="FFC000")
+    _exploit_red_fill    = PatternFill("solid", fgColor="FF0000")
+    _exploit_hi_fill     = PatternFill("solid", fgColor="FF6600")
+    _exploit_green_fill  = PatternFill("solid", fgColor="E2EFDA")
+    _white_font          = Font(bold=False, size=10, color="FFFFFF", name="Calibri")
+
+    _w(row, 1, "Exploitability", font=_navy_font, fill=_navy_fill)
+    _w(row, 2, "",               font=_navy_font, fill=_navy_fill)
+    row += 1
+
+    known = summary.get("known_exploit", 0)
+    _w(row, 1, "Plugins with Known Exploit", font=_label_font, fill=_head_fill)
+    known_cell = _w(row, 2, known, font=_value_font,
+                    fill=_exploit_orange_fill if known > 0 else _exploit_green_fill)
+    row += 1
+
+    func = summary.get("exploit_functional", 0)
+    _w(row, 1, "Exploit Maturity — Functional", font=_label_font, fill=_alt_fill)
+    func_fill = _exploit_red_fill if func > 0 else _exploit_green_fill
+    func_font = _white_font if func > 0 else _value_font
+    _w(row, 2, func, font=func_font, fill=func_fill)
+    row += 1
+
+    high = summary.get("exploit_high", 0)
+    _w(row, 1, "Exploit Maturity — High", font=_label_font, fill=_head_fill)
+    high_fill = _exploit_hi_fill if high > 0 else _exploit_green_fill
+    high_font = _white_font if high > 0 else _value_font
+    _w(row, 2, high, font=high_font, fill=high_fill)
+    row += 2
+
+    # --- Top 5 Priority Plugins (Functional & High exploit maturity) ---
+    priority = summary.get("priority_plugins", [])
+    _w(row, 1, "Top 5 Priority Plugins (Functional & High Exploit Maturity)",
+       font=_section_font)
+    row += 1
+    if priority:
+        _w(row, 1, "Plugin Name",      font=_label_font, fill=_head_fill)
+        _w(row, 2, "VPR Score",        font=_label_font, fill=_head_fill)
+        _w(row, 3, "Exploit Maturity", font=_label_font, fill=_head_fill)
+        _w(row, 4, "Affected Assets",  font=_label_font, fill=_head_fill)
         row += 1
-        _w(row, 1, "Plugin Name", font=_label_font, fill=_head_fill)
-        _w(row, 2, "Affected Assets", font=_label_font, fill=_head_fill)
-        row += 1
-        for i, p in enumerate(top5):
+        ws.column_dimensions["C"].width = 18
+        ws.column_dimensions["D"].width = 16
+        for i, p in enumerate(priority):
             fill = _alt_fill if i % 2 == 0 else PatternFill("solid", fgColor="FFFFFF")
-            _w(row, 1, p.get("plugin_name", ""), font=_value_font, fill=fill)
-            _w(row, 2, p.get("affected_asset_count", 0), font=_value_font, fill=fill)
+            vpr_str = (
+                f"{float(p.get('vpr_score', 0)):.1f}"
+                if p.get("vpr_score") is not None else "N/A"
+            )
+            mat_display = (
+                "Functional" if p.get("exploit_code_maturity") == "FUNCTIONAL"
+                else "High" if p.get("exploit_code_maturity") == "HIGH"
+                else p.get("exploit_code_maturity", "")
+            )
+            _w(row, 1, p.get("plugin_name", ""),     font=_value_font, fill=fill)
+            _w(row, 2, vpr_str,                      font=_value_font, fill=fill)
+            _w(row, 3, mat_display,                  font=_value_font, fill=fill)
+            _w(row, 4, p.get("affected_assets", 0),  font=_value_font, fill=fill)
             row += 1
+        n_shown = len(priority)
+        if n_shown < 5:
+            _w(row, 1,
+               f"Showing {n_shown} of {n_shown} qualifying plugins.",
+               font=_value_font)
+            row += 1
+    else:
+        _w(row, 1,
+           "No plugins with Functional or High exploit maturity found "
+           "in this reporting period.",
+           font=_value_font)
+        row += 1
+
+    row += 1
+
+    # --- Risk Management section ---
+    _w(row, 1, "Risk Management", font=_navy_font, fill=_navy_fill)
+    _w(row, 2, "",                font=_navy_font, fill=_navy_fill)
+    row += 1
+
+    accepted  = summary.get("count_risk_accepted", 0)
+    recast    = summary.get("count_risk_recast", 0)
+    expiring  = summary.get("count_expiring_soon", 0)
+    expired   = summary.get("count_expired", 0)
+    recurring = summary.get("count_recurring", 0)
+
+    _w(row, 1, "Accepted Findings (suppressed from counts)", font=_label_font, fill=_head_fill)
+    _w(row, 2, accepted, font=_value_font,
+       fill=_exploit_orange_fill if accepted > 0 else _exploit_green_fill)
+    row += 1
+
+    _w(row, 1, "Recast Findings (severity changed)", font=_label_font, fill=_alt_fill)
+    _w(row, 2, recast, font=_value_font,
+       fill=_exploit_orange_fill if recast > 0 else _exploit_green_fill)
+    row += 1
+
+    _w(row, 1, "Rules Expiring Within 30 Days", font=_label_font, fill=_head_fill)
+    _w(row, 2, expiring, font=Font(bold=True if expiring > 0 else False, size=10, name="Calibri"),
+       fill=_orange_fill if expiring > 0 else _exploit_green_fill)
+    row += 1
+
+    _w(row, 1, "Expired Rules (past expiration date)", font=_label_font, fill=_alt_fill)
+    _w(row, 2, expired, font=Font(bold=True if expired > 0 else False, color="B71C1C" if expired > 0 else "000000", size=10, name="Calibri"),
+       fill=_red_fill if expired > 0 else _exploit_green_fill)
+    row += 1
+
+    _w(row, 1, "Recurring Vulnerabilities (resurfaced after fix)", font=_label_font, fill=_head_fill)
+    _w(row, 2, recurring, font=Font(bold=True if recurring > 0 else False, color="E65100" if recurring > 0 else "000000", size=10, name="Calibri"),
+       fill=_orange_fill if recurring > 0 else _exploit_green_fill)
+    row += 1
+
+
+def _extend_metadata_tab(
+    wb,
+    risk_mods_df: Optional[pd.DataFrame],
+    recurring_df: Optional[pd.DataFrame],
+) -> None:
+    """
+    Append tab reference and field availability notes to the "Report Info"
+    worksheet created by ``write_metadata_tab()``.
+
+    Adds two sections:
+      - Workbook Tab Reference: one row per tab with name + description
+      - Field Availability Notes: explains which fields may be absent and why
+    """
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    ws = wb["Report Info"]
+    if ws is None:
+        return
+
+    _section_font = Font(bold=True, size=11, color="1F3864", name="Calibri")
+    _label_font   = Font(bold=True, size=10, name="Calibri")
+    _value_font   = Font(size=10, name="Calibri")
+    _note_font    = Font(italic=True, size=9, color="757575", name="Calibri")
+    _head_fill    = PatternFill("solid", fgColor="E8EAF6")
+    _alt_fill     = PatternFill("solid", fgColor="F5F7FA")
+    _white_fill   = PatternFill("solid", fgColor="FFFFFF")
+
+    def _w(row, col, val, font=None, fill=None):
+        cell = ws.cell(row=row, column=col, value=val)
+        if font: cell.font  = font
+        if fill: cell.fill  = fill
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+        return cell
+
+    # Find the next empty row (leave one blank spacer row after existing content)
+    row = ws.max_row + 2
+
+    # --- Workbook Tab Reference ---
+    _w(row, 1, "Workbook Tab Reference", font=_section_font)
+    ws.row_dimensions[row].height = 20
+    row += 1
+
+    _w(row, 1, "Tab Name",    font=_label_font, fill=_head_fill)
+    _w(row, 2, "Description", font=_label_font, fill=_head_fill)
+    row += 1
+
+    tab_ref = [
+        ("Summary",
+         "KPI metrics and state breakdown for the full reporting scope. "
+         "Includes open vuln counts by severity, SLA state distribution, "
+         "exploitability, risk management counts, and top priority plugins."),
+        ("Plugins",
+         "One row per unique plugin with open findings. Shows severity, VPR score, "
+         "affected asset count, oldest/newest days open, CVEs, exploit availability, "
+         "and four-state SLA status (Overdue / Urgent / Warning / On Track)."),
+        ("Overdue Detail",
+         "Individual vulnerability rows where SLA has been breached (status = Overdue). "
+         "Sorted by severity then days open descending. Each row represents one "
+         "finding on one asset."),
+        ("Unscanned Assets",
+         "Assets in scope that have not received a licensed scan within the last 30 days. "
+         "Includes last seen date, last licensed scan date, days since scan, and source. "
+         "These assets are excluded from all vulnerability counts."),
+        ("Risk Acceptances & Recasts",
+         "Active HOST-scoped risk rules from Tenable. Accepted findings are suppressed "
+         "from open vuln counts. Recast findings have had their severity changed from "
+         "the original value. Includes expiration dates and days until expiry. "
+         "Expired rules are highlighted red; rules expiring within 30 days are orange."),
+        ("Recurring Vulnerabilities",
+         "Findings that were previously remediated and have resurfaced. Detected via "
+         "the resurfaced_date field in the Tenable export. Date Closed is an "
+         "approximation based on resurfaced_date minus time_taken_to_fix. "
+         "Recurring findings indicate a systemic patching gap on the affected asset."),
+        ("Report Info",
+         "This tab. Contains report metadata, SLA definitions, VPR score ranges, "
+         "tab descriptions, and field availability notes."),
+    ]
+
+    for i, (tab_name, desc) in enumerate(tab_ref):
+        fill = _alt_fill if i % 2 == 0 else _white_fill
+        _w(row, 1, tab_name, font=_label_font, fill=fill)
+        _w(row, 2, desc,     font=_value_font, fill=fill)
+        ws.row_dimensions[row].height = 40
+        row += 1
+
+    ws.column_dimensions["B"].width = 72
+    row += 1
+
+    # --- Field Availability Notes ---
+    _w(row, 1, "Field Availability Notes", font=_section_font)
+    ws.row_dimensions[row].height = 20
+    row += 1
+
+    has_risk_mods  = risk_mods_df is not None and not risk_mods_df.empty
+    has_recurring  = recurring_df is not None and not recurring_df.empty
+
+    field_notes = [
+        ("Risk Acceptances & Recasts tab",
+         "Populated from POST /v1/recast/rules/search (Tenable IO). "
+         "Only HOST-scoped rules with action RECAST or ACCEPT are included. "
+         "Rules for Host Audits (CHANGE_RESULT / ACCEPT_RESULT) and Web App scans "
+         "are excluded. Currently shows "
+         + (f"{len(risk_mods_df)} rule(s)." if has_risk_mods
+            else "0 rules — either no active rules exist for this scope, "
+                 "or the accepted state filter may need to include 'accepted' "
+                 "findings in the vulnerability export.")),
+        ("Date Closed (Recurring Vulnerabilities tab)",
+         "Approximated as resurfaced_date minus time_taken_to_fix (seconds). "
+         "Shown as 'Not Available' when time_taken_to_fix is absent or zero. "
+         "Currently shows "
+         + (f"{len(recurring_df)} recurring finding(s)." if has_recurring
+            else "0 recurring findings — no resurfaced_date values found in export.")),
+        ("VPR Score",
+         "Vulnerability Priority Rating from Tenable. Used to derive severity "
+         "(Critical 9.0–10.0, High 7.0–8.9, Medium 4.0–6.9, Low 0.1–3.9). "
+         "Findings with no VPR score fall back to native Tenable severity."),
+        ("Days Open",
+         "Calculated as report generation date minus first_found date (UTC). "
+         "Reflects calendar days, not business days."),
+        ("Affected Assets (Risk Acceptances & Recasts tab)",
+         "Count of distinct assets in this scope with an open finding matching "
+         "the plugin ID of the rule. Assets outside the tag filter are excluded."),
+    ]
+
+    _w(row, 1, "Field",       font=_label_font, fill=_head_fill)
+    _w(row, 2, "Note",        font=_label_font, fill=_head_fill)
+    row += 1
+
+    for i, (field, note) in enumerate(field_notes):
+        fill = _alt_fill if i % 2 == 0 else _white_fill
+        _w(row, 1, field, font=Font(bold=True, size=9, name="Calibri"), fill=fill)
+        _w(row, 2, note,  font=_note_font, fill=fill)
+        ws.row_dimensions[row].height = 45
+        row += 1
+
+
+def _build_risk_mods_sheet(
+    wb,
+    risk_mods_df: Optional[pd.DataFrame],
+    tag_filter_str: str,
+) -> None:
+    """
+    Write the 'Risk Acceptances & Recasts' tab to *wb*.
+
+    Columns: Plugin ID, Plugin Name, Modification Type, Original Severity,
+    Current Severity, VPR Score, Date Opened, Expiration Date,
+    Days Until Expiry, Affected Assets.
+
+    Conditional formatting:
+      - Expiration Date / Days Until Expiry: red if expired (<0), orange if
+        expiring within 30 days, green if >30 days or no expiry.
+    """
+    from openpyxl.formatting.rule import CellIsRule
+    from openpyxl.styles import Font, PatternFill
+    from exporters.excel_exporter import _col_letter_for, write_dataframe_to_sheet
+
+    SHEET_NAME = "Risk Acceptances & Recasts"
+    NOTE = (
+        "Accepted: finding is acknowledged and suppressed from counts. "
+        "Recast: finding severity has been changed from its original value. "
+        "Expiration Date shows when the rule lapses — expired rules are highlighted red."
+    )
+
+    if risk_mods_df is None or risk_mods_df.empty:
+        ws = wb.create_sheet(title=SHEET_NAME)
+        ws.cell(row=1, column=1, value=NOTE)
+        ws.cell(row=3, column=1, value="No risk acceptances or recasts found for this scope.")
+        ws.column_dimensions["A"].width = 80
+        return
+
+    write_dataframe_to_sheet(
+        wb, risk_mods_df,
+        sheet_name=SHEET_NAME,
+        title_row=f"Risk Acceptances & Recasts — {tag_filter_str}",
+        severity_col="Current Severity",
+    )
+    ws = wb[SHEET_NAME]
+
+    # Insert the explanatory note above the title row
+    ws.insert_rows(1)
+    note_cell = ws.cell(row=1, column=1, value=NOTE)
+    note_cell.font = Font(italic=True, size=9, color="757575", name="Calibri")
+    if len(risk_mods_df.columns) > 1:
+        ws.merge_cells(
+            start_row=1, start_column=1,
+            end_row=1, end_column=len(risk_mods_df.columns),
+        )
+    ws.row_dimensions[1].height = 30
+
+    # Conditional formatting on Days Until Expiry column
+    exp_col = _col_letter_for(ws, "Days Until Expiry")
+    if exp_col:
+        data_start = 4   # row 1=note, row 2=title, row 3=header, row 4+ data
+        data_end   = ws.max_row
+        rng        = f"{exp_col}{data_start}:{exp_col}{data_end}"
+        _red    = PatternFill("solid", fgColor="FFCDD2")
+        _orange = PatternFill("solid", fgColor="FFE0B2")
+        _green  = PatternFill("solid", fgColor="C8E6C9")
+        _red_font    = Font(bold=True, color="B71C1C", size=10, name="Calibri")
+        _orange_font = Font(bold=True, color="E65100", size=10, name="Calibri")
+        _green_font  = Font(color="1B5E20", size=10, name="Calibri")
+        # Expired (negative)
+        ws.conditional_formatting.add(
+            rng,
+            CellIsRule(operator="lessThan", formula=["0"],
+                       fill=_red, font=_red_font),
+        )
+        # Expiring within 30 days
+        ws.conditional_formatting.add(
+            rng,
+            CellIsRule(operator="between", formula=["0", "30"],
+                       fill=_orange, font=_orange_font),
+        )
+        # Safe (>30 days)
+        ws.conditional_formatting.add(
+            rng,
+            CellIsRule(operator="greaterThan", formula=["30"],
+                       fill=_green, font=_green_font),
+        )
+
+    ws.freeze_panes = "A4"
+
+
+def _build_recurring_sheet(
+    wb,
+    recurring_df: Optional[pd.DataFrame],
+    tag_filter_str: str,
+) -> None:
+    """
+    Write the 'Recurring Vulnerabilities' tab to *wb*.
+
+    Columns: Plugin ID, Plugin Name, Asset Name, IP Address,
+    Original First Found, Date Closed, Date Reopened, Last Seen,
+    Current State, Severity, VPR Score, Exploit Available, Exploit Maturity.
+
+    Conditional formatting:
+      - Severity column: standard severity fill colours.
+      - Exploit Available column: red fill when "Yes".
+    """
+    from openpyxl.formatting.rule import CellIsRule
+    from openpyxl.styles import Font, PatternFill
+    from exporters.excel_exporter import _col_letter_for, write_dataframe_to_sheet
+
+    SHEET_NAME = "Recurring Vulnerabilities"
+    NOTE = (
+        "Recurring vulnerabilities were previously remediated but have resurfaced. "
+        "Date Closed is approximated from the resurfaced date minus the recorded fix duration. "
+        "Prioritise recurring findings — repeated remediation failures indicate a systemic patching gap."
+    )
+
+    if recurring_df is None or recurring_df.empty:
+        ws = wb.create_sheet(title=SHEET_NAME)
+        ws.cell(row=1, column=1, value=NOTE)
+        ws.cell(row=3, column=1, value="No recurring vulnerabilities found for this scope.")
+        ws.column_dimensions["A"].width = 80
+        return
+
+    write_dataframe_to_sheet(
+        wb, recurring_df,
+        sheet_name=SHEET_NAME,
+        title_row=f"Recurring Vulnerabilities — {tag_filter_str}",
+        severity_col="Severity",
+    )
+    ws = wb[SHEET_NAME]
+
+    # Insert the explanatory note above the title row
+    ws.insert_rows(1)
+    note_cell = ws.cell(row=1, column=1, value=NOTE)
+    note_cell.font = Font(italic=True, size=9, color="757575", name="Calibri")
+    if len(recurring_df.columns) > 1:
+        ws.merge_cells(
+            start_row=1, start_column=1,
+            end_row=1, end_column=len(recurring_df.columns),
+        )
+    ws.row_dimensions[1].height = 30
+
+    # Conditional formatting on Exploit Available column
+    ea_col = _col_letter_for(ws, "Exploit Available")
+    if ea_col:
+        data_start = 4
+        data_end   = ws.max_row
+        rng        = f"{ea_col}{data_start}:{ea_col}{data_end}"
+        ws.conditional_formatting.add(
+            rng,
+            CellIsRule(
+                operator="equal",
+                formula=['"Yes"'],
+                fill=PatternFill("solid", fgColor="FFCDD2"),
+                font=Font(bold=True, color="B71C1C", size=10, name="Calibri"),
+            ),
+        )
+
+    ws.freeze_panes = "A4"
 
 
 def _build_excel(
@@ -834,23 +1698,26 @@ def _build_excel(
     output_path: Path,
     tag_category: Optional[str],
     tag_value: Optional[str],
+    risk_mods_df: Optional[pd.DataFrame] = None,
+    recurring_df: Optional[pd.DataFrame] = None,
 ) -> Path:
     """
-    Build ops_remediation.xlsx with five worksheets:
+    Build ops_remediation.xlsx with seven worksheets:
 
-    1. Summary       — KPI metrics from the summary dict
-    2. Plugins       — plugin_df with four-state SLA conditional formatting
-    3. Overdue Detail — raw vuln rows that are Overdue, sorted severity → days_open desc
-    4. Unscanned Assets — assets with no recent scan
-    5. Report Info   — metadata tab (write_metadata_tab)
+    1. Summary                   — KPI metrics from the summary dict
+    2. Plugins                   — plugin_df with four-state SLA conditional formatting
+    3. Overdue Detail             — raw vuln rows that are Overdue
+    4. Unscanned Assets           — assets with no recent scan
+    5. Risk Acceptances & Recasts — accepted / recast rules with expiry tracking
+    6. Recurring Vulnerabilities  — vulns that resurfaced after prior remediation
+    7. Report Info                — metadata tab
 
     Parameters
     ----------
     plugin_df : pd.DataFrame
         Output of ``_group_by_plugin()``.
     overdue_df : pd.DataFrame
-        Vuln-level rows filtered to ``ops_sla_status == OPS_SLA_OVERDUE``,
-        pre-sorted by severity then days_open descending.
+        Vuln-level rows filtered to ``ops_sla_status == OPS_SLA_OVERDUE``.
     unscanned_df : pd.DataFrame
         Output of ``_identify_unscanned_assets()``.
     summary : dict
@@ -859,6 +1726,10 @@ def _build_excel(
         Destination file path (must end in .xlsx).
     tag_category, tag_value : str or None
         Tag filter — forwarded to the Report Info tab.
+    risk_mods_df : pd.DataFrame, optional
+        Output of ``_extract_risk_modifications()``.
+    recurring_df : pd.DataFrame, optional
+        Output of ``_extract_recurring_vulnerabilities()``.
 
     Returns
     -------
@@ -899,9 +1770,10 @@ def _build_excel(
         "affected_asset_count":"Affected Assets",
         "days_open_oldest":    "Days Open (Oldest)",
         "days_open_newest":    "Days Open (Newest)",
-        "sla_status":          "SLA Status",
-        "days_remaining":      "Days Remaining",
-        "exploit_available":   "Exploit Available",
+        "sla_status":            "SLA Status",
+        "days_remaining":        "Days Remaining",
+        "exploit_available":     "Exploit Available",
+        "exploit_code_maturity": "Exploit Maturity",
     })
     write_dataframe_to_sheet(
         wb, plugin_display,
@@ -927,17 +1799,17 @@ def _build_excel(
     if not overdue_df.empty:
         overdue_display = overdue_df[[
             c for c in [
-                "asset_id", "hostname", "ipv4", "tags",
+                "asset_uuid", "hostname", "mac_address", "ipv4",
                 "plugin_id", "plugin_name", "severity", "vpr_score",
                 "cve", "days_open", "days_remaining", "ops_sla_status",
                 "first_found",
             ] if c in overdue_df.columns
         ]].copy()
         overdue_display = overdue_display.rename(columns={
-            "asset_id":       "Asset ID",
-            "hostname":       "Hostname",
+            "asset_uuid":     "Asset UUID",
+            "hostname":       "Asset Name",
+            "mac_address":    "MAC Address",
             "ipv4":           "IP Address",
-            "tags":           "Tags",
             "plugin_id":      "Plugin ID",
             "plugin_name":    "Plugin Name",
             "severity":       "Severity",
@@ -970,8 +1842,32 @@ def _build_excel(
 
     # --- Tab 4: Unscanned Assets ---
     if not unscanned_df.empty:
+        unscanned_excel = unscanned_df[[
+            c for c in [
+                "hostname", "ipv4", "mac_address",
+                "last_seen", "last_licensed_scan_date",
+                "days_since_scan", "source_name",
+            ] if c in unscanned_df.columns
+        ]].copy()
+        # Format raw datetime columns as YYYY-MM-DD strings
+        for _dt_col in ("last_seen", "last_licensed_scan_date"):
+            if _dt_col in unscanned_excel.columns:
+                unscanned_excel[_dt_col] = pd.to_datetime(
+                    unscanned_excel[_dt_col], utc=True, errors="coerce"
+                ).apply(
+                    lambda ts: ts.strftime("%Y-%m-%d") if pd.notna(ts) else "Never"
+                )
+        unscanned_excel = unscanned_excel.rename(columns={
+            "hostname":                "Hostname",
+            "ipv4":                    "IP Address",
+            "mac_address":             "MAC Address",
+            "last_seen":               "Last Seen",
+            "last_licensed_scan_date": "Last Licensed Scan",
+            "days_since_scan":         "Days Since Last Seen",
+            "source_name":             "Source",
+        })
         write_dataframe_to_sheet(
-            wb, unscanned_df,
+            wb, unscanned_excel,
             sheet_name="Unscanned Assets",
             title_row=f"Unscanned / Stale Assets (>30 days) — {tag_filter_str}",
             severity_col=None,
@@ -980,10 +1876,17 @@ def _build_excel(
         ws_empty2 = wb.create_sheet(title="Unscanned Assets")
         ws_empty2.cell(row=1, column=1, value="No unscanned assets for this scope.")
 
-    # --- Tab 5: Report Info ---
+    # --- Tab 5: Risk Acceptances & Recasts ---
+    _build_risk_mods_sheet(wb, risk_mods_df, tag_filter_str)
+
+    # --- Tab 6: Recurring Vulnerabilities ---
+    _build_recurring_sheet(wb, recurring_df, tag_filter_str)
+
+    # --- Tab 7: Report Info ---
     from datetime import datetime, timezone
     generated_at = datetime.now(tz=timezone.utc)
     write_metadata_tab(wb, REPORT_NAME, tag_filter_str, generated_at)
+    _extend_metadata_tab(wb, risk_mods_df, recurring_df)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
@@ -1016,12 +1919,12 @@ def _kpi_html(summary: dict) -> str:
     td_l = (
         f"padding: 5px 10px; font-family: Arial, sans-serif; font-size: 9pt; "
         f"font-weight: bold; color: {muted}; border: 1px solid {border}; "
-        f"background-color: {alt}; width: 60%;"
+        f"background-color: {alt}; width: 56%;"
     )
     td_r = (
         f"padding: 5px 10px; font-family: Arial, sans-serif; font-size: 10pt; "
         f"font-weight: bold; color: {text}; border: 1px solid {border}; "
-        f"background-color: {white}; width: 40%; text-align: right;"
+        f"background-color: {white}; width: 37%; text-align: right;"
     )
 
     compliance_pct = round(summary.get("sla_compliance_rate", 0) * 100, 1)
@@ -1069,52 +1972,161 @@ def _kpi_html(summary: dict) -> str:
     rows += (
         f"<tr><td style='{td_l}'>Unique Plugins with Overdue Findings</td>"
         f"<td style='{td_r}'>{summary.get('plugins_with_overdue', 0):,}</td></tr>\n"
-        f"<tr><td style='{td_l}'>Exploitable Plugins</td>"
-        f"<td style='{td_r}'>{summary.get('exploitable_plugins', 0):,}</td></tr>\n"
         f"<tr><td style='{td_l}'>SLA Compliance Rate (On Track)</td>"
         f"<td style='{td_r}'>{compliance_pct}%</td></tr>\n"
     )
+
+    # Exploitability section rows
+    _navy_hdr = (
+        f"padding: 5px 10px; font-family: Arial, sans-serif; font-size: 9pt; "
+        f"font-weight: bold; color: #FFFFFF; background-color: #1F3864; "
+        f"border: 1px solid {border};"
+    )
+    rows += (
+        f"<tr>"
+        f'<td colspan="2" style="{_navy_hdr}">Exploitability</td>'
+        f"</tr>\n"
+    )
+
+    def _exploit_row(label: str, val: int, val_color: str) -> str:
+        v_style = (
+            f"padding: 5px 10px; font-family: Arial, sans-serif; font-size: 10pt; "
+            f"font-weight: bold; color: {val_color}; border: 1px solid {border}; "
+            f"background-color: {white}; width: 37%; text-align: right;"
+        )
+        return (
+            f"<tr>"
+            f'<td style="{td_l}">{label}</td>'
+            f'<td style="{v_style}">{val:,}</td>'
+            f"</tr>\n"
+        )
+
+    known = summary.get("known_exploit", 0)
+    func  = summary.get("exploit_functional", 0)
+    high  = summary.get("exploit_high", 0)
+    rows += _exploit_row(
+        "Plugins with Known Exploit",
+        known,
+        "#FF6600" if known > 0 else "#212121",
+    )
+    rows += _exploit_row(
+        "Exploit Maturity — Functional",
+        func,
+        "#C00000" if func > 0 else "#212121",
+    )
+    rows += _exploit_row(
+        "Exploit Maturity — High",
+        high,
+        "#FF6600" if high > 0 else "#212121",
+    )
+
+    # Risk Management section
+    rows += (
+        f"<tr>"
+        f'<td colspan="2" style="{_navy_hdr}">Risk Management</td>'
+        f"</tr>\n"
+    )
+
+    def _risk_row(label: str, val: int, val_color: str) -> str:
+        v_style = (
+            f"padding: 5px 10px; font-family: Arial, sans-serif; font-size: 10pt; "
+            f"font-weight: bold; color: {val_color}; border: 1px solid {border}; "
+            f"background-color: {white}; width: 37%; text-align: right;"
+        )
+        return (
+            f"<tr>"
+            f'<td style="{td_l}">{label}</td>'
+            f'<td style="{v_style}">{val:,}</td>'
+            f"</tr>\n"
+        )
+
+    accepted  = summary.get("count_risk_accepted", 0)
+    recast    = summary.get("count_risk_recast", 0)
+    expiring  = summary.get("count_expiring_soon", 0)
+    expired   = summary.get("count_expired", 0)
+    recurring = summary.get("count_recurring", 0)
+
+    rows += _risk_row("Accepted Findings",             accepted,  "#FF6600" if accepted  > 0 else "#212121")
+    rows += _risk_row("Recast Findings",               recast,    "#FF6600" if recast    > 0 else "#212121")
+    rows += _risk_row("Rules Expiring Within 30 Days", expiring,  "#FF6600" if expiring  > 0 else "#212121")
+    rows += _risk_row("Expired Rules",                 expired,   "#C00000" if expired   > 0 else "#212121")
+    rows += _risk_row("Recurring Vulnerabilities",     recurring, "#FF6600" if recurring > 0 else "#212121")
 
     kpi_table = (
         f'<table style="border-collapse: collapse; width: 100%; margin: 8px 0;">'
         f"{rows}</table>"
     )
 
-    # Top-5 plugins mini-table
-    top5 = summary.get("top5_plugins", [])
-    top5_html = ""
-    if top5:
-        th = (
-            f"font-family: Arial, sans-serif; font-size: 9pt; font-weight: bold; "
-            f"color: {white}; background-color: {accent}; "
-            f"border: 1px solid {border}; padding: 5px 8px; text-align: left;"
-        )
-        td = (
-            f"font-family: Arial, sans-serif; font-size: 9pt; color: {text}; "
-            f"border: 1px solid {border}; padding: 4px 8px;"
-        )
+    # Top 5 Priority Plugins mini-table
+    priority = summary.get("priority_plugins", [])
+    priority_html = ""
+    th = (
+        f"font-family: Arial, sans-serif; font-size: 9pt; font-weight: bold; "
+        f"color: {white}; background-color: {accent}; "
+        f"border: 1px solid {border}; padding: 5px 8px; text-align: left;"
+    )
+    td_cell = (
+        f"font-family: Arial, sans-serif; font-size: 9pt; color: {text}; "
+        f"border: 1px solid {border}; padding: 4px 8px; "
+        f"word-wrap: break-word; overflow-wrap: break-word; vertical-align: top;"
+    )
+    priority_html += (
+        f'<p style="font-weight: bold; color: {accent}; margin: 14px 0 4px 0; '
+        f'page-break-before: always;">'
+        f"Top 5 Priority Plugins (Functional &amp; High Exploit Maturity)</p>"
+    )
+    if priority:
         t_rows = ""
-        for i, p in enumerate(top5):
+        for i, p in enumerate(priority):
             bg = alt if i % 2 == 0 else white
+            vpr_str = (
+                f"{float(p.get('vpr_score', 0)):.1f}"
+                if p.get("vpr_score") is not None else "N/A"
+            )
+            mat_display = (
+                "Functional" if p.get("exploit_code_maturity") == "FUNCTIONAL"
+                else "High" if p.get("exploit_code_maturity") == "HIGH"
+                else p.get("exploit_code_maturity", "")
+            )
+            name = p.get("plugin_name", "")
+            if len(name) > 55:
+                name = name[:52] + "..."
             t_rows += (
                 f'<tr style="background-color: {bg};">'
-                f'<td style="{td}">{p.get("plugin_name", "")}</td>'
-                f'<td style="{td}; text-align: right;">'
-                f'{p.get("affected_asset_count", 0):,}</td>'
+                f'<td style="{td_cell}">{name}</td>'
+                f'<td style="{td_cell}; text-align: right;">{vpr_str}</td>'
+                f'<td style="{td_cell}">{mat_display}</td>'
+                f'<td style="{td_cell}; text-align: right;">'
+                f'{p.get("affected_assets", 0):,}</td>'
                 f"</tr>\n"
             )
-        top5_html = (
-            f'<p style="font-weight: bold; color: {accent}; margin: 14px 0 4px 0;">'
-            f"Top 5 Plugins by Affected Asset Count</p>"
-            f'<table style="border-collapse: collapse; width: 100%; margin: 4px 0;">'
+        n_shown = len(priority)
+        note = (
+            f'<p style="font-family: Arial, sans-serif; font-size: 8pt; '
+            f'color: {muted}; margin: 2px 0 0 0;">'
+            f"Showing {n_shown} of {n_shown} qualifying plugins.</p>"
+            if n_shown < 5 else ""
+        )
+        priority_html += (
+            f'<table style="width: 100%; table-layout: fixed; '
+            f'border-collapse: collapse; margin: 4px 0;">'
             f"<thead><tr>"
             f'<th style="{th}">Plugin Name</th>'
+            f'<th style="{th}; text-align: right;">VPR Score</th>'
+            f'<th style="{th}">Exploit Maturity</th>'
             f'<th style="{th}; text-align: right;">Affected Assets</th>'
             f"</tr></thead>"
-            f"<tbody>{t_rows}</tbody></table>"
+            f"<tbody>{t_rows}</tbody></table>{note}"
+        )
+    else:
+        priority_html += (
+            f'<p style="font-family: Arial, sans-serif; font-size: 9pt; '
+            f'color: {muted}; font-style: italic;">'
+            f"No plugins with Functional or High exploit maturity found "
+            f"in this reporting period.</p>"
         )
 
-    return kpi_table + top5_html
+    return kpi_table + priority_html
 
 
 def _truncate_for_pdf(df: pd.DataFrame) -> pd.DataFrame:
@@ -1128,47 +2140,55 @@ def _truncate_for_pdf(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     if "Plugin Name" in df.columns:
         df["Plugin Name"] = df["Plugin Name"].apply(
-            lambda x: (x[:57] + "...") if isinstance(x, str) and len(x) > 60 else (x or "")
+            lambda x: (x[:47] + "...") if isinstance(x, str) and len(x) > 50 else (x or "")
         )
     if "Hostname" in df.columns:
         df["Hostname"] = df["Hostname"].apply(
-            lambda x: (x[:47] + "...") if isinstance(x, str) and len(x) > 50 else (x or "")
+            lambda x: (x[:37] + "...") if isinstance(x, str) and len(x) > 40 else (x or "")
         )
     return df
 
 
 # Column width maps for WeasyPrint table-layout: fixed.
 # Keys must match the renamed (display) column headers passed to build_pdf().
+# Percentages sum to ≈80% (9-col), ≈82% (8-col), ≈90% (4-col) to prevent
+# WeasyPrint overflow: th padding (5px 7px) and border are content-box additions
+# on top of the percentage width.  Formula: available = (680px - N×14px - (N+1)px) / 680px.
 _PDF_COL_WIDTHS_VULN = {
-    "Severity":        "8%",
-    "Plugin Name":     "26%",
-    "CVE":             "12%",
-    "Hostname":        "14%",
-    "IP Address":      "9%",
-    "Days Open":       "8%",
-    "Days Remaining":  "10%",
-    "First Found":     "13%",
+    "Asset Name":      "15%",
+    "IP Address":      "11%",
+    "Plugin ID":        "6%",
+    "Plugin Name":     "20%",
+    "Severity":         "7%",
+    "VPR Score":        "6%",
+    "Days Open":        "6%",
+    "Days Overdue":     "5%",   # overdue table: days_remaining (negative = days past SLA)
+    "Days Remaining":   "5%",   # urgent table:  days_remaining (positive = days left)
 }
+# Active 8 cols per table sum = 76% (well within ~82% max for 8-col with 5px 7px th padding)
 
 _PDF_COL_WIDTHS_PLUGIN = {
-    "Severity":          "8%",
-    "Plugin Name":       "26%",
-    "Plugin Family":     "12%",
-    "VPR Score":         "7%",
-    "Affected Assets":   "9%",
-    "Days Open (Oldest)":"10%",
-    "SLA Status":        "20%",
-    "Exploit Available": "8%",
+    "Severity":           "7%",
+    "Plugin ID":          "6%",
+    "Plugin Name":       "19%",
+    "VPR Score":          "6%",
+    "Affected Assets":    "8%",
+    "Days Open (Oldest)": "8%",
+    "Days Open (Newest)": "8%",
+    "CVEs":              "12%",
+    "Exploit Available":  "6%",
 }
+# 9 cols sum = 80%
 
 _PDF_COL_WIDTHS_UNSCANNED = {
-    "Hostname":        "22%",
-    "IP Address":      "15%",
-    "Tags":            "20%",
-    "Last Scan Date":  "18%",
-    "Days Since Scan": "12%",
-    "Operating System":"13%",
+    "Hostname":            "19%",
+    "IP Address":          "12%",
+    "Last Seen":           "14%",
+    "Last Licensed Scan":  "14%",
+    "Days Since Scan":     "12%",
+    "Source":              "15%",
 }
+# 6 cols sum = 86% (max ~87% for 6-col with 5px 7px th padding)
 
 
 def _build_pdf(
@@ -1238,20 +2258,20 @@ def _build_pdf(
     # ------------------------------------------------------------------
     overdue_count = len(overdue_df)
     overdue_cols  = [c for c in [
-        "severity", "plugin_name", "cve", "hostname", "ipv4",
-        "days_open", "days_remaining", "first_found",
+        "hostname", "ipv4", "plugin_id", "plugin_name",
+        "severity", "vpr_score", "days_open", "days_remaining",
     ] if c in overdue_df.columns]
 
     overdue_display = overdue_df[overdue_cols].head(200).copy()
     overdue_display = overdue_display.rename(columns={
-        "severity":      "Severity",
-        "plugin_name":   "Plugin Name",
-        "cve":           "CVE",
-        "hostname":      "Hostname",
-        "ipv4":          "IP Address",
-        "days_open":     "Days Open",
-        "days_remaining":"Days Remaining",
-        "first_found":   "First Found",
+        "hostname":       "Asset Name",
+        "ipv4":           "IP Address",
+        "plugin_id":      "Plugin ID",
+        "plugin_name":    "Plugin Name",
+        "severity":       "Severity",
+        "vpr_score":      "VPR Score",
+        "days_open":      "Days Open",
+        "days_remaining": "Days Overdue",
     })
 
     overdue_note = ""
@@ -1275,20 +2295,20 @@ def _build_pdf(
     urgent_count = len(urgent_df)
     if not urgent_df.empty:
         urgent_cols = [c for c in [
-            "severity", "plugin_name", "cve", "hostname", "ipv4",
-            "days_open", "days_remaining", "first_found",
+            "hostname", "ipv4", "plugin_id", "plugin_name",
+            "severity", "vpr_score", "days_open", "days_remaining",
         ] if c in urgent_df.columns]
 
         urgent_display = urgent_df[urgent_cols].head(200).copy()
         urgent_display = urgent_display.rename(columns={
-            "severity":      "Severity",
-            "plugin_name":   "Plugin Name",
-            "cve":           "CVE",
-            "hostname":      "Hostname",
-            "ipv4":          "IP Address",
-            "days_open":     "Days Open",
-            "days_remaining":"Days Remaining",
-            "first_found":   "First Found",
+            "hostname":       "Asset Name",
+            "ipv4":           "IP Address",
+            "plugin_id":      "Plugin ID",
+            "plugin_name":    "Plugin Name",
+            "severity":       "Severity",
+            "vpr_score":      "VPR Score",
+            "days_open":      "Days Open",
+            "days_remaining": "Days Remaining",
         })
         sections.append({
             "heading":      f"Urgent Findings — <=25% SLA Remaining ({urgent_count:,} total)",
@@ -1306,20 +2326,26 @@ def _build_pdf(
     # ------------------------------------------------------------------
     plugin_count = len(plugin_df)
     plugin_cols  = [c for c in [
-        "severity", "plugin_name", "plugin_family",
+        "severity", "plugin_id", "plugin_name",
         "vpr_score", "affected_asset_count",
-        "days_open_oldest", "sla_status", "exploit_available",
+        "days_open_oldest", "days_open_newest",
+        "cves", "exploit_available",
     ] if c in plugin_df.columns]
 
     plugin_display = plugin_df[plugin_cols].head(200).copy()
+    if "vpr_score" in plugin_display.columns:
+        plugin_display["vpr_score"] = plugin_display["vpr_score"].apply(
+            lambda v: f"{float(v):.1f}" if pd.notna(v) else ""
+        )
     plugin_display = plugin_display.rename(columns={
         "severity":            "Severity",
+        "plugin_id":           "Plugin ID",
         "plugin_name":         "Plugin Name",
-        "plugin_family":       "Plugin Family",
         "vpr_score":           "VPR Score",
         "affected_asset_count":"Affected Assets",
         "days_open_oldest":    "Days Open (Oldest)",
-        "sla_status":          "SLA Status",
+        "days_open_newest":    "Days Open (Newest)",
+        "cves":                "CVEs",
         "exploit_available":   "Exploit Available",
     })
 
@@ -1343,16 +2369,23 @@ def _build_pdf(
     # ------------------------------------------------------------------
     if not unscanned_df.empty:
         unscanned_cols = [c for c in [
-            "hostname", "ipv4", "tags", "last_scan_date", "days_since_scan",
+            "hostname", "ipv4", "last_seen", "last_licensed_scan_date",
+            "days_since_scan", "source_name",
         ] if c in unscanned_df.columns]
 
         unscanned_display = unscanned_df[unscanned_cols].copy()
+        for _dt_col in ("last_seen", "last_licensed_scan_date"):
+            if _dt_col in unscanned_display.columns:
+                unscanned_display[_dt_col] = pd.to_datetime(
+                    unscanned_display[_dt_col], utc=True, errors="coerce"
+                ).apply(lambda ts: ts.strftime("%Y-%m-%d") if pd.notna(ts) else "—")
         unscanned_display = unscanned_display.rename(columns={
-            "hostname":       "Hostname",
-            "ipv4":           "IP Address",
-            "tags":           "Tags",
-            "last_scan_date": "Last Scan Date",
-            "days_since_scan":"Days Since Scan",
+            "hostname":                "Hostname",
+            "ipv4":                    "IP Address",
+            "last_seen":               "Last Seen",
+            "last_licensed_scan_date": "Last Licensed Scan",
+            "days_since_scan":         "Days Since Scan",
+            "source_name":             "Source",
         })
 
         sections.append({
@@ -1470,7 +2503,54 @@ def _build_email_summary(
         "sub_label": "with known exploit",
     }
 
-    kpi_tiles = [tile_crit, tile_overdue, tile_sla, tile_exploit]
+    # ------------------------------------------------------------------
+    # Tile 5: Recurring Vulnerabilities
+    # ------------------------------------------------------------------
+    recurring = summary.get("count_recurring", 0)
+    tile_recurring = {
+        "label": "Recurring Findings",
+        "value": f"{recurring:,}",
+        "color": _ORANGE if recurring > 0 else _GREEN,
+        "sub_label": "resurfaced after prior fix",
+    }
+
+    kpi_tiles = [tile_crit, tile_overdue, tile_sla, tile_exploit, tile_recurring]
+
+    # ------------------------------------------------------------------
+    # Plain-language narrative sentences for risk management context
+    # ------------------------------------------------------------------
+    accepted = summary.get("count_risk_accepted", 0)
+    recast   = summary.get("count_risk_recast", 0)
+    expiring = summary.get("count_expiring_soon", 0)
+    expired  = summary.get("count_expired", 0)
+
+    narrative_sentences: list[str] = []
+
+    if recurring > 0:
+        narrative_sentences.append(
+            f"{recurring:,} finding{'s' if recurring != 1 else ''} have resurfaced after a prior remediation — "
+            f"review the Recurring Vulnerabilities tab for systemic patching gaps."
+        )
+    if expired > 0:
+        narrative_sentences.append(
+            f"{expired:,} risk acceptance or recast rule{'s have' if expired != 1 else ' has'} passed "
+            f"its expiration date and should be reviewed or renewed."
+        )
+    if expiring > 0:
+        narrative_sentences.append(
+            f"{expiring:,} risk rule{'s are' if expiring != 1 else ' is'} expiring within the next 30 days — "
+            f"confirm whether renewal or remediation is required."
+        )
+    if accepted > 0 or recast > 0:
+        parts = []
+        if accepted > 0:
+            parts.append(f"{accepted:,} accepted")
+        if recast > 0:
+            parts.append(f"{recast:,} recast")
+        narrative_sentences.append(
+            f"{' and '.join(parts)} finding{'s are' if (accepted + recast) != 1 else ' is'} currently "
+            f"suppressed or severity-modified — see the Risk Acceptances & Recasts tab for details."
+        )
 
     return {
         "kpi_tiles": kpi_tiles,
@@ -1490,6 +2570,12 @@ def _build_email_summary(
             "plugins_with_overdue": summary.get("plugins_with_overdue", 0),
             "exploitable_plugins":  summary.get("exploitable_plugins", 0),
             "sla_compliance_rate":  summary.get("sla_compliance_rate", 0.0),
+            "count_risk_accepted":  summary.get("count_risk_accepted", 0),
+            "count_risk_recast":    summary.get("count_risk_recast", 0),
+            "count_expiring_soon":  summary.get("count_expiring_soon", 0),
+            "count_expired":        summary.get("count_expired", 0),
+            "count_recurring":      summary.get("count_recurring", 0),
+            "narrative_sentences":  narrative_sentences,
         },
     }
 
@@ -1563,10 +2649,12 @@ def run_report(
         as_of        = generated_at,
     )
 
-    unscanned_df = _identify_unscanned_assets(assets_df, as_of=generated_at)
+    recast_rules_df = fetch_recast_rules(tio, cache_dir)
 
-    scanned_ids   = set(assets_df["asset_id"]) - set(unscanned_df["asset_id"])
-    vulns_scanned = vulns_df[vulns_df["asset_id"].isin(scanned_ids)]
+    scanned_df, unscanned_df = _identify_unscanned_assets(assets_df, as_of=generated_at)
+
+    scanned_ids   = set(scanned_df["asset_uuid"])
+    vulns_scanned = vulns_df[vulns_df["asset_uuid"].isin(scanned_ids)]
 
     plugin_df = _group_by_plugin(vulns_scanned)
 
@@ -1580,15 +2668,66 @@ def run_report(
         as_of        = generated_at,
     )
 
+    _exploit_metrics = _compute_exploitability_metrics(vulns_scanned)
+    summary["known_exploit"]      = _exploit_metrics["known_exploit"]
+    summary["exploit_functional"] = _exploit_metrics["functional"]
+    summary["exploit_high"]       = _exploit_metrics["high_maturity"]
+
+    _priority_df = _get_top_priority_plugins(vulns_scanned)
+    summary["priority_plugins"] = _priority_df.to_dict("records")
+
+    risk_mods_df  = _extract_risk_modifications(
+        vulns_df        = vulns_scanned,
+        assets_df       = assets_df,
+        recast_rules_df = recast_rules_df,
+        as_of           = generated_at,
+    )
+    recurring_df = _extract_recurring_vulnerabilities(
+        vulns_df  = vulns_scanned,
+        assets_df = assets_df,
+    )
+    summary["count_risk_accepted"]  = int((risk_mods_df["Modification Type"] == "Accepted").sum()) if not risk_mods_df.empty else 0
+    summary["count_risk_recast"]    = int((risk_mods_df["Modification Type"] == "Recast").sum())   if not risk_mods_df.empty else 0
+    summary["count_expiring_soon"]  = int(
+        risk_mods_df["Days Until Expiry"].apply(
+            lambda x: isinstance(x, int) and 0 <= x <= 30
+        ).sum()
+    ) if not risk_mods_df.empty else 0
+    summary["count_expired"]        = int(
+        risk_mods_df["Days Until Expiry"].apply(
+            lambda x: isinstance(x, int) and x < 0
+        ).sum()
+    ) if not risk_mods_df.empty else 0
+    summary["count_recurring"]      = len(recurring_df)
+
     # ------------------------------------------------------------------
     # Step 2: Build Excel
     # ------------------------------------------------------------------
     slug_str   = safe_filename(f"{tag_category or 'all'}_{tag_value or 'assets'}")
     excel_path = output_dir / f"ops_remediation_{slug_str}.xlsx"
 
-    overdue_df = vulns_scanned[
-        vulns_scanned["ops_sla_status"] == OPS_SLA_OVERDUE
-    ].sort_values(
+    # Enrich overdue/urgent with authoritative asset columns from the asset export.
+    # Even though enrich_vulns_with_assets already joined these, we re-join here
+    # to guarantee hostname, mac_address, ipv4 reflect the asset export's values.
+    _asset_lookup = (
+        assets_df[["asset_uuid", "hostname", "mac_address", "ipv4"]]
+        .drop_duplicates("asset_uuid")
+        if all(c in assets_df.columns for c in ["asset_uuid", "hostname", "mac_address", "ipv4"])
+        else None
+    )
+
+    def _enrich_with_assets(df: pd.DataFrame) -> pd.DataFrame:
+        if _asset_lookup is None or df.empty:
+            return df
+        drop_cols = [c for c in ["hostname", "mac_address", "ipv4"] if c in df.columns]
+        return (
+            df.drop(columns=drop_cols)
+            .merge(_asset_lookup, on="asset_uuid", how="left")
+        )
+
+    overdue_df = _enrich_with_assets(
+        vulns_scanned[vulns_scanned["ops_sla_status"] == OPS_SLA_OVERDUE]
+    ).sort_values(
         ["severity", "days_open"],
         ascending=[True, False],
         na_position="last",
@@ -1603,6 +2742,8 @@ def run_report(
         output_path  = excel_path,
         tag_category = tag_category,
         tag_value    = tag_value,
+        risk_mods_df = risk_mods_df,
+        recurring_df = recurring_df,
     )
 
     # ------------------------------------------------------------------
@@ -1610,9 +2751,9 @@ def run_report(
     # ------------------------------------------------------------------
     pdf_path = output_dir / f"ops_remediation_{slug_str}.pdf"
 
-    urgent_df = vulns_scanned[
-        vulns_scanned["ops_sla_status"] == OPS_SLA_URGENT
-    ].sort_values(
+    urgent_df = _enrich_with_assets(
+        vulns_scanned[vulns_scanned["ops_sla_status"] == OPS_SLA_URGENT]
+    ).sort_values(
         ["severity", "days_remaining"],
         ascending=[True, True],
         na_position="last",
@@ -1702,8 +2843,8 @@ if __name__ == "__main__":
         _vulns_with_tags = _raw_vulns["tags"].fillna("").loc[lambda s: s != ""] if "tags" in _raw_vulns.columns else pd.Series(dtype=str)
         print(f"  vulns_all rows         : {len(_raw_vulns)}")
         print(f"  vulns with tags col    : {'yes' if 'tags' in _raw_vulns.columns else 'no (expected)'}")
-        print(f"  vuln asset_id sample   : {_raw_vulns['asset_id'].dropna().head(3).tolist()}")
-        print(f"  asset asset_id sample  : {_raw_assets['asset_id'].dropna().head(3).tolist() if _raw_assets_cache.exists() else 'N/A'}")
+        print(f"  vuln asset_uuid sample   : {_raw_vulns['asset_uuid'].dropna().head(3).tolist()}")
+        print(f"  asset asset_uuid sample  : {_raw_assets['asset_uuid'].dropna().head(3).tolist() if _raw_assets_cache.exists() else 'N/A'}")
     else:
         print(f"  vulns_all.parquet not found at {_raw_vulns_cache}")
     print()
@@ -1716,10 +2857,12 @@ if __name__ == "__main__":
         as_of        = _as_of,
     )
 
-    _unscanned_df = _identify_unscanned_assets(_assets_df, as_of=_as_of)
+    _recast_rules_df = fetch_recast_rules(_tio, _cache_dir)
 
-    _scanned_ids   = set(_assets_df["asset_id"]) - set(_unscanned_df["asset_id"])
-    _vulns_scanned = _vulns_df[_vulns_df["asset_id"].isin(_scanned_ids)]
+    _scanned_df, _unscanned_df = _identify_unscanned_assets(_assets_df, as_of=_as_of)
+
+    _scanned_ids   = set(_scanned_df["asset_uuid"])
+    _vulns_scanned = _vulns_df[_vulns_df["asset_uuid"].isin(_scanned_ids)]
 
     _plugin_df = _group_by_plugin(_vulns_scanned)
 
@@ -1733,6 +2876,38 @@ if __name__ == "__main__":
         as_of        = _as_of,
     )
 
+    _exploit_metrics_cli = _compute_exploitability_metrics(_vulns_scanned)
+    _summary["known_exploit"]      = _exploit_metrics_cli["known_exploit"]
+    _summary["exploit_functional"] = _exploit_metrics_cli["functional"]
+    _summary["exploit_high"]       = _exploit_metrics_cli["high_maturity"]
+
+    _priority_df_cli = _get_top_priority_plugins(_vulns_scanned)
+    _summary["priority_plugins"] = _priority_df_cli.to_dict("records")
+
+    _risk_mods_df_cli = _extract_risk_modifications(
+        vulns_df        = _vulns_scanned,
+        assets_df       = _assets_df,
+        recast_rules_df = _recast_rules_df,
+        as_of           = _as_of,
+    )
+    _recurring_df_cli = _extract_recurring_vulnerabilities(
+        vulns_df  = _vulns_scanned,
+        assets_df = _assets_df,
+    )
+    _summary["count_risk_accepted"] = int((_risk_mods_df_cli["Modification Type"] == "Accepted").sum()) if not _risk_mods_df_cli.empty else 0
+    _summary["count_risk_recast"]   = int((_risk_mods_df_cli["Modification Type"] == "Recast").sum())   if not _risk_mods_df_cli.empty else 0
+    _summary["count_expiring_soon"] = int(
+        _risk_mods_df_cli["Days Until Expiry"].apply(
+            lambda x: isinstance(x, int) and 0 <= x <= 30
+        ).sum()
+    ) if not _risk_mods_df_cli.empty else 0
+    _summary["count_expired"]       = int(
+        _risk_mods_df_cli["Days Until Expiry"].apply(
+            lambda x: isinstance(x, int) and x < 0
+        ).sum()
+    ) if not _risk_mods_df_cli.empty else 0
+    _summary["count_recurring"]     = len(_recurring_df_cli)
+
     print("\n=== Step 1 — Data Preparation Summary ===")
     for k, v in _summary.items():
         if k == "top5_plugins":
@@ -1744,16 +2919,35 @@ if __name__ == "__main__":
 
     print(f"\n  plugin_df rows       : {len(_plugin_df)}")
     print(f"  unscanned_df rows    : {len(_unscanned_df)}")
+    print(f"  risk_mods rows       : {len(_risk_mods_df_cli)}")
+    print(f"  recurring vuln rows  : {len(_recurring_df_cli)}")
     if not _plugin_df.empty:
         print(f"\n  SLA state distribution (by plugin row):")
         for state in OPS_SLA_STATE_ORDER:
             n = int((_plugin_df["sla_status"] == state).sum())
             print(f"    {state:<35}: {n}")
 
+    # --- Asset enrichment for overdue/urgent display ---
+    _asset_lookup_cli = (
+        _assets_df[["asset_uuid", "hostname", "mac_address", "ipv4"]]
+        .drop_duplicates("asset_uuid")
+        if all(c in _assets_df.columns for c in ["asset_uuid", "hostname", "mac_address", "ipv4"])
+        else None
+    )
+
+    def _enrich_cli(df: pd.DataFrame) -> pd.DataFrame:
+        if _asset_lookup_cli is None or df.empty:
+            return df
+        drop_cols = [c for c in ["hostname", "mac_address", "ipv4"] if c in df.columns]
+        return (
+            df.drop(columns=drop_cols)
+            .merge(_asset_lookup_cli, on="asset_uuid", how="left")
+        )
+
     # --- Step 2: Build Excel ---
-    _overdue_df = _vulns_scanned[
-        _vulns_scanned["ops_sla_status"] == OPS_SLA_OVERDUE
-    ].sort_values(
+    _overdue_df = _enrich_cli(
+        _vulns_scanned[_vulns_scanned["ops_sla_status"] == OPS_SLA_OVERDUE]
+    ).sort_values(
         ["severity", "days_open"],
         ascending=[True, False],
         na_position="last",
@@ -1772,13 +2966,15 @@ if __name__ == "__main__":
         output_path  = _excel_path,
         tag_category = args.tag_category,
         tag_value    = args.tag_value,
+        risk_mods_df = _risk_mods_df_cli,
+        recurring_df = _recurring_df_cli,
     )
     print(f"\n  Excel written: {_excel_path}")
 
     # --- Step 3: Build PDF ---
-    _urgent_df = _vulns_scanned[
-        _vulns_scanned["ops_sla_status"] == OPS_SLA_URGENT
-    ].sort_values(
+    _urgent_df = _enrich_cli(
+        _vulns_scanned[_vulns_scanned["ops_sla_status"] == OPS_SLA_URGENT]
+    ).sort_values(
         ["severity", "days_remaining"],
         ascending=[True, True],
         na_position="last",
