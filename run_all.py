@@ -36,6 +36,7 @@ import argparse
 import importlib
 import logging
 import os
+import shutil
 import sys
 import time
 import traceback
@@ -464,9 +465,9 @@ def run_group(
     if generated_at is None:
         generated_at = datetime.now(tz=timezone.utc)
     if run_id is None:
-        run_id = generated_at.strftime("%Y-%m-%d")
+        run_id = datetime.now().strftime("%Y-%m-%d")
     if cache_dir is None:
-        cache_dir = CACHE_DIR / generated_at.strftime("%Y-%m-%d")
+        cache_dir = CACHE_DIR / datetime.now().strftime("%Y-%m-%d")
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     if base_output_dir is None:
@@ -804,11 +805,21 @@ Examples:
         recipient_override = [r.strip() for r in args.recipients.split(",") if r.strip()]
 
     # Shared run_id and cache_dir so all groups in this batch share the parquet cache
-    generated_at = datetime.now(tz=timezone.utc)
-    run_id       = generated_at.strftime("%Y-%m-%d")
-    cache_dir    = CACHE_DIR / generated_at.strftime("%Y-%m-%d")
+    generated_at  = datetime.now(tz=timezone.utc)
+    _today_local  = datetime.now().strftime("%Y-%m-%d")
+    run_id        = _today_local
+    cache_dir     = CACHE_DIR / _today_local
     cache_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Run cache directory: %s", cache_dir)
+
+    # Remove cache folders from previous days, keep only today's
+    for _old in CACHE_DIR.iterdir():
+        if _old.is_dir() and _old.name != _today_local:
+            try:
+                shutil.rmtree(_old)
+                logger.info("Removed stale cache folder: %s", _old)
+            except Exception as _e:
+                logger.warning("Could not remove stale cache folder %s: %s", _old, _e)
 
     # ------------------------------------------------------------------
     # Execute each group (failures in one group never stop the others)

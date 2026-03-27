@@ -550,6 +550,7 @@ def _extract_risk_modifications(
     assets_df: pd.DataFrame,
     recast_rules_df: pd.DataFrame,
     as_of: datetime,
+    cache_dir: Optional[Path] = None,
 ) -> pd.DataFrame:
     """
     Join active recast/accept rules with vulnerability data to produce one row
@@ -601,28 +602,28 @@ def _extract_risk_modifications(
         plugin_id=pd.to_numeric(mod_df["plugin_id"], errors="coerce"),
     )
 
+    # Guarantee optional columns exist before groupby to avoid conditional
+    # branches inside .agg() which can silently corrupt other aggregations.
+    for _col, _default in (("recast_rule_uuid", ""), ("recast_reason", "")):
+        if _col not in mod_df.columns:
+            mod_df = mod_df.assign(**{_col: _default})
+
     # Group key: rule UUID + plugin_id (one output row per unique rule×plugin combo)
-    uuid_col = "recast_rule_uuid" if "recast_rule_uuid" in mod_df.columns else None
-    if uuid_col:
-        mod_df = mod_df.assign(
-            _rule_uuid=mod_df[uuid_col].fillna("").astype(str).str.strip()
-        )
-    else:
-        mod_df = mod_df.assign(_rule_uuid="")
+    mod_df = mod_df.assign(
+        _rule_uuid=mod_df["recast_rule_uuid"].fillna("").astype(str).str.strip()
+    )
 
     agg = (
         mod_df
         .groupby(["_rule_uuid", "plugin_id"], as_index=False, dropna=False)
         .agg(
-            plugin_name             = ("plugin_name",              "first"),
-            modification_type_raw   = ("severity_modification_type", "first"),
-            current_severity        = ("severity",                 "first"),
-            vpr_score               = ("vpr_score",               "max"),
-            date_opened             = ("first_found",              "min"),
-            affected_assets         = ("asset_uuid",               "nunique"),
-            recast_reason           = ("recast_reason",            "first")
-                                      if "recast_reason" in mod_df.columns
-                                      else ("plugin_name", lambda _: ""),
+            plugin_name           = ("plugin_name",               "first"),
+            modification_type_raw = ("severity_modification_type", "first"),
+            current_severity      = ("severity",                  "first"),
+            vpr_score             = ("vpr_score",                 "max"),
+            date_opened           = ("first_found",               "min"),
+            affected_assets       = ("asset_uuid",                "nunique"),
+            recast_reason         = ("recast_reason",             "first"),
         )
         .reset_index(drop=True)
     )
@@ -642,7 +643,41 @@ def _extract_risk_modifications(
                     "original_severity": r.get("original_severity"),
                     "expires_at":        r.get("expires_at"),
                     "filter_summary":    r.get("filter_summary", ""),
+                    "created_at":        r.get("created_at"),
                 }
+
+    # VPR score lookup from the unfiltered vulns_all.parquet cache.
+    # Accepted findings in the tag-scoped export often have vpr_score = NaN,
+    # and the rule may cover plugins absent from the current scope entirely.
+    # Loading the raw cache gives the broadest possible plugin→VPR mapping.
+    plugin_vpr: dict[int, float] = {}
+    _vpr_source: pd.DataFrame = pd.DataFrame()
+    if cache_dir is not None:
+        _raw_cache = Path(cache_dir) / "vulns_all.parquet"
+        if _raw_cache.exists():
+            try:
+                _vpr_source = pd.read_parquet(
+                    _raw_cache, engine="fastparquet",
+                    columns=["plugin_id", "vpr_score"],
+                )
+            except Exception:
+                pass
+    if _vpr_source.empty and not vulns_df.empty:
+        # Fallback: use the scoped DataFrame if cache unavailable
+        _vpr_source = vulns_df[["plugin_id", "vpr_score"]].copy() \
+            if "vpr_score" in vulns_df.columns else pd.DataFrame()
+    if not _vpr_source.empty:
+        _vpr_agg = (
+            _vpr_source
+            .assign(plugin_id=pd.to_numeric(_vpr_source["plugin_id"], errors="coerce"))
+            .groupby("plugin_id", as_index=False)["vpr_score"]
+            .max()
+        )
+        for _, r in _vpr_agg.iterrows():
+            pid = r["plugin_id"]
+            vpr = r["vpr_score"]
+            if pd.notna(pid) and pd.notna(vpr):
+                plugin_vpr[int(pid)] = float(vpr)
 
     def _days_until(exp) -> int | None:
         if exp is None or (isinstance(exp, str) and exp in ("", "Never")):
@@ -685,17 +720,18 @@ def _extract_risk_modifications(
         meta    = rule_meta.get(uid, {})
         exp_val = meta.get("expires_at")
 
+        pid     = int(row["plugin_id"]) if pd.notna(row["plugin_id"]) else None
+        vpr_val = plugin_vpr.get(pid, "") if pid is not None else ""
+
         rows_out.append({
-            "Plugin ID":         int(row["plugin_id"]) if pd.notna(row["plugin_id"]) else "",
+            "Plugin ID":         pid if pid is not None else "",
             "Plugin Name":       str(row["plugin_name"] or ""),
             "Modification Type": _mod_label(row["modification_type_raw"]),
             "Recast Reason":     str(row.get("recast_reason") or ""),
             "Original Severity": _clean_sev(meta.get("original_severity")),
             "Current Severity":  _clean_sev(row["current_severity"]),
-            "VPR Score":         round(float(row["vpr_score"]), 1)
-                                 if pd.notna(row["vpr_score"]) else "",
-            "Date Opened":       _fmt_date(row["date_opened"])
-                                 if pd.notna(row["date_opened"]) else "",
+            "VPR Score":         round(vpr_val, 1) if vpr_val != "" else "",
+            "Date Opened":       _fmt_date(meta.get("created_at")),
             "Expiration Date":   _fmt_date(exp_val),
             "Days Until Expiry": _days_until(exp_val) if exp_val else "",
             "Affected Assets":   int(row["affected_assets"]),
@@ -1613,6 +1649,13 @@ def _build_risk_mods_sheet(
             rng,
             CellIsRule(operator="greaterThan", formula=["30"],
                        fill=_green, font=_green_font),
+        )
+
+    # Reduce Plugin ID column to 25% of its auto-sized width
+    pid_col = _col_letter_for(ws, "Plugin ID")
+    if pid_col and pid_col in ws.column_dimensions:
+        ws.column_dimensions[pid_col].width = max(
+            ws.column_dimensions[pid_col].width * 0.25, 8
         )
 
     ws.freeze_panes = "A4"
@@ -2681,6 +2724,7 @@ def run_report(
         assets_df       = assets_df,
         recast_rules_df = recast_rules_df,
         as_of           = generated_at,
+        cache_dir       = cache_dir,
     )
     recurring_df = _extract_recurring_vulnerabilities(
         vulns_df  = vulns_scanned,
@@ -2811,7 +2855,7 @@ if __name__ == "__main__":
     _cache_dir = (
         Path(args.cache_dir)
         if args.cache_dir
-        else CACHE_DIR / datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+        else CACHE_DIR / datetime.now().strftime("%Y-%m-%d")
     )
     _output_dir = Path(args.output_dir) if args.output_dir else OUTPUT_DIR
 
@@ -2889,6 +2933,7 @@ if __name__ == "__main__":
         assets_df       = _assets_df,
         recast_rules_df = _recast_rules_df,
         as_of           = _as_of,
+        cache_dir       = _cache_dir,
     )
     _recurring_df_cli = _extract_recurring_vulnerabilities(
         vulns_df  = _vulns_scanned,

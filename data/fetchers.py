@@ -1128,7 +1128,7 @@ if __name__ == "__main__":
     _cache_dir = (
         Path(args.cache_dir)
         if args.cache_dir
-        else CACHE_DIR / datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+        else CACHE_DIR / datetime.now().strftime("%Y-%m-%d")
     )
 
     tio = get_client()
