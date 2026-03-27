@@ -80,13 +80,14 @@ _SEV_BG: dict[str, str] = {
 
 # Report slug → human description (used in the attached reports list)
 _REPORT_DESCRIPTIONS: dict[str, str] = {
-    "executive_kpi":    "Executive KPI dashboard — severity counts, SLA compliance, top riskiest assets",
-    "sla_remediation":  "SLA & remediation tracking — per-vulnerability status, overdue detail, breach trend",
-    "asset_risk":       "Asset risk scoring — risk score rankings, distribution histogram, tag group averages",
-    "patch_compliance": "Patch compliance — vulnerability age buckets, oldest unpatched vulns, per-tag compliance",
-    "trend_analysis":   "Trend analysis — monthly open vuln trend, MTTR trend, SLA compliance over time",
-    "plugin_cve":       "Plugin / CVE breakdown — top plugins, top CVEs, exploitable vulns, CVSS distribution",
-    "ops_remediation":  "Operations remediation — plugin-grouped overdue findings, SLA state breakdown, unscanned assets",
+    "executive_kpi":       "Executive KPI dashboard — severity counts, SLA compliance, top riskiest assets",
+    "sla_remediation":     "SLA & remediation tracking — per-vulnerability status, overdue detail, breach trend",
+    "asset_risk":          "Asset risk scoring — risk score rankings, distribution histogram, tag group averages",
+    "patch_compliance":    "Patch compliance — vulnerability age buckets, oldest unpatched vulns, per-tag compliance",
+    "trend_analysis":      "Trend analysis — monthly open vuln trend, MTTR trend, SLA compliance over time",
+    "plugin_cve":          "Plugin / CVE breakdown — top plugins, top CVEs, exploitable vulns, CVSS distribution",
+    "ops_remediation":     "Operations remediation — plugin-grouped overdue findings, SLA state breakdown, unscanned assets",
+    "management_summary":  "Management Executive Summary — program health, MTTR, SLA compliance, age distribution, and trend",
 }
 
 
@@ -128,10 +129,14 @@ def build_kpi_metrics(
         output = report_outputs.get(slug, {})
         return output.get("metrics", {}) if isinstance(output, dict) else {}
 
-    # ops_remediation carries pre-built tiles — return them directly if present
-    ops_m = _metrics_from("ops_remediation")
-    if ops_m and "kpi_tiles" in ops_m:
-        return ops_m["kpi_tiles"]
+    # Reports with pre-built kpi_tiles are returned directly in priority order.
+    # ops_remediation takes highest priority (operational audience, most detail).
+    # management_summary is next (pre-built tiles covering its 7 metrics).
+    # Both are mutually exclusive in practice but the priority order is explicit.
+    for _slug in ("ops_remediation", "management_summary"):
+        _m = _metrics_from(_slug)
+        if _m and "kpi_tiles" in _m:
+            return _m["kpi_tiles"]
 
     # Prefer executive_kpi metrics; fall back to sla_remediation for SLA fields
     exec_m = _metrics_from("executive_kpi")
