@@ -367,12 +367,40 @@ def send_report_email(
     # ------------------------------------------------------------------
     # Build email body
     # ------------------------------------------------------------------
+    # Some reports (management_summary) pre-build their own HTML body and
+    # embed inline charts as base64 strings rather than file paths.
+    # When a pre-built body is present it is used directly; the generic
+    # Jinja2 template is bypassed for that report's content.
+    # Pre-built inline charts are also attached as CID MIME parts here.
+    # ------------------------------------------------------------------
+    prebuilt_html:    str | None       = None
+    prebuilt_charts:  dict[str, str]   = {}  # {cid_name: base64_str}
+
+    for _slug, _output in report_outputs.items():
+        if not isinstance(_output, dict):
+            continue
+        _m = _output.get("metrics") or {}
+        if isinstance(_m, dict) and _m.get("email_html"):
+            prebuilt_html   = _m["email_html"]
+            prebuilt_charts = _m.get("inline_charts") or {}
+            logger.debug(
+                "[%s] Using pre-built email body from report '%s'.",
+                group_name, _slug,
+            )
+            break  # first pre-built body wins; only one expected per group
+
     try:
-        html_body = build_email_body(
-            group_config=group_config,
-            report_outputs=report_outputs,
-            excel_omitted=excel_omitted,
-        )
+        if prebuilt_html is not None:
+            # Substitute the reply_to placeholder that build_email_body() would
+            # normally fill via the Jinja2 template.
+            reply_to_addr = (group_config.get("email") or {}).get("reply_to", "")
+            html_body = prebuilt_html.replace("{reply_to}", reply_to_addr)
+        else:
+            html_body = build_email_body(
+                group_config=group_config,
+                report_outputs=report_outputs,
+                excel_omitted=excel_omitted,
+            )
     except Exception as exc:
         logger.error(
             "[%s] build_email_body() failed: %s\n%s",
@@ -404,6 +432,23 @@ def send_report_email(
     related = MIMEMultipart("related")
     related.attach(MIMEText(html_body, "html", "utf-8"))
 
+    # Attach pre-built base64 inline charts (e.g. from management_summary)
+    import base64 as _base64
+    for cid_name, b64_str in prebuilt_charts.items():
+        try:
+            img_data = _base64.b64decode(b64_str)
+            img = MIMEImage(img_data, _subtype="png")
+            img.add_header("Content-ID", f"<{cid_name}>")
+            img.add_header("Content-Disposition", "inline", filename=f"{cid_name}.png")
+            related.attach(img)
+            logger.debug("[%s] Embedded pre-built inline chart: %s", group_name, cid_name)
+        except Exception as exc:
+            logger.warning(
+                "[%s] Failed to embed pre-built chart '%s': %s",
+                group_name, cid_name, exc,
+            )
+
+    # Attach file-based chart PNGs from standard reports
     for i, chart_path in enumerate(chart_paths, start=1):
         try:
             _attach_inline_chart(related, chart_path, i)
