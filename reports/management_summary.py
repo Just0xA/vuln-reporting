@@ -1509,7 +1509,7 @@ def _build_pdf(
     <div class="cover-scope">Scope: {scope_str}</div>
     <div class="cover-detail" style="color:#37474f;">
       This report provides senior leadership with a high-level view of the organisation's
-      vulnerability management programme performance, remediation compliance, and risk posture.
+      vulnerability management program performance, remediation compliance, and risk posture.
     </div>
     <div class="cover-confidential">Confidential — For Authorised Recipients Only</div>
   </div>
@@ -1596,7 +1596,7 @@ def _build_pdf(
         <p style="font-size:8.5pt;color:#546e7a;margin-bottom:10pt;">
           Scan coverage measures the percentage of Tenable-licensed assets that received
           at least one authenticated scan within the past 30 days.  Assets outside this
-          window have unknown risk posture and represent blind spots in the programme.
+          window have unknown risk posture and represent blind spots in the program.
         </p>
         {m2_detail_html}
       </td>
@@ -1672,7 +1672,7 @@ def _build_pdf(
   </p>
   <p style="font-size:8.5pt;color:#546e7a;margin-bottom:10pt;">
     MTTR measures the average number of days between a vulnerability being first
-    observed and its confirmed fix.  Reference tick marks indicate the programme's SLA
+    observed and its confirmed fix.  Reference tick marks indicate the program's SLA
     target for each severity tier (Critical 15 d · High 30 d · Medium 90 d · Low 180 d).
     A needle inside the green zone indicates the team is resolving findings within SLA on
     average.  "No data" gauges indicate no fixed vulnerabilities were found in this
@@ -1695,7 +1695,7 @@ def _build_pdf(
     Compliance rate is the percentage of <em>currently open</em> vulnerabilities whose
     age has not yet exceeded the SLA deadline for their severity.  A finding first seen
     today counts as within SLA; a Critical finding open for 16 days is overdue.
-    The programme target is ≥ 90 % compliance across all severity tiers.
+    The program target is ≥ 90 % compliance across all severity tiers.
   </p>
   <table class="two-col">
     <tr>
@@ -1748,7 +1748,7 @@ def _build_pdf(
   </p>
   <p style="font-size:8.5pt;color:#546e7a;margin-bottom:10pt;">
     This chart shows how long current open vulnerabilities have been present in the
-    environment, grouped into age bands.  A healthy programme concentrates volume in the
+    environment, grouped into age bands.  A healthy program concentrates volume in the
     shorter bands (0–60 days).  Significant bars in the 91+ day ranges indicate a
     remediation backlog that may require prioritised attention or resourcing.
   </p>
@@ -1781,7 +1781,7 @@ def _build_pdf(
     the assigned severity has been adjusted by a security analyst based on compensating
     controls or environmental context.  Both types are captured here because they
     represent active management decisions rather than unaddressed gaps.  A low exception
-    rate indicates the programme is resolving most findings through standard remediation.
+    rate indicates the program is resolving most findings through standard remediation.
     A rising rate warrants review to ensure exceptions are justified and not masking
     remediation debt.
   </div>
@@ -1819,8 +1819,8 @@ def _build_pdf(
     Trend data reflects end-of-month open vulnerability counts saved each time this
     report is generated.  The Critical + High line represents the highest-priority
     backlog requiring executive attention; the Medium + Low line indicates broader
-    programme hygiene.  Downward movement on both lines over consecutive months
-    indicates a maturing, effective programme.
+    program hygiene.  Downward movement on both lines over consecutive months
+    indicates a maturing, effective program.
   </p>
 
   {trend_notice_html}
