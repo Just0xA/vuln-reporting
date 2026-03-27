@@ -517,12 +517,13 @@ def _compute_metric_4(
     Returns
     -------
     dict
-        overall_rate (float), per_severity {sev: float}, within_sla (int),
+        overall_rate (float), per_severity {sev: {"rate": float,
+        "within_sla": int, "total": int}}, within_sla (int),
         total_open (int), status (str), color (str).
     """
     open_df    = vulns_df[vulns_df["state"].str.lower().isin(_OPEN_STATES)].copy()
     total_open = len(open_df)
-    per_sev    = {sev: 0.0 for sev in SLA_DAYS}
+    per_sev: dict = {sev: {"rate": 0.0, "within_sla": 0, "total": 0} for sev in SLA_DAYS}
 
     if total_open == 0:
         return {
@@ -544,10 +545,14 @@ def _compute_metric_4(
     overall_rate = round(within_total / total_open * 100, 1)
 
     for sev, sla in SLA_DAYS.items():
-        sev_mask  = open_df["severity"].str.lower() == sev
-        sev_total = int(sev_mask.sum())
-        if sev_total > 0:
-            per_sev[sev] = round(int((within_mask & sev_mask).sum()) / sev_total * 100, 1)
+        sev_mask    = open_df["severity"].str.lower() == sev
+        sev_total   = int(sev_mask.sum())
+        sev_within  = int((within_mask & sev_mask).sum())
+        per_sev[sev] = {
+            "rate":       round(sev_within / sev_total * 100, 1) if sev_total > 0 else 0.0,
+            "within_sla": sev_within,
+            "total":      sev_total,
+        }
 
     if overall_rate >= 90:
         status, color = "Compliant",        "#388e3c"
@@ -811,7 +816,7 @@ def compute_all_metrics(
     Returns
     -------
     dict
-        Keys: metric_1 … metric_7
+        Keys: metric_1 ... metric_7
     """
     logger.info("[%s] Computing metric 1 — Total Vulnerabilities by Severity", REPORT_SLUG)
     m1 = _compute_metric_1(vulns_df)
@@ -1089,7 +1094,7 @@ def _run_gauge_test(output_dir: Optional[Path] = None) -> None:
     out = Path(output_dir) if output_dir else OUTPUT_DIR / "gauge_test"
     out.mkdir(parents=True, exist_ok=True)
 
-    _console.print(f"\n[bold]Rendering test gauges → {out}[/bold]\n")
+    _console.print(f"\n[bold]Rendering test gauges -> {out}[/bold]\n")
 
     # Scan coverage thresholds: 0–80 red, 80–95 amber, 95–100 green
     coverage_thresholds = [
@@ -1139,7 +1144,7 @@ def _run_gauge_test(output_dir: Optional[Path] = None) -> None:
         png_bytes = base64.b64decode(b64)
         out_path  = out / filename
         out_path.write_bytes(png_bytes)
-        _console.print(f"  [green]✓[/green] {filename}  (value={val}{unit})")
+        _console.print(f"  [green]OK[/green] {filename}  (value={val}{unit})")
 
     _console.print(f"\n[bold]All test gauges written to: {out}[/bold]")
 
@@ -1873,7 +1878,7 @@ def _run_pdf_test(
     """Render a test PDF using synthetic metric data — no Tenable connection needed."""
     out = Path(output_dir) if output_dir else ROOT_DIR / "output" / "pdf_test"
     out.mkdir(parents=True, exist_ok=True)
-    _console.print(f"[bold]Generating test PDF → {out}[/bold]")
+    _console.print(f"[bold]Generating test PDF -> {out}[/bold]")
 
     report_date      = datetime.now(tz=timezone.utc)
     tag_filter_label = (
@@ -1941,7 +1946,7 @@ def _run_pdf_test(
 
     pdf_path = out / f"management_summary_test_{report_date.strftime('%Y%m%d_%H%M')}.pdf"
     _build_pdf(synthetic_metrics, report_date, tag_filter_label, pdf_path)
-    _console.print(f"[green]✓[/green] PDF written: {pdf_path}")
+    _console.print(f"[green]OK[/green] PDF written: {pdf_path}")
 
 
 # ===========================================================================
@@ -2370,7 +2375,7 @@ def _print_metrics(metrics: dict, report_date: datetime, tag_label: str) -> None
         f"({m4['within_sla']:,} of {m4['total_open']:,} open within SLA)"
     )
     per_sev_str = "  ".join(
-        f"{s.title()}: {m4['per_severity'][s]}%"
+        f"{s.title()}: {m4['per_severity'][s]['rate']}%"
         for s in ("critical", "high", "medium", "low")
     )
     _console.print(f"  Per-severity: {per_sev_str}\n")
@@ -2403,8 +2408,8 @@ def _print_metrics(metrics: dict, report_date: datetime, tag_label: str) -> None
     if m7["has_trend"]:
         dch = m7["delta_critical_high"]
         dml = m7["delta_medium_low"]
-        arrow_ch = "▼" if dch < 0 else ("▲" if dch > 0 else "—")
-        arrow_ml = "▼" if dml < 0 else ("▲" if dml > 0 else "—")
+        arrow_ch = "v" if dch < 0 else ("^" if dch > 0 else "—")
+        arrow_ml = "v" if dml < 0 else ("^" if dml > 0 else "—")
         color_ch = "green" if dch < 0 else ("red" if dch > 0 else "white")
         color_ml = "green" if dml < 0 else ("red" if dml > 0 else "white")
         _console.print(
@@ -2701,7 +2706,7 @@ if __name__ == "__main__":
         _out.mkdir(parents=True, exist_ok=True)
         _preview = _out / f"management_summary_email_preview_{_rd.strftime('%Y%m%d_%H%M')}.html"
         _preview.write_text(_email_preview_html(_html, _charts), encoding="utf-8")
-        _console.print(f"[green]✓[/green] Email preview: {_preview}")
+        _console.print(f"[green]OK[/green] Email preview: {_preview}")
         _console.print(f"  Inline charts: {list(_charts.keys())}")
         sys.exit(0)
 
@@ -2730,17 +2735,17 @@ if __name__ == "__main__":
     from tenable_client import get_client
     tio = get_client()
 
-    _console.print(f"\n[bold]Fetching vulnerability data…[/bold]  cache: {cache_dir}")
+    _console.print(f"\n[bold]Fetching vulnerability data...[/bold]  cache: {cache_dir}")
     vulns_raw  = fetch_all_vulnerabilities(tio, cache_dir)
     assets_raw = fetch_all_assets(tio, cache_dir)
 
-    _console.print("[bold]Fetching fixed vulnerability data (for MTTR)…[/bold]")
+    _console.print("[bold]Fetching fixed vulnerability data (for MTTR)...[/bold]")
     fixed_raw = fetch_fixed_vulnerabilities(tio, cache_dir)
 
     # ------------------------------------------------------------------
     # Enrich with tags + filter
     # ------------------------------------------------------------------
-    _console.print("[bold]Enriching and filtering…[/bold]")
+    _console.print("[bold]Enriching and filtering...[/bold]")
     vulns_enriched = enrich_vulns_with_assets(vulns_raw, assets_raw)
     vulns_df       = filter_by_tag(vulns_enriched, tag_category, tag_value)
     assets_df      = filter_by_tag(assets_raw, tag_category, tag_value)
@@ -2801,14 +2806,14 @@ if __name__ == "__main__":
     )
     pdf_path = output_dir / pdf_filename
 
-    _console.print(f"\n[bold]Building PDF…[/bold]  → {pdf_path}")
+    _console.print(f"\n[bold]Building PDF...[/bold]  {pdf_path}")
     _build_pdf(metrics, report_date, tag_filter_label, pdf_path)
-    _console.print(f"[green]✓[/green] PDF complete: {pdf_path}")
+    _console.print(f"[green]OK[/green] PDF complete: {pdf_path}")
 
     # ------------------------------------------------------------------
     # Build email body (Step 4)
     # ------------------------------------------------------------------
-    _console.print("\n[bold]Building email body…[/bold]")
+    _console.print("\n[bold]Building email body...[/bold]")
     email_html, inline_charts = build_email_body(
         metrics          = metrics,
         report_date      = report_date,
@@ -2816,7 +2821,7 @@ if __name__ == "__main__":
     )
     email_preview_path = output_dir / f"{REPORT_SLUG}_email_preview.html"
     email_preview_path.write_text(_email_preview_html(email_html, inline_charts), encoding="utf-8")
-    _console.print(f"[green]✓[/green] Email body preview: {email_preview_path}")
+    _console.print(f"[green]OK[/green] Email body preview: {email_preview_path}")
     _console.print(f"  Inline charts: {list(inline_charts.keys())}")
 
     if args.no_email:
