@@ -69,6 +69,7 @@ _VALID_REPORTS: frozenset[str] = frozenset({
     "trend_analysis",
     "plugin_cve",
     "ops_remediation",
+    "management_summary",
 })
 
 _VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "monthly", "on_demand"})
@@ -85,13 +86,14 @@ _DAY_TO_WEEKDAY: dict[str, int] = {
 
 # Map report slug -> importable module path
 _REPORT_MODULE_MAP: dict[str, str] = {
-    "executive_kpi":    "reports.executive_kpi",
-    "sla_remediation":  "reports.sla_remediation",
-    "asset_risk":       "reports.asset_risk",
-    "patch_compliance": "reports.patch_compliance",
-    "trend_analysis":   "reports.trend_analysis",
-    "plugin_cve":       "reports.plugin_cve",
-    "ops_remediation":  "reports.ops_remediation",
+    "executive_kpi":       "reports.executive_kpi",
+    "sla_remediation":     "reports.sla_remediation",
+    "asset_risk":          "reports.asset_risk",
+    "patch_compliance":    "reports.patch_compliance",
+    "trend_analysis":      "reports.trend_analysis",
+    "plugin_cve":          "reports.plugin_cve",
+    "ops_remediation":     "reports.ops_remediation",
+    "management_summary":  "reports.management_summary",
 }
 
 # Required .env variables checked during --dry-run
