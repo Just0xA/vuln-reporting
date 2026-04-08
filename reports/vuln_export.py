@@ -50,6 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import CACHE_DIR, LOG_DIR, LOG_LEVEL, OUTPUT_DIR, SEVERITY_ORDER, SLA_DAYS
 from data.fetchers import (
+    enrich_vulns_with_assets,
     fetch_all_assets,
     fetch_all_vulnerabilities,
     filter_by_severity,
@@ -172,19 +173,20 @@ def _resolve_severities(
 
 def _build_csv_dataframe(
     vulns_df: pd.DataFrame,
-    assets_df: pd.DataFrame,
     report_date: datetime,
 ) -> pd.DataFrame:
     """
-    Join assets to vulns, apply SLA status, select/rename columns, and sort.
+    Apply SLA status, select/rename columns, and sort.
+
+    ``vulns_df`` must already be enriched via ``enrich_vulns_with_assets()``
+    before being passed here — hostname, ipv4, and operating_system are sourced
+    directly from the enriched DataFrame rather than joined again.
 
     Parameters
     ----------
     vulns_df : pd.DataFrame
-        Filtered (tag + severity + open state) vulnerability DataFrame.
-    assets_df : pd.DataFrame
-        Full (tag-filtered) asset DataFrame — used to enrich hostname / IP /
-        OS where the vuln export's embedded asset fields are missing.
+        Enriched, tag-filtered, state-filtered, severity-filtered vulnerability
+        DataFrame (output of enrich_vulns_with_assets → filter_by_tag).
     report_date : datetime
         UTC timestamp used as the "as of" date for SLA and days-open
         calculations.
@@ -203,45 +205,6 @@ def _build_csv_dataframe(
         ])
 
     df = vulns_df.copy()
-
-    # ------------------------------------------------------------------
-    # Asset enrichment — left join on asset_uuid so rows without a
-    # matching asset record are still included.
-    # Prefer the richer asset-export fields over the embedded vuln fields
-    # for hostname / ipv4 / operating_system when the asset record exists.
-    # ------------------------------------------------------------------
-    asset_lookup_cols = ["asset_uuid"]
-    for col in ("hostname", "ipv4", "operating_system"):
-        if col in assets_df.columns:
-            asset_lookup_cols.append(col)
-
-    asset_lookup = assets_df[asset_lookup_cols].copy()
-    # Suffix to identify asset-side columns during merge
-    suffix = "_asset"
-    merged = df.merge(
-        asset_lookup.add_suffix(suffix).rename(columns={"asset_uuid" + suffix: "asset_uuid"}),
-        on="asset_uuid",
-        how="left",
-    )
-
-    # For each enrichment field, prefer the asset version when non-empty
-    assign_updates: dict = {}
-    drop_cols: list[str] = []
-    for col in ("hostname", "ipv4", "operating_system"):
-        asset_col = col + suffix
-        if asset_col in merged.columns:
-            vuln_val  = merged.get(col, pd.Series("", index=merged.index)).fillna("")
-            asset_val = merged[asset_col].fillna("")
-            assign_updates[col] = asset_val.where(asset_val != "", other=vuln_val)
-            drop_cols.append(asset_col)
-        elif col not in merged.columns:
-            assign_updates[col] = ""
-    if assign_updates:
-        merged = merged.assign(**assign_updates)
-    if drop_cols:
-        merged = merged.drop(columns=drop_cols)
-
-    df = merged
 
     # ------------------------------------------------------------------
     # SLA calculations
@@ -444,17 +407,30 @@ def run_report(
     # Fetch data (shared parquet cache)
     # ------------------------------------------------------------------
     try:
-        vulns_df  = fetch_all_vulnerabilities(tio, cache_dir)
-        assets_df = fetch_all_assets(tio, cache_dir)
+        vulns_raw  = fetch_all_vulnerabilities(tio, cache_dir)
+        assets_raw = fetch_all_assets(tio, cache_dir)
     except Exception as exc:
         logger.error("vuln_export: data fetch failed: %s", exc, exc_info=True)
         return {"pdf": None, "excel": None, "csv": None, "charts": [], "metrics": {}}
 
     # ------------------------------------------------------------------
-    # Filter: tag scope
+    # Enrich vulns with asset tags BEFORE tag filtering.
+    # fetch_all_vulnerabilities() intentionally omits the 'tags' column
+    # because the vuln export does not populate asset.tags reliably.
+    # enrich_vulns_with_assets() performs a left join against the asset
+    # export (which does carry tags), adding the 'tags' column so that
+    # filter_by_tag() can scope the result correctly.
     # ------------------------------------------------------------------
-    vulns_df  = filter_by_tag(vulns_df,  tag_category, tag_value)
-    assets_df = filter_by_tag(assets_df, tag_category, tag_value)
+    try:
+        vulns_enriched = enrich_vulns_with_assets(vulns_raw, assets_raw)
+    except Exception as exc:
+        logger.error("vuln_export: enrich_vulns_with_assets failed: %s", exc, exc_info=True)
+        return {"pdf": None, "excel": None, "csv": None, "charts": [], "metrics": {}}
+
+    # ------------------------------------------------------------------
+    # Filter: tag scope (on enriched df — now has 'tags' column)
+    # ------------------------------------------------------------------
+    vulns_df = filter_by_tag(vulns_enriched, tag_category, tag_value)
 
     # ------------------------------------------------------------------
     # Filter: open findings only
@@ -474,7 +450,7 @@ def run_report(
     # Build CSV DataFrame
     # ------------------------------------------------------------------
     try:
-        output_df = _build_csv_dataframe(vulns_df, assets_df, generated_at)
+        output_df = _build_csv_dataframe(vulns_df, generated_at)
     except Exception as exc:
         logger.error("vuln_export: _build_csv_dataframe failed: %s", exc, exc_info=True)
         return {"pdf": None, "excel": None, "csv": None, "charts": [], "metrics": {}}
