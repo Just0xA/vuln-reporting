@@ -145,7 +145,7 @@ def _fetch_and_prepare(
         REPORT_NAME,
         len(df),
         df["plugin_id"].nunique(),
-        df["asset_id"].nunique(),
+        df["asset_uuid"].nunique(),
     )
     return df, assets_df
 
@@ -159,7 +159,7 @@ def _compute_top_plugins(df: pd.DataFrame) -> pd.DataFrame:
     Top N plugins by unique asset count.
 
     Columns returned: plugin_id, plugin_name, plugin_family, severity,
-    cvss_base_score, cvss_v3_base_score, cve_list, asset_count,
+    cvss_base_score, cvss3_score, cve_list, asset_count,
     exploit_available, oldest_days_open, oldest_sla_status.
     """
     if df.empty:
@@ -167,7 +167,7 @@ def _compute_top_plugins(df: pd.DataFrame) -> pd.DataFrame:
 
     # Prefer CVSS v3; fall back to v2
     def _cvss(sub: pd.DataFrame) -> float:
-        v3 = sub["cvss_v3_base_score"].dropna()
+        v3 = sub["cvss3_score"].dropna()
         if not v3.empty:
             return round(float(v3.max()), 1)
         v2 = sub["cvss_base_score"].dropna()
@@ -186,7 +186,7 @@ def _compute_top_plugins(df: pd.DataFrame) -> pd.DataFrame:
     for (pid, pname, pfam), grp in df.groupby(
         ["plugin_id", "plugin_name", "plugin_family"], sort=False
     ):
-        asset_count = grp["asset_id"].nunique()
+        asset_count = grp["asset_uuid"].nunique()
         exploit = bool(grp["exploit_available"].any())
         oldest_idx = grp["days_open"].idxmax() if "days_open" in grp.columns else None
         oldest_days = int(grp.loc[oldest_idx, "days_open"]) if oldest_idx is not None else 0
@@ -239,7 +239,7 @@ def _compute_top_cves(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     # Prefer CVSS v3 per row, fall back to v2
-    exploded["_cvss"] = exploded["cvss_v3_base_score"].fillna(
+    exploded["_cvss"] = exploded["cvss3_score"].fillna(
         exploded["cvss_base_score"]
     ).fillna(0.0)
 
@@ -247,7 +247,7 @@ def _compute_top_cves(df: pd.DataFrame) -> pd.DataFrame:
     for cve_id, grp in exploded.groupby("cve_id", sort=False):
         cvss = round(float(grp["_cvss"].max()), 1)
         plugin_count = grp["plugin_id"].nunique()
-        asset_count = grp["asset_id"].nunique()
+        asset_count = grp["asset_uuid"].nunique()
         dom_sev = grp["severity"].mode().iloc[0] if not grp["severity"].empty else "info"
         exploit = bool(grp["exploit_available"].any())
         oldest_idx = grp["days_open"].idxmax() if "days_open" in grp.columns else None
@@ -318,7 +318,7 @@ def _compute_exploitability(df: pd.DataFrame) -> pd.DataFrame:
             "_severity_key": sev,
             "Exploitable Findings": len(grp),
             "Unique Plugins": grp["plugin_id"].nunique(),
-            "Affected Assets": grp["asset_id"].nunique(),
+            "Affected Assets": grp["asset_uuid"].nunique(),
         })
     return pd.DataFrame(rows)
 
@@ -332,7 +332,7 @@ def _compute_high_priority(df: pd.DataFrame) -> pd.DataFrame:
 
     # Use the best available CVSS score
     df = df.copy()
-    df["_cvss"] = df["cvss_v3_base_score"].fillna(df["cvss_base_score"]).fillna(0.0)
+    df["_cvss"] = df["cvss3_score"].fillna(df["cvss_base_score"]).fillna(0.0)
 
     high_risk = df[
         (df["_cvss"] >= _CVSS_HIGH_RISK) & (df["sla_status"] == "Overdue")
@@ -344,7 +344,7 @@ def _compute_high_priority(df: pd.DataFrame) -> pd.DataFrame:
     result = (
         high_risk[[
             "plugin_id", "plugin_name", "plugin_family", "severity",
-            "_cvss", "cve_list", "asset_hostname", "asset_ipv4",
+            "_cvss", "cve_list", "hostname", "ipv4",
             "exploit_available", "days_open", "sla_status",
         ]]
         .sort_values(["_cvss", "days_open"], ascending=[False, False])
@@ -355,8 +355,8 @@ def _compute_high_priority(df: pd.DataFrame) -> pd.DataFrame:
             "severity": "_severity_key",
             "_cvss": "CVSS",
             "cve_list": "CVEs",
-            "asset_hostname": "Hostname",
-            "asset_ipv4": "IPv4",
+            "hostname": "Hostname",
+            "ipv4": "IPv4",
             "exploit_available": "Exploitable",
             "days_open": "Days Open",
             "sla_status": "SLA Status",
@@ -390,7 +390,7 @@ def _compute_metrics(df: pd.DataFrame) -> dict:
         "empty": False,
         "total_findings": len(df),
         "total_plugins": df["plugin_id"].nunique(),
-        "total_assets": df["asset_id"].nunique(),
+        "total_assets": df["asset_uuid"].nunique(),
         "top_plugins": _compute_top_plugins(df),
         "top_cves": _compute_top_cves(df),
         "family_dist": _compute_family_distribution(df),

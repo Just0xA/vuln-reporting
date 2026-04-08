@@ -28,13 +28,39 @@ from __future__ import annotations
 
 import base64
 import logging
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
+
+_KALEIDO_TIMEOUT = 30  # seconds before giving up on a Plotly PNG export
 
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend — must be set before pyplot import
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+
+# ---------------------------------------------------------------------------
+# Patch matplotlib.path.Path.__deepcopy__ — broken in matplotlib 3.8–3.9.x.
+# The stock implementation calls copy.deepcopy(super(), memo) which triggers
+# infinite recursion when ax.set_yticks() / tick rendering copies path objects.
+# Fixed upstream in matplotlib 3.10+; this patch is a no-op on fixed versions.
+# ---------------------------------------------------------------------------
+import copy as _copy
+import matplotlib.path as _mpath
+
+def _patched_path_deepcopy(self, memo):
+    cls = type(self)
+    new = cls.__new__(cls)
+    memo[id(self)] = new
+    for k, v in self.__dict__.items():
+        object.__setattr__(new, k, _copy.deepcopy(v, memo))
+    return new
+
+if not getattr(_mpath.Path.__deepcopy__, "_patched", False):
+    _mpath.Path.__deepcopy__ = _patched_path_deepcopy
+    _mpath.Path.__deepcopy__._patched = True
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -93,6 +119,52 @@ def _save_png(fig: plt.Figure, base_path: Path) -> Path:
     return path
 
 
+def _write_plotly_png(fig: go.Figure, png_path: Path) -> None:
+    """
+    Write a Plotly figure as PNG by running kaleido inside an isolated subprocess.
+
+    Isolation prevents kaleido from hanging the main process or corrupting
+    matplotlib's global state — a known issue with kaleido 0.2.x on Windows
+    where the Chromium subprocess never responds.
+
+    If the subprocess times out or fails the warning is logged and execution
+    continues; the PNG file will simply be absent.
+    """
+    tmp_json: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as tf:
+            tf.write(fig.to_json())
+            tmp_json = Path(tf.name)
+
+        script = (
+            "import plotly.io as pio, pathlib;"
+            f"fig=pio.from_json(pathlib.Path(r'{tmp_json}').read_text(encoding='utf-8'));"
+            f"fig.write_image(r'{png_path}')"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            timeout=_KALEIDO_TIMEOUT,
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            err = result.stderr.decode(errors="replace").strip()
+            logger.warning("Plotly PNG subprocess exited non-zero: %s", err or "(no stderr)")
+        else:
+            logger.debug("Saved Plotly PNG: %s", png_path)
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "Plotly PNG export timed out after %ds (kaleido not responding) — skipping: %s",
+            _KALEIDO_TIMEOUT, png_path,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Plotly PNG export failed: %s", exc)
+    finally:
+        if tmp_json and tmp_json.exists():
+            tmp_json.unlink(missing_ok=True)
+
+
 def _save_plotly(fig: go.Figure, base_path: Path) -> tuple[Path, Path]:
     """
     Save a Plotly figure as both .html and .png.
@@ -105,11 +177,7 @@ def _save_plotly(fig: go.Figure, base_path: Path) -> tuple[Path, Path]:
     png_path = base_path.with_suffix(".png")
     html_path = base_path.with_suffix(".html")
 
-    try:
-        fig.write_image(str(png_path))
-        logger.debug("Saved Plotly PNG: %s", png_path)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Plotly PNG export failed (kaleido installed?): %s", exc)
+    _write_plotly_png(fig, png_path)
 
     fig.write_html(str(html_path), include_plotlyjs="cdn", full_html=True)
     logger.debug("Saved Plotly HTML: %s", html_path)
