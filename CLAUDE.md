@@ -272,7 +272,7 @@ groups:
 - `day_of_month` is required when `frequency: monthly`; must be an integer between 1 and 28 (28 max to avoid last-day-of-month issues in February); ignored otherwise
 - `time` is required for `frequency: weekly` and `frequency: monthly`; format `HH:MM` (24-hour, server local time); ignored for `on_demand`
 - `filters` may be empty `{}` to run against all assets
-- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`
+- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`, `management_summary`, `vuln_export`
 - `recipients` is a required list; `cc` may be empty
 - Validate the YAML schema on startup and exit with a clear error if misconfigured
 - Build a `delivery_config.schema.yaml` (JSON Schema format) so the config can be validated by editors and CI
@@ -445,6 +445,24 @@ Prints a `rich` summary table on completion: group name, reports generated, deli
 
 ---
 
+## Adding a New Report — Required Steps
+
+Every new report script **must** be registered in three places or `--dry-run` will reject it:
+
+1. **`run_all.py` — `_VALID_REPORTS`**: add the slug to the `frozenset`.
+2. **`run_all.py` — `_REPORT_MODULE_MAP`**: add `"slug": "reports.module_name"`.
+3. **`CLAUDE.md` — YAML Schema Rules**: add the slug to the `reports` valid-values list above.
+
+If the report needs group-config parameters beyond the standard set (`tag_category`, `tag_value`, `output_dir`, `generated_at`, `cache_dir`), add a slug-specific block inside `run_group()` in `run_all.py` (see the `vuln_export` / `csv_severities` pattern at the `run_report` call site).
+
+Each report's `run_report()` must return a dict with at minimum these keys:
+```python
+{"pdf": path_or_none, "excel": path_or_none, "charts": list_of_paths}
+```
+CSV-only reports also include `"csv": path_or_none`. All other keys (e.g. `"metrics"`) are optional.
+
+---
+
 ## Report Scripts
 
 ### 1. `reports/executive_kpi.py` — Executive / KPI Dashboard
@@ -566,6 +584,32 @@ Operationally focused report that groups overdue findings by plugin to provide a
 
 ---
 
+### 8. `reports/vuln_export.py` — Raw Vulnerability Export (CSV)
+
+**Audience:** Operations / Remediation Teams, Security Analysts
+
+- One row per open finding scoped to the group's tag filter and severity filter
+- Default severity filter: Critical, High, Medium (configurable via `csv_severities` in delivery_config.yaml)
+- Joins `assets_df` on `asset_uuid` for Asset Name, IP Address, Operating System enrichment
+- Four-state SLA status: Overdue / Urgent / Warning / On Track (same thresholds as ops_remediation)
+- Sort order: severity rank → VPR score descending → Days Open descending
+
+**Columns:** Plugin ID, Plugin Name, Asset Name, IP Address, Operating System, Severity, VPR Score, First Found, Days Open, SLA Status, Exploit Available, Exploit Code Maturity
+
+**Outputs:** CSV only (UTF-8 with BOM, `quoting=QUOTE_ALL`). No PDF, no Excel, no charts.
+
+**Return dict:** `{"pdf": None, "excel": None, "csv": "<path>", "charts": [], "metrics": {...}}`
+
+**Group-config extras:**
+```yaml
+csv_severities:   # optional — defaults to [critical, high, medium]
+  - critical
+  - high
+  - medium
+```
+
+---
+
 ## Shared Utilities
 
 ### `utils/sla_calculator.py`
@@ -665,6 +709,7 @@ The recast rules API returns a `filter` field that can be an arbitrary AND/OR tr
 - [ ] `reports/trend_analysis.py`
 - [ ] `reports/plugin_cve.py`
 - [x] `reports/ops_remediation.py`
+- [x] `reports/vuln_export.py`
 - [ ] `delivery/email_sender.py`
 - [ ] `delivery/email_template.py`
 - [ ] `templates/report_email.html`
