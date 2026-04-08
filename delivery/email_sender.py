@@ -118,29 +118,49 @@ def _validate_addresses(addresses: list[str]) -> list[str]:
     return valid
 
 
-def _collect_attachments(report_outputs: dict) -> tuple[list[Path], list[Path]]:
+def _collect_attachments(report_outputs: dict) -> tuple[list[Path], list[Path], list[Path]]:
     """
-    Collect all PDF and Excel file paths from report_outputs.
+    Collect all PDF, Excel, and CSV file paths from report_outputs.
 
     Returns
     -------
-    (pdf_paths, excel_paths)
-        Both lists contain only paths that exist on disk.
+    (pdf_paths, excel_paths, csv_paths)
+        All lists contain only paths that exist on disk.
     """
     pdfs:   list[Path] = []
     excels: list[Path] = []
+    csvs:   list[Path] = []
 
     for slug, output in report_outputs.items():
         if not isinstance(output, dict):
             continue
         pdf  = output.get("pdf")
         xlsx = output.get("excel")
+        csv  = output.get("csv")
         if pdf and Path(pdf).exists():
             pdfs.append(Path(pdf))
         if xlsx and Path(xlsx).exists():
             excels.append(Path(xlsx))
+        if csv and Path(csv).exists():
+            csvs.append(Path(csv))
 
-    return pdfs, excels
+    return pdfs, excels, csvs
+
+
+def _attach_csv(msg: MIMEMultipart, path: Path) -> None:
+    """Attach a CSV file to *msg* with the correct text/csv MIME type."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    part = MIMEBase("text", "csv")
+    part.set_payload(data)
+    encoders.encode_base64(part)
+    part.add_header(
+        "Content-Disposition",
+        "attachment",
+        filename=path.name,
+    )
+    msg.attach(part)
+    logger.debug("Attached CSV: %s (%d KB)", path.name, len(data) // 1024)
 
 
 def _collect_chart_pngs(report_outputs: dict, max_charts: int = 3) -> list[Path]:
@@ -250,9 +270,10 @@ def _output_folder(report_outputs: dict) -> str:
     for slug, output in report_outputs.items():
         if not isinstance(output, dict):
             continue
-        pdf = output.get("pdf")
-        if pdf:
-            return str(Path(pdf).parent)
+        for key in ("pdf", "excel", "csv"):
+            path = output.get(key)
+            if path:
+                return str(Path(path).parent)
     return "unknown"
 
 
@@ -344,10 +365,12 @@ def send_report_email(
     # ------------------------------------------------------------------
     # Collect attachments and enforce size limit
     # ------------------------------------------------------------------
-    pdf_paths, excel_paths = _collect_attachments(report_outputs)
-    chart_paths             = _collect_chart_pngs(report_outputs, max_charts=3)
+    pdf_paths, excel_paths, csv_paths = _collect_attachments(report_outputs)
+    chart_paths                        = _collect_chart_pngs(report_outputs, max_charts=3)
 
     limit_bytes  = MAX_ATTACHMENT_SIZE_MB * 1024 * 1024
+    # CSVs are always included regardless of size limit (they are the primary
+    # output for vuln_export and are typically small compared to PDFs/Excel).
     all_paths    = pdf_paths + excel_paths
     total_bytes  = _total_size_bytes(all_paths)
     excel_omitted = False
@@ -362,6 +385,7 @@ def send_report_email(
         all_paths     = pdf_paths
         total_bytes   = _total_size_bytes(all_paths)
 
+    total_bytes       += _total_size_bytes(csv_paths)
     attachment_size_kb = total_bytes // 1024
 
     # ------------------------------------------------------------------
@@ -476,6 +500,15 @@ def send_report_email(
         except Exception as exc:
             logger.warning(
                 "[%s] Failed to attach Excel %s: %s", group_name, xlsx_path.name, exc
+            )
+
+    # CSV attachments (e.g. from vuln_export) — always included
+    for csv_path in csv_paths:
+        try:
+            _attach_csv(msg, csv_path)
+        except Exception as exc:
+            logger.warning(
+                "[%s] Failed to attach CSV %s: %s", group_name, csv_path.name, exc
             )
 
     # ------------------------------------------------------------------
