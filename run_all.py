@@ -70,6 +70,7 @@ _VALID_REPORTS: frozenset[str] = frozenset({
     "plugin_cve",
     "ops_remediation",
     "management_summary",
+    "vuln_export",
 })
 
 _VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "monthly", "on_demand"})
@@ -94,6 +95,7 @@ _REPORT_MODULE_MAP: dict[str, str] = {
     "plugin_cve":          "reports.plugin_cve",
     "ops_remediation":     "reports.ops_remediation",
     "management_summary":  "reports.management_summary",
+    "vuln_export":         "reports.vuln_export",
 }
 
 # Required .env variables checked during --dry-run
@@ -564,15 +566,19 @@ def run_group(
 
         try:
             logger.info("[%s] Running report: %s", group_name, slug)
-            result = report_module.run_report(
-                tio,
-                run_id,
+            # Build kwargs — add slug-specific extras where applicable
+            report_kwargs: dict = dict(
                 tag_category=tag_category,
                 tag_value=tag_value,
                 output_dir=report_output_dir,
                 generated_at=generated_at,
                 cache_dir=cache_dir,
             )
+            if slug == "vuln_export":
+                csv_severities = group_config.get("csv_severities")
+                if csv_severities is not None:
+                    report_kwargs["csv_severities"] = csv_severities
+            result = report_module.run_report(tio, run_id, **report_kwargs)
             report_outputs[slug]  = result
             reports_generated.append(slug)
             logger.info("[%s] Report '%s' complete.", group_name, slug)
