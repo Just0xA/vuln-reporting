@@ -1,0 +1,13 @@
+{
+  "snapshots": [
+    {
+      "month": "2026-04",
+      "tag_filter": "all_assets",
+      "critical": 30119,
+      "high": 37366,
+      "medium": 46844,
+      "low": 15563,
+      "generated_at": "2026-04-09T12:05:11Z"
+    }
+  ]
+}

@@ -71,6 +71,7 @@ _VALID_REPORTS: frozenset[str] = frozenset({
     "ops_remediation",
     "management_summary",
     "vuln_export",
+    "board_summary",
 })
 
 _VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "monthly", "on_demand"})
@@ -96,6 +97,7 @@ _REPORT_MODULE_MAP: dict[str, str] = {
     "ops_remediation":     "reports.ops_remediation",
     "management_summary":  "reports.management_summary",
     "vuln_export":         "reports.vuln_export",
+    "board_summary":       "reports.board_summary",
 }
 
 # Required .env variables checked during --dry-run

@@ -15,7 +15,7 @@ The suite supports **scheduled and on-demand execution**, with a YAML-driven del
 - **pandas** — data manipulation and aggregation
 - **openpyxl** — Excel (.xlsx) output with formatting
 - **matplotlib + plotly** — charts and visualizations
-- **reportlab or weasyprint** — PDF generation
+- **weasyprint** — PDF generation
 - **python-dotenv** — credential management via `.env`
 - **PyYAML** — recipient group and schedule configuration
 - **APScheduler** — embedded scheduler (also cron/Task Scheduler compatible)
@@ -121,9 +121,11 @@ vuln-reporting/
 ├── config.py                     # SLA constants, severity mappings, shared config
 ├── tenable_client.py             # Authenticated TenableIO client factory
 ├── delivery_config.yaml          # Recipient groups, schedules, report selections
+├── delivery_config.schema.yaml   # JSON Schema for YAML validation
 ├── scheduler.py                  # APScheduler daemon + cron/manual trigger support
 ├── data/
-│   └── fetchers.py               # All pyTenable API fetch functions
+│   ├── fetchers.py               # All pyTenable API fetch functions
+│   └── trend/                    # Trend data store (JSON snapshots for management_summary)
 ├── reports/
 │   ├── executive_kpi.py
 │   ├── sla_remediation.py
@@ -131,7 +133,21 @@ vuln-reporting/
 │   ├── patch_compliance.py
 │   ├── trend_analysis.py
 │   ├── plugin_cve.py
-│   └── ops_remediation.py
+│   ├── ops_remediation.py
+│   ├── vuln_export.py
+│   ├── management_summary.py     # Management executive summary (module-based)
+│   ├── board_summary.py          # Board-level KPI report (module-based)
+│   └── modules/                  # Reusable metric module infrastructure
+│       ├── __init__.py           # Auto-discovery + public exports
+│       ├── base.py               # BaseModule ABC, ModuleConfig, ModuleData
+│       ├── registry.py           # ModuleRegistry singleton + @register_module
+│       ├── composer.py           # ReportComposer — PDF/Excel/email assembly
+│       ├── chart_utils.py        # draw_gauge() and shared chart helpers
+│       ├── board_report_utils.py # Shared utilities for board metric modules
+│       ├── scan_coverage_sla_module.py
+│       ├── critical_remediation_sla_module.py
+│       ├── high_risk_assets_module.py
+│       └── aged_vulns_assets_module.py
 ├── exporters/
 │   ├── excel_exporter.py
 │   ├── pdf_exporter.py
@@ -146,6 +162,9 @@ vuln-reporting/
 │   └── formatters.py
 ├── templates/
 │   └── report_email.html         # Jinja2 email template
+├── docs/
+│   ├── management_summary_calculations.md
+│   └── board_summary_calculations.md
 ├── logs/                         # Rotating application logs + delivery_log.db
 ├── output/                       # Timestamped report output folders
 ├── run_all.py                    # Master runner
@@ -272,7 +291,7 @@ groups:
 - `day_of_month` is required when `frequency: monthly`; must be an integer between 1 and 28 (28 max to avoid last-day-of-month issues in February); ignored otherwise
 - `time` is required for `frequency: weekly` and `frequency: monthly`; format `HH:MM` (24-hour, server local time); ignored for `on_demand`
 - `filters` may be empty `{}` to run against all assets
-- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`, `management_summary`, `vuln_export`
+- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`, `management_summary`, `vuln_export`, `board_summary`
 - `recipients` is a required list; `cc` may be empty
 - Validate the YAML schema on startup and exit with a clear error if misconfigured
 - Build a `delivery_config.schema.yaml` (JSON Schema format) so the config can be validated by editors and CI
@@ -445,6 +464,55 @@ Prints a `rich` summary table on completion: group name, reports generated, deli
 
 ---
 
+## Board-Style Reports — Module Infrastructure
+
+Reports that use the `reports/modules/` infrastructure are composed of independent,
+testable metric modules assembled by `ReportComposer` into PDF, Excel, and email outputs.
+This pattern is used by `board_summary` and `management_summary`.
+
+### Module anatomy
+
+Every metric module lives in `reports/modules/` and must:
+1. Be named `*_module.py` (auto-discovered by `registry.discover()` on package import)
+2. Decorate the class with `@register_module`
+3. Extend `BaseModule` and implement `compute()`, `render_pdf_section()`, `render_excel_tabs()`, and `render_email_kpis()`
+
+```python
+from reports.modules import register_module
+from reports.modules.base import BaseModule, ModuleConfig, ModuleData
+
+@register_module
+class MyMetricModule(BaseModule):
+    MODULE_ID    = "my_metric"
+    DISPLAY_NAME = "My Metric"
+    ...
+```
+
+### Adding a new module to an existing composed report
+
+1. Create `reports/modules/my_metric_module.py` following the pattern above.
+2. Add `ModuleConfig("my_metric")` to the report's module config list (e.g. `_BOARD_MODULE_CONFIGS` in `board_summary.py`).
+3. No registration in `run_all.py` or `CLAUDE.md` is needed for the module itself — only the top-level **report slug** (`board_summary`, `management_summary`) is registered there.
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `reports/modules/base.py` | `BaseModule` ABC, `ModuleConfig`, `ModuleData` dataclasses |
+| `reports/modules/registry.py` | `ModuleRegistry` singleton + `@register_module` decorator |
+| `reports/modules/composer.py` | `ReportComposer` — runs modules, assembles PDF/Excel/email |
+| `reports/modules/board_report_utils.py` | Shared utilities for the four board metric modules |
+| `reports/modules/chart_utils.py` | `draw_gauge()` and other shared rendering helpers |
+
+### PDF assembly note
+
+`ReportComposer.assemble_pdf()` produces a cover/title page (page 1) followed by one page
+per module. The cover page carries the report title, scope, generated timestamp, and section
+list. There is no separate trailing footer page — placing generated metadata there caused an
+orphaned last page when the final module filled its page exactly.
+
+---
+
 ## Adding a New Report — Required Steps
 
 Every new report script **must** be registered in three places or `--dry-run` will reject it:
@@ -610,6 +678,55 @@ csv_severities:   # optional — defaults to [critical, high, medium]
 
 ---
 
+### 9. `reports/management_summary.py` — Management Executive Summary
+
+**Audience:** Senior Management — Directors and Vice Presidents
+
+Seven board-facing metrics, each with a gauge chart and RAG status (green/amber/red):
+
+1. Total open vulnerabilities by severity
+2. Asset scan coverage
+3. Mean Time to Remediate (MTTR) by severity
+4. SLA compliance rate
+5. Vulnerability age distribution
+6. Managed exception rate (accepted/recast findings)
+7. Month-over-month trend
+
+Monthly trend data is persisted to `data/trend/` as JSON snapshots so each run can show
+a rolling historical view without re-querying the API.
+
+Built on the `reports/modules/` infrastructure.
+
+**Outputs:** PDF (5 pages), HTML email body. No Excel attachment.
+
+**Calculations runbook:** `docs/management_summary_calculations.md`
+
+---
+
+### 10. `reports/board_summary.py` — Board Vulnerability Metrics Summary
+
+**Audience:** Board of Directors / Executive Leadership
+
+Four board-facing KPIs, each with a gauge chart, RAG status, and per-business-unit breakdown:
+
+1. **Scan Coverage SLA** — % of licensed assets scanned in the last 30 days (target ≥ 95%)
+2. **Critical Remediation SLA** — % of critical vulns fixed within their 15-day SLA in the last 30 days (target ≥ 95%)
+3. **High-Risk Assets** — % of on-time assets with ≥ 10 Crit/High vulns open > 30 days (target ≤ 0.5%)
+4. **Aged Vulnerability Assets** — % of on-time assets with ≥ 1 Med/High/Crit vuln open > 90 days (target ≤ 2%)
+
+All four metrics share the same on-time scanned asset baseline (licensed assets, scanned within
+30 days, deduplicated by hostname). Business-unit breakdown uses the Tenable `Application` tag
+category. Unlicensed assets (null `last_licensed_scan_date`) are excluded from all metrics.
+
+Built on the `reports/modules/` infrastructure — each metric is an independent registered
+module; `ReportComposer` assembles the PDF, Excel, and email KPI tiles.
+
+**Outputs:** PDF (cover page + 4 metric pages), Excel (4 tabs + `_Metadata`). No charts returned.
+
+**Calculations runbook:** `docs/board_summary_calculations.md`
+
+---
+
 ## Shared Utilities
 
 ### `utils/sla_calculator.py`
@@ -691,11 +808,11 @@ The recast rules API returns a `filter` field that can be an arbitrary AND/OR tr
 
 ## Deliverables Checklist
 
-- [ ] `config.py`
+- [x] `config.py`
 - [ ] `tenable_client.py`
-- [ ] `delivery_config.yaml` — annotated example with 4 sample groups
-- [ ] `delivery_config.schema.yaml` — schema for validation
-- [ ] `data/fetchers.py`
+- [x] `delivery_config.yaml` — annotated example with 4 sample groups
+- [x] `delivery_config.schema.yaml` — schema for validation
+- [x] `data/fetchers.py`
 - [ ] `utils/sla_calculator.py`
 - [ ] `utils/tag_helper.py` (with `--list-tags` CLI)
 - [ ] `utils/formatters.py`
@@ -710,13 +827,18 @@ The recast rules API returns a `filter` field that can be an arbitrary AND/OR tr
 - [ ] `reports/plugin_cve.py`
 - [x] `reports/ops_remediation.py`
 - [x] `reports/vuln_export.py`
+- [x] `reports/management_summary.py`
+- [x] `reports/board_summary.py`
+- [x] `reports/modules/` — BaseModule, ModuleRegistry, ReportComposer, chart_utils, board_report_utils, 4 board metric modules
 - [ ] `delivery/email_sender.py`
 - [ ] `delivery/email_template.py`
 - [ ] `templates/report_email.html`
 - [ ] `delivery/delivery_log.py` (with inspection CLI)
 - [ ] `scheduler.py` (daemon + run-due + manual modes)
 - [ ] `deploy/vuln-reports.service` (systemd unit file)
-- [ ] `run_all.py`
+- [x] `run_all.py`
 - [ ] `requirements.txt`
 - [ ] `.env.example`
 - [ ] `README.md`
+- [x] `docs/management_summary_calculations.md`
+- [x] `docs/board_summary_calculations.md`
