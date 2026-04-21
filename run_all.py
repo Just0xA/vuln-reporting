@@ -83,6 +83,7 @@ _VALID_REPORTS: frozenset[str] = frozenset({
     "management_summary",
     "vuln_export",
     "board_summary",
+    "unscanned_assets",
 })
 
 _VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "monthly", "on_demand"})
@@ -109,6 +110,7 @@ _REPORT_MODULE_MAP: dict[str, str] = {
     "management_summary":  "reports.management_summary",
     "vuln_export":         "reports.vuln_export",
     "board_summary":       "reports.board_summary",
+    "unscanned_assets":    "reports.unscanned_assets",
 }
 
 # Required .env variables checked during --dry-run
@@ -591,6 +593,8 @@ def run_group(
                 csv_severities = group_config.get("csv_severities")
                 if csv_severities is not None:
                     report_kwargs["csv_severities"] = csv_severities
+            if slug == "unscanned_assets":
+                report_kwargs["scan_window_days"] = group_config.get("scan_window_days", 30)
             result = report_module.run_report(tio, run_id, **report_kwargs)
             report_outputs[slug]  = result
             reports_generated.append(slug)

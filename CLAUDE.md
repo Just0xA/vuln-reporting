@@ -291,7 +291,7 @@ groups:
 - `day_of_month` is required when `frequency: monthly`; must be an integer between 1 and 28 (28 max to avoid last-day-of-month issues in February); ignored otherwise
 - `time` is required for `frequency: weekly` and `frequency: monthly`; format `HH:MM` (24-hour, server local time); ignored for `on_demand`
 - `filters` may be empty `{}` to run against all assets
-- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`, `management_summary`, `vuln_export`, `board_summary`
+- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`, `management_summary`, `vuln_export`, `board_summary`, `unscanned_assets`
 - `recipients` is a required list; `cc` may be empty
 - Validate the YAML schema on startup and exit with a clear error if misconfigured
 - Build a `delivery_config.schema.yaml` (JSON Schema format) so the config can be validated by editors and CI
@@ -727,6 +727,35 @@ module; `ReportComposer` assembles the PDF, Excel, and email KPI tiles.
 
 ---
 
+### 11. `reports/unscanned_assets.py` — Unscanned / Overdue Assets List
+
+**Audience:** Security Analysts / IT Operations
+
+Companion report to the Board Summary Scan Coverage SLA metric. Lists every asset that is **not** contributing to the "on time" numerator so analysts can investigate why assets are missing from coverage. Uses identical deduplication logic (`deduplicate_assets_by_name` from `board_report_utils`) so counts reconcile exactly with the board metric.
+
+**Three-way asset split:**
+- **On Time** — licensed asset with `last_licensed_scan_date` within `scan_window_days` (excluded from output, count shown in summary only)
+- **Overdue Licensed** — licensed asset whose `last_licensed_scan_date` is older than `scan_window_days`; these inflate the denominator and hurt coverage %
+- **No Licensed Scan** — asset with a null `last_licensed_scan_date`; excluded from both numerator and denominator of the board metric
+
+**Group-config extras:**
+```yaml
+scan_window_days: 30   # optional — defaults to 30; must match board_summary setting
+```
+
+**Excel tabs:**
+1. **Summary** — reconciliation counts (on time / overdue licensed / no licensed scan / total licensed / unlicensed excluded); formula showing how Scan Coverage SLA % is derived
+2. **Overdue Licensed** — assets with stale scan dates; sorted by `days_since_licensed_scan` descending; columns: hostname, ipv4, fqdn, OS, last_licensed_scan_date, days_since_licensed_scan, last_seen, days_since_last_seen, last_scan_time, source_name, tags, asset_uuid
+3. **No Licensed Scan** — assets never assigned a licensed scan; sorted by `days_since_last_seen` descending; columns: hostname, ipv4, fqdn, OS, last_seen, days_since_last_seen, first_seen, has_plugin_results, source_name, tags, asset_uuid
+
+**CSV:** Flat export combining Overdue Licensed and No Licensed Scan rows with a `Category` column.
+
+**Outputs:** Excel (.xlsx), CSV. No PDF, no charts.
+
+**Return dict:** `{"pdf": None, "excel": path, "csv": path, "charts": [], "metrics": {...}}`
+
+---
+
 ## Shared Utilities
 
 ### `utils/sla_calculator.py`
@@ -829,6 +858,7 @@ The recast rules API returns a `filter` field that can be an arbitrary AND/OR tr
 - [x] `reports/vuln_export.py`
 - [x] `reports/management_summary.py`
 - [x] `reports/board_summary.py`
+- [x] `reports/unscanned_assets.py`
 - [x] `reports/modules/` — BaseModule, ModuleRegistry, ReportComposer, chart_utils, board_report_utils, 4 board metric modules
 - [ ] `delivery/email_sender.py`
 - [ ] `delivery/email_template.py`
