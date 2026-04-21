@@ -19,9 +19,13 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+# Allow running as a top-level script from any working directory
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
@@ -232,7 +236,10 @@ def fetch_all_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
         "[API FETCH] Fetching all vulnerabilities from Tenable API (unscoped, no tag filter)"
     )
 
-    export_filters: dict = {"state": ["open", "reopened"]}
+    export_filters: dict = {
+        "state":    ["open", "reopened"],
+        "severity": ["critical", "high", "medium", "low"],
+    }
     rows: list[dict] = []
 
     with Progress(
@@ -358,7 +365,10 @@ def fetch_fixed_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
 
     logger.info("[API FETCH] Fetching fixed vulnerabilities from Tenable API")
 
-    export_filters: dict = {"state": ["fixed"]}
+    export_filters: dict = {
+        "state":    ["fixed"],
+        "severity": ["critical", "high", "medium", "low"],
+    }
     rows: list[dict] = []
 
     with Progress(
@@ -522,7 +532,8 @@ def fetch_all_assets(tio, cache_dir: Path) -> pd.DataFrame:
                 # Tags
                 "tags":              ";".join(tag_filter_parts),   # filter_by_tag compat
                 "tags_str":          ", ".join(tag_display_parts), # display
-                # Misc
+                # Agent identity (list — one asset may have multiple agent names)
+                "agent_names":       asset.get("agent_names") or [],
                 "agent_uuid":        asset.get("agent_uuid", ""),
             })
             progress.advance(task)
@@ -846,7 +857,10 @@ def fetch_vulnerabilities(
         tag_value,
     )
 
-    export_filters: dict = {"state": ["open", "reopened"]}
+    export_filters: dict = {
+        "state":    ["open", "reopened"],
+        "severity": ["critical", "high", "medium", "low"],
+    }
 
     # Scope to tag if both category and value are provided.
     # tio.exports.vulns() accepts tags as a list of (category, value) tuples.
@@ -1217,15 +1231,31 @@ if __name__ == "__main__":
     from datetime import datetime, timezone
     from tenable_client import get_client
 
-    parser = argparse.ArgumentParser(description="Standalone data fetch test")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Standalone data fetcher. Pulls data from Tenable and caches to parquet.\n\n"
+            "Examples:\n"
+            "  python data/fetchers.py --all                  # fetch everything\n"
+            "  python data/fetchers.py --dataset vulns_fixed  # fixed vulns only\n"
+            "  python data/fetchers.py --dataset vulns_all    # open/reopened vulns only\n"
+            "  python data/fetchers.py --dataset assets_all   # assets only\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "--dataset",
-        choices=["vulns_all", "assets_all", "vulns", "assets", "tags"],
-        default="vulns_all",
+        choices=["vulns_all", "vulns_fixed", "assets_all", "vulns", "assets", "tags"],
+        default=None,
         help=(
-            "vulns_all / assets_all — new unscoped fetchers (preferred); "
-            "vulns / assets / tags — legacy tag-scoped fetchers"
+            "Single dataset to fetch. "
+            "vulns_all=open+reopened, vulns_fixed=fixed/remediated, "
+            "assets_all=all assets. Ignored when --all is set."
         ),
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Fetch all three datasets: vulns_all, vulns_fixed, and assets_all.",
     )
     parser.add_argument("--tag-category", default=None,
                         help="Apply in-memory tag filter after fetching (vulns_all / assets_all)")
@@ -1233,6 +1263,9 @@ if __name__ == "__main__":
     parser.add_argument("--cache-dir", default=None,
                         help="Cache directory path (default: data/cache/<today>)")
     args = parser.parse_args()
+
+    if not args.all and args.dataset is None:
+        parser.error("Specify --all to fetch everything, or --dataset <name> for a single dataset.")
 
     _cache_dir = (
         Path(args.cache_dir)
@@ -1242,12 +1275,37 @@ if __name__ == "__main__":
 
     tio = get_client()
 
-    if args.dataset == "vulns_all":
+    if args.all:
+        print(f"Fetching all datasets → {_cache_dir}\n")
+
+        print("--- vulns_all (open + reopened) ---")
+        df = fetch_all_vulnerabilities(tio, _cache_dir)
+        print(f"  {len(df):,} rows\n")
+
+        print("--- vulns_fixed (fixed / remediated) ---")
+        df = fetch_fixed_vulnerabilities(tio, _cache_dir)
+        print(f"  {len(df):,} rows\n")
+
+        print("--- assets_all ---")
+        df = fetch_all_assets(tio, _cache_dir)
+        print(f"  {len(df):,} rows\n")
+
+        print(f"All fetches complete. Cache: {_cache_dir}")
+
+    elif args.dataset == "vulns_all":
         df = fetch_all_vulnerabilities(tio, _cache_dir)
         df = filter_by_tag(df, args.tag_category, args.tag_value)
+        print(df.head(10).to_string())
+        print(f"\nTotal rows: {len(df):,}")
+    elif args.dataset == "vulns_fixed":
+        df = fetch_fixed_vulnerabilities(tio, _cache_dir)
+        print(df.head(10).to_string())
+        print(f"\nTotal rows: {len(df):,}")
     elif args.dataset == "assets_all":
         df = fetch_all_assets(tio, _cache_dir)
         df = filter_by_tag(df, args.tag_category, args.tag_value)
+        print(df.head(10).to_string())
+        print(f"\nTotal rows: {len(df):,}")
     elif args.dataset == "vulns":
         df = fetch_vulnerabilities(
             tio,
@@ -1255,10 +1313,13 @@ if __name__ == "__main__":
             tag_category=args.tag_category,
             tag_value=args.tag_value,
         )
+        print(df.head(10).to_string())
+        print(f"\nTotal rows: {len(df):,}")
     elif args.dataset == "assets":
         df = fetch_assets(tio, _cache_dir)
+        print(df.head(10).to_string())
+        print(f"\nTotal rows: {len(df):,}")
     else:
         df = fetch_tags(tio, _cache_dir)
-
-    print(df.head(10).to_string())
-    print(f"\nTotal rows: {len(df)}")
+        print(df.head(10).to_string())
+        print(f"\nTotal rows: {len(df):,}")

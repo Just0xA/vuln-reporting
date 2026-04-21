@@ -24,8 +24,8 @@ ROOT_DIR: Path = Path(__file__).resolve().parent
 SLA_DAYS: dict[str, int] = {
     "critical": 15,
     "high": 30,
-    "medium": 90,
-    "low": 180,
+    "medium": 60,
+    "low": 120,
 }
 
 # =============================================================================
@@ -66,9 +66,9 @@ SEVERITY_NAME_TO_LEVEL: dict[str, int] = {v: k for k, v in SEVERITY_LEVEL_MAP.it
 # =============================================================================
 VPR_SEVERITY_MAP: list[tuple[float, float, str]] = [
     (9.0, 10.0, "critical"),
-    (7.0,  8.9, "high"),
-    (4.0,  6.9, "medium"),
-    (0.1,  3.9, "low"),
+    (7.0, 8.9, "high"),
+    (4.0, 6.9, "medium"),
+    (0.1, 3.9, "low"),
 ]
 
 
@@ -117,6 +117,7 @@ def vpr_to_severity(score: float | None, fallback: str = "info") -> str:
         return fallback
 
     import math
+
     if math.isnan(score):
         return fallback
 
@@ -126,6 +127,7 @@ def vpr_to_severity(score: float | None, fallback: str = "info") -> str:
 
     # score == 0.0 or any value outside all ranges
     return fallback
+
 
 # =============================================================================
 # Risk scoring weights (used in asset risk and executive KPI reports)
@@ -153,20 +155,20 @@ SEVERITY_COLORS: dict[str, str] = {
 
 # Excel fill colors (openpyxl PatternFill hex, no leading #)
 SEVERITY_FILL_COLORS: dict[str, str] = {
-    "critical": "FFCDD2",   # light red
-    "high": "FFE0B2",       # light orange
-    "medium": "FFF9C4",     # light yellow
-    "low": "C8E6C9",        # light green
-    "info": "BBDEFB",       # light blue
+    "critical": "FFCDD2",  # light red
+    "high": "FFE0B2",  # light orange
+    "medium": "FFF9C4",  # light yellow
+    "low": "C8E6C9",  # light green
+    "info": "BBDEFB",  # light blue
 }
 
 # Risk tier thresholds for asset risk report color coding
 RISK_TIER_COLORS: dict[str, str] = {
-    "critical": "FFCDD2",   # score >= 50
-    "high": "FFE0B2",       # score 20-49
-    "medium": "FFF9C4",     # score 5-19
-    "low": "C8E6C9",        # score 1-4
-    "none": "F5F5F5",       # score 0
+    "critical": "FFCDD2",  # score >= 50
+    "high": "FFE0B2",  # score 20-49
+    "medium": "FFF9C4",  # score 5-19
+    "low": "C8E6C9",  # score 1-4
+    "none": "F5F5F5",  # score 0
 }
 
 RISK_TIER_THRESHOLDS: list[tuple[int, str]] = [

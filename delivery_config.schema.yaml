@@ -64,6 +64,35 @@ definitions:
             - patch_compliance
             - trend_analysis
             - plugin_cve
+            - ops_remediation
+            - management_summary
+            - vuln_export
+
+      csv_severities:
+        type: array
+        description: "Optional severity filter for vuln_export groups. Defaults to [critical, high, medium] when omitted."
+        items:
+          type: string
+          enum:
+            - critical
+            - high
+            - medium
+            - low
+
+      modules:
+        type: array
+        description: "Optional ordered list of module IDs for module-composed reports (e.g. board_summary). Each ID must match a registered BaseModule.MODULE_ID."
+        items:
+          type: string
+          minLength: 1
+
+      module_options:
+        type: object
+        description: "Optional per-module configuration options for module-composed reports. Keys are module IDs; values are dicts of option name → value."
+        additionalProperties:
+          type: object
+          description: "Option key-value pairs forwarded to the module's ModuleConfig.options dict."
+          additionalProperties: true
 
       email:
         $ref: "#/definitions/email"
