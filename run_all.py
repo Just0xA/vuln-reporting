@@ -50,7 +50,18 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_PROJECT_ROOT = str(Path(__file__).resolve().parent)
+sys.path.insert(0, _PROJECT_ROOT)
+
+# Remove any stale entries for project-local packages that may have been
+# pre-loaded from an installed pip package (e.g. a PyPI 'reports' package)
+# before this sys.path manipulation ran.  This happens when run_all is
+# imported by scheduler.py or another process that already resolved 'reports'
+# from site-packages.  Clearing the cache forces Python to re-resolve from
+# _PROJECT_ROOT on the next import.
+for _k in [k for k in sys.modules if k in ("reports", "data", "utils")
+           or k.startswith(("reports.", "data.", "utils."))]:
+    del sys.modules[_k]
 
 from config import CACHE_DIR, LOG_DIR, LOG_LEVEL, OUTPUT_DIR, ROOT_DIR
 from utils.formatters import report_timestamp, safe_filename
