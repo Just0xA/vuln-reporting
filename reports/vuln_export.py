@@ -199,8 +199,8 @@ def _build_csv_dataframe(
     if vulns_df.empty:
         logger.warning("vuln_export: no open findings after filtering — CSV will be empty.")
         return pd.DataFrame(columns=[
-            "Plugin ID", "Plugin Name", "Asset Name", "IP Address",
-            "Operating System", "Severity", "VPR Score", "First Found",
+            "Plugin ID", "Plugin Name", "Application", "Asset Name", "IP Address",
+            "Operating System", "CPE", "Severity", "VPR Score", "First Found",
             "Days Open", "SLA Status", "Exploit Available", "Exploit Code Maturity",
         ])
 
@@ -223,11 +223,20 @@ def _build_csv_dataframe(
         except (TypeError, ValueError):
             return "N/A"
 
+    def _extract_tag_value(tags_str: str, category: str) -> str:
+        prefix = f"{category}="
+        for part in str(tags_str).split(";"):
+            if part.strip().startswith(prefix):
+                return part.strip()[len(prefix):]
+        return ""
+
     first_found_dt  = pd.to_datetime(df["first_found"], utc=True, errors="coerce")
     # days_open from apply_sla_to_df uses fillna(-1) for missing first_found;
     # convert -1 sentinel back to pd.NA so it writes as blank in the CSV.
     raw_days_open   = pd.to_numeric(df["days_open"], errors="coerce")
     nullable_days   = raw_days_open.where(raw_days_open >= 0, other=pd.NA).astype("Int64")
+
+    tags_col = df.get("tags", pd.Series("", index=df.index)).fillna("")
 
     df = df.assign(
         sla_status_csv         = _compute_csv_sla_status(df),
@@ -245,6 +254,7 @@ def _build_csv_dataframe(
                                      .str.replace("_", " ", regex=False)
                                      .apply(lambda v: v.title() if v else "Unknown")
                                  ),
+        application_tag        = tags_col.apply(lambda t: _extract_tag_value(t, "Application")),
         _sev_rank              = df["severity"].str.lower().map(_SEVERITY_RANK).fillna(99),
         _vpr_sort              = pd.to_numeric(df["vpr_score"], errors="coerce").fillna(-1.0),
         _days_sort             = raw_days_open.fillna(-1),
@@ -266,17 +276,19 @@ def _build_csv_dataframe(
     # Select and rename to final output columns
     # ------------------------------------------------------------------
     output_df = pd.DataFrame({
-        "Plugin ID":            df["plugin_id"].fillna("").astype(str).str.replace(r"\.0$", "", regex=True),
-        "Plugin Name":          df["plugin_name"].fillna(""),
-        "Asset Name":           df.get("hostname", pd.Series("", index=df.index)).fillna(""),
-        "IP Address":           df.get("ipv4", pd.Series("", index=df.index)).fillna(""),
-        "Operating System":     df.get("operating_system", pd.Series("", index=df.index)).fillna(""),
-        "Severity":             df["severity_display"],
-        "VPR Score":            df["vpr_score_fmt"],
-        "First Found":          df["first_found_date"],
-        "Days Open":            df["days_open_display"],
-        "SLA Status":           df["sla_status_csv"],
-        "Exploit Available":    df["exploit_available_disp"],
+        "Plugin ID":             df["plugin_id"].fillna("").astype(str).str.replace(r"\.0$", "", regex=True),
+        "Plugin Name":           df["plugin_name"].fillna(""),
+        "Application":           df["application_tag"],
+        "Asset Name":            df.get("hostname", pd.Series("", index=df.index)).fillna(""),
+        "IP Address":            df.get("ipv4", pd.Series("", index=df.index)).fillna(""),
+        "Operating System":      df.get("operating_system", pd.Series("", index=df.index)).fillna(""),
+        "CPE":                   df.get("cpe", pd.Series("", index=df.index)).fillna(""),
+        "Severity":              df["severity_display"],
+        "VPR Score":             df["vpr_score_fmt"],
+        "First Found":           df["first_found_date"],
+        "Days Open":             df["days_open_display"],
+        "SLA Status":            df["sla_status_csv"],
+        "Exploit Available":     df["exploit_available_disp"],
         "Exploit Code Maturity": df["exploit_maturity_disp"],
     })
 

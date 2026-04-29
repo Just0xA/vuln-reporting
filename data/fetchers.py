@@ -298,8 +298,9 @@ def fetch_all_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
                 "severity":        severity,
                 "severity_native": severity_native,
                 "severity_level":  severity_id,
-                # CVE / CVSS
+                # CVE / CVSS / CPE
                 "cve_list":        ", ".join(plugin.get("cve", []) or []),
+                "cpe":             ", ".join(plugin.get("cpe", []) or []),
                 "cvss_base_score": plugin.get("cvss_base_score"),
                 "cvss3_score":     plugin.get("cvss3_base_score"),
                 # Exploit
