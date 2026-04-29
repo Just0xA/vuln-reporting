@@ -662,7 +662,7 @@ Operationally focused report that groups overdue findings by plugin to provide a
 - Four-state SLA status: Overdue / Urgent / Warning / On Track (same thresholds as ops_remediation)
 - Sort order: severity rank → VPR score descending → Days Open descending
 
-**Columns:** Plugin ID, Plugin Name, Asset Name, IP Address, Operating System, Severity, VPR Score, First Found, Days Open, SLA Status, Exploit Available, Exploit Code Maturity
+**Columns:** Plugin ID, Plugin Name, Application, Asset Name, IP Address, Operating System, CPE, Severity, VPR Score, First Found, Days Open, SLA Status, Exploit Available, Exploit Code Maturity
 
 **Outputs:** CSV only (UTF-8 with BOM, `quoting=QUOTE_ALL`). No PDF, no Excel, no charts.
 
