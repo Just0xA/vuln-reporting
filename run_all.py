@@ -721,14 +721,44 @@ def _print_summary(results: list[dict]) -> None:
 # CLI entry point
 # ===========================================================================
 
+class _ThirdPartyFilter(logging.Filter):
+    """Drop sub-WARNING records from libraries that reset their own log levels at runtime.
+
+    fontTools.subset explicitly calls logger.setLevel(DEBUG) on child loggers
+    during font subsetting, which overrides any parent-level WARNING we set.
+    A handler-level filter is the only reliable way to suppress these because
+    it intercepts the record after propagation, regardless of per-logger levels.
+    """
+    _NOISY = ("fontTools", "weasyprint.progress")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno < logging.WARNING:
+            for prefix in self._NOISY:
+                if record.name == prefix or record.name.startswith(prefix + "."):
+                    return False
+        return True
+
+
 def main() -> int:
+    _log_level = getattr(logging, LOG_LEVEL, logging.INFO)
+    _handlers: list[logging.Handler] = [
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(LOG_DIR / "app.log", encoding="utf-8"),
+    ]
+    # When not in DEBUG mode attach a filter to every handler so that
+    # libraries which explicitly reset child-logger levels at runtime
+    # (fontTools.subset does this during font subsetting) cannot sneak
+    # DEBUG/INFO records through propagation.
+    if _log_level > logging.DEBUG:
+        _f = _ThirdPartyFilter()
+        for _h in _handlers:
+            _h.addFilter(_f)
+
     logging.basicConfig(
-        level=getattr(logging, LOG_LEVEL, logging.INFO),
+        level=_log_level,
         format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(LOG_DIR / "app.log", encoding="utf-8"),
-        ],
+        handlers=_handlers,
+        force=True,  # replace any handlers added by third-party imports before main()
     )
 
     parser = argparse.ArgumentParser(

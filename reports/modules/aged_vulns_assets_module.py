@@ -210,15 +210,9 @@ class AgedVulnsAssetsModule(BaseModule):
 
             bu_breakdown = compute_per_bu_breakdown(
                 enriched, numerator_mask, denom_mask,
+                higher_is_better=False,
             )
-
-            # Sort descending: worst performers (highest %) first
-            bu_breakdown_desc = (
-                bu_breakdown
-                .sort_values("percentage", ascending=False)
-                .reset_index(drop=True)
-            )
-            table_data = bu_breakdown_desc.to_dict("records")
+            table_data = bu_breakdown.to_dict("records")
 
             # ---- Step 6: narrative summary ----
             summary_text = _build_summary(
@@ -248,7 +242,7 @@ class AgedVulnsAssetsModule(BaseModule):
                         "yellow": _YELLOW_THRESHOLD,
                     },
                     "direction":  _DIRECTION,
-                    "top_5":      bu_breakdown_desc.head(5).to_dict("records"),
+                    "top_5":      bu_breakdown.head(5).to_dict("records"),
                 },
                 summary_text = summary_text,
                 metadata     = {**_build_metadata(report_date), "computed_at": computed_at},
@@ -588,10 +582,13 @@ class AgedVulnsAssetsModule(BaseModule):
                     "as produced by fetch_all_vulnerabilities()."
                 ),
                 "BU_breakdown": (
-                    "compute_per_bu_breakdown() on on-time assets enriched with Application tag. "
+                    "compute_per_bu_breakdown(higher_is_better=False) on on-time assets "
+                    "enriched with Application tag. "
                     "Numerator = assets with aged finding(s) per BU; "
                     "denominator = all on-time assets per BU. "
-                    "Sorted DESCENDING by percentage (worst performers first)."
+                    "affected = numerator (raw aged-asset count). "
+                    "Primary sort: affected DESC (largest absolute problem first). "
+                    "Secondary sort: percentage DESC (worst % among ties)."
                 ),
             },
         }
