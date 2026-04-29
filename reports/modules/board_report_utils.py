@@ -286,7 +286,8 @@ def compute_per_bu_breakdown(
     df:               pd.DataFrame,
     numerator_mask:   "pd.Series[bool]",
     denominator_mask: "pd.Series[bool]",
-    bu_column:        str = "business_unit",
+    bu_column:        str  = "business_unit",
+    higher_is_better: bool = True,
 ) -> pd.DataFrame:
     """
     Compute per-business-unit numerator/denominator/percentage for a metric.
@@ -307,15 +308,32 @@ def compute_per_bu_breakdown(
         ``True`` for rows that contribute to the denominator total.
     bu_column : str
         Column name holding the business-unit label.  Default: ``"business_unit"``.
+    higher_is_better : bool
+        Ranking direction for the metric.
+
+        * ``True``  (default) — a higher percentage is the goal (e.g. Scan
+          Coverage, Critical Remediation SLA).  The "affected" count that drives
+          sort order is ``denominator − numerator`` (assets *not* meeting the
+          goal).
+        * ``False`` — a lower percentage is the goal (e.g. High-Risk Assets,
+          Aged Vulnerability Assets).  The "affected" count is ``numerator``
+          (assets *with* the problem).
+
+        In both cases BUs are ranked by **absolute affected count descending**
+        so that a large environment with many real problems ranks above a small
+        environment that is 100 % non-compliant.  Percentage is used as the
+        tiebreaker (worst percentage first within the same affected count).
 
     Returns
     -------
     pd.DataFrame
         Columns: ``business_unit``, ``numerator`` (int), ``denominator`` (int),
-        ``percentage`` (float, 1 decimal place).
+        ``percentage`` (float, 1 decimal place), ``affected`` (int — sort key,
+        see *higher_is_better* above).
 
-        Sorted by ``percentage`` **ascending** (worst performers first) so the
-        PDF top-5 table surfaces the BUs most in need of attention.
+        Primary sort: ``affected`` descending.
+        Secondary sort: ``percentage`` worst-first (ascending for
+        higher-is-better, descending for lower-is-better).
 
         BUs with ``denominator == 0`` are excluded (prevents divide-by-zero and
         avoids misleading 0% rows where the BU has no applicable assets).
@@ -358,8 +376,26 @@ def compute_per_bu_breakdown(
         .round(1)
     )
 
-    # Worst performers first so PDF top-5 highlights the most critical BUs
-    return grouped.sort_values("percentage", ascending=True).reset_index(drop=True)
+    # affected = raw count of assets that represent the problem for this metric.
+    # For higher-is-better: assets NOT meeting the goal (denominator - numerator).
+    # For lower-is-better: assets WITH the problem (numerator).
+    if higher_is_better:
+        grouped.loc[:, "affected"] = grouped["denominator"] - grouped["numerator"]
+        pct_ascending = True   # lower % = worse for higher-is-better
+    else:
+        grouped.loc[:, "affected"] = grouped["numerator"]
+        pct_ascending = False  # higher % = worse for lower-is-better
+
+    # Primary: most affected assets first (absolute impact).
+    # Secondary: worst percentage first within the same affected count.
+    return (
+        grouped
+        .sort_values(
+            ["affected", "percentage"],
+            ascending=[False, pct_ascending],
+        )
+        .reset_index(drop=True)
+    )
 
 
 # ===========================================================================

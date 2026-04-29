@@ -63,10 +63,13 @@ _LOG_FILE = LOG_DIR / "scheduler.log"
 def _setup_logging() -> None:
     """Configure root logger: rotating file + stdout handler."""
     root = logging.getLogger()
-    if root.handlers:
-        return  # Already configured (e.g. if imported then run directly)
+    # Remove any handlers added by third-party imports before this call so we
+    # always end up with exactly our two handlers at the configured level.
+    for h in root.handlers[:]:
+        root.removeHandler(h)
 
-    root.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+    _log_level = getattr(logging, LOG_LEVEL, logging.INFO)
+    root.setLevel(_log_level)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 
     fh = RotatingFileHandler(
@@ -79,6 +82,15 @@ def _setup_logging() -> None:
 
     ch = logging.StreamHandler(sys.stdout)
     ch.setFormatter(fmt)
+
+    # fontTools.subset resets child-logger levels to DEBUG at runtime during
+    # font subsetting; attach a handler-level filter so those records are
+    # blocked after propagation regardless of per-logger level changes.
+    if _log_level > logging.DEBUG:
+        from run_all import _ThirdPartyFilter  # noqa: PLC0415
+        _f = _ThirdPartyFilter()
+        fh.addFilter(_f)
+        ch.addFilter(_f)
 
     root.addHandler(fh)
     root.addHandler(ch)

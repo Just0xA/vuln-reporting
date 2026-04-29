@@ -215,16 +215,9 @@ class HighRiskAssetsModule(BaseModule):
 
             bu_breakdown = compute_per_bu_breakdown(
                 enriched, numerator_mask, denom_mask,
+                higher_is_better=False,
             )
-
-            # For lower_is_better, worst performers have the HIGHEST percentage.
-            # Sort descending so top-5 surfaces the most urgent BUs.
-            bu_breakdown_desc = (
-                bu_breakdown
-                .sort_values("percentage", ascending=False)
-                .reset_index(drop=True)
-            )
-            table_data = bu_breakdown_desc.to_dict("records")
+            table_data = bu_breakdown.to_dict("records")
 
             # ---- Step 6: narrative summary ----
             summary_text = _build_summary(
@@ -254,8 +247,8 @@ class HighRiskAssetsModule(BaseModule):
                         "yellow": _YELLOW_THRESHOLD,
                     },
                     "direction":  _DIRECTION,
-                    # Worst 5 BUs (highest % of high-risk assets)
-                    "top_5":      bu_breakdown_desc.head(5).to_dict("records"),
+                    # Top 5 BUs by affected asset count (most high-risk assets first)
+                    "top_5":      bu_breakdown.head(5).to_dict("records"),
                 },
                 summary_text = summary_text,
                 metadata     = {**_build_metadata(report_date), "computed_at": computed_at},
@@ -596,10 +589,12 @@ class HighRiskAssetsModule(BaseModule):
                     "(vpr_to_severity from config.py) as produced by fetch_all_vulnerabilities()."
                 ),
                 "BU_breakdown": (
-                    "compute_per_bu_breakdown() on on-time assets enriched with Application tag. "
+                    "compute_per_bu_breakdown(higher_is_better=False) on on-time assets "
+                    "enriched with Application tag. "
                     "Numerator = high-risk assets per BU; denominator = all on-time assets per BU. "
-                    "Sorted DESCENDING by percentage (worst performers first) — "
-                    "highest % = most high-risk assets = most urgent for this lower-is-better metric."
+                    "affected = numerator (raw high-risk count). "
+                    "Primary sort: affected DESC (largest absolute problem first). "
+                    "Secondary sort: percentage DESC (worst % among ties)."
                 ),
             },
         }

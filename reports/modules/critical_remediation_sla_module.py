@@ -637,9 +637,12 @@ class CriticalRemediationSLAModule(BaseModule):
                     "Applied to assets_df BEFORE filtering findings."
                 ),
                 "BU_breakdown": (
-                    "Per-BU: numerator = fixed within SLA; "
-                    "denominator = total fixed in last 30 days. "
-                    "BU derived from Application tag on on-time assets."
+                    "compute_per_bu_breakdown(higher_is_better=True) via _compute_bu_breakdown(). "
+                    "Per-BU: numerator = fixed within SLA; denominator = total fixed in last 30 days. "
+                    "BU derived from Application tag on on-time assets. "
+                    "affected = denominator − numerator (criticals NOT fixed within SLA). "
+                    "Primary sort: affected DESC (most missed-SLA criticals first). "
+                    "Secondary sort: percentage ASC (worst compliance % among ties)."
                 ),
             },
         }
@@ -716,7 +719,7 @@ def _compute_bu_breakdown(
     """
     if fixed_in_window.empty:
         return pd.DataFrame(
-            columns=["business_unit", "numerator", "denominator", "percentage"]
+            columns=["business_unit", "numerator", "denominator", "percentage", "affected"]
         )
 
     # Enrich on-time assets with BU labels
@@ -736,7 +739,7 @@ def _compute_bu_breakdown(
 
     denom_mask = pd.Series(True, index=fw.index)
 
-    return compute_per_bu_breakdown(fw, within_sla_mask, denom_mask)
+    return compute_per_bu_breakdown(fw, within_sla_mask, denom_mask, higher_is_better=True)
 
 
 def _build_summary(

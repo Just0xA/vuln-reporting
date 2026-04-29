@@ -215,7 +215,8 @@ class ScanCoverageSLAModule(BaseModule):
             denom_mask      = pd.Series(True, index=enriched.index)
 
             bu_breakdown = compute_per_bu_breakdown(
-                enriched, on_time_mask_bu, denom_mask
+                enriched, on_time_mask_bu, denom_mask,
+                higher_is_better=True,
             )
             table_data = bu_breakdown.to_dict("records")
 
@@ -603,12 +604,14 @@ class ScanCoverageSLAModule(BaseModule):
                     "None → 'no_data'."
                 ),
                 "BU_breakdown": (
-                    "compute_per_bu_breakdown() applied to licensed deduplicated assets "
-                    "enriched with business_unit from Application tag. "
+                    "compute_per_bu_breakdown(higher_is_better=True) applied to licensed "
+                    "deduplicated assets enriched with business_unit from Application tag. "
                     "Per-BU numerator = count of on-time assets in that BU; "
                     "denominator = licensed asset count in that BU. "
                     "Unlicensed assets are excluded from all BU buckets. "
-                    "Sorted ascending by percentage (worst performers first). "
+                    "affected = denominator − numerator (assets NOT scanned on time). "
+                    "Primary sort: affected DESC (most un-scanned assets first). "
+                    "Secondary sort: percentage ASC (worst coverage % among ties). "
                     "Assets with no Application tag → 'Untagged' bucket."
                 ),
                 "deduplication": (

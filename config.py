@@ -11,6 +11,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # =============================================================================
 # Repository root — absolute path regardless of working directory
 # =============================================================================
@@ -202,6 +206,7 @@ MAX_ATTACHMENT_SIZE_MB: int = int(os.getenv("MAX_ATTACHMENT_SIZE_MB", "25"))
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_DIR: Path = ROOT_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
+
 
 # =============================================================================
 # Output directory
