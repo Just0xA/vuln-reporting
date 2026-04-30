@@ -323,6 +323,7 @@ def fetch_all_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
                 # sub-object does not populate asset.tags reliably.  Tag data
                 # is joined from the asset export by enrich_vulns_with_assets().
             })
+
             progress.advance(task)
 
     df = pd.DataFrame(rows)
@@ -1132,8 +1133,13 @@ def _parse_iso_utc(series: pd.Series) -> pd.Series:
     """
     Parse an ISO-8601 string column into timezone-aware UTC datetimes.
     Invalid or empty values become NaT.
+
+    format="ISO8601" is required to handle Tenable's mixed sub-second
+    precision — some records return "...T14:09:10Z" (no milliseconds) while
+    others return "...T14:09:10.649Z".  Without it, pandas infers one format
+    from the first rows and silently coerces non-matching rows to NaT.
     """
-    return pd.to_datetime(series, utc=True, errors="coerce")
+    return pd.to_datetime(series, utc=True, errors="coerce", format="ISO8601")
 
 
 def _normalize_vuln_dates(df: pd.DataFrame) -> pd.DataFrame:
