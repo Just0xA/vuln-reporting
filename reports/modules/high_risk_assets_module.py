@@ -31,7 +31,9 @@ from openpyxl.utils import get_column_letter
 
 from reports.modules.base import BaseModule, ModuleConfig, ModuleData
 from reports.modules.registry import register_module
+from config import RISK_WEIGHTS
 from reports.modules.board_report_utils import (
+    compute_bu_risk_scores,
     compute_per_bu_breakdown,
     extract_business_unit,
     identify_on_time_assets,
@@ -217,6 +219,24 @@ class HighRiskAssetsModule(BaseModule):
                 enriched, numerator_mask, denom_mask,
                 higher_is_better=False,
             )
+
+            # ---- Step 5a: compute BU risk scores and re-sort ----
+            bu_risk = compute_bu_risk_scores(
+                vulns_df         = vulns_df,
+                qualifying_uuids = high_risk_uuids,
+                enriched         = enriched,
+                severities       = frozenset({"critical", "high"}),
+                weights          = RISK_WEIGHTS,
+            )
+            bu_breakdown = bu_breakdown.merge(
+                bu_risk.rename("risk_score").reset_index(),
+                on="business_unit",
+                how="left",
+            )
+            bu_breakdown["risk_score"] = bu_breakdown["risk_score"].fillna(0).astype(int)
+            bu_breakdown = bu_breakdown.sort_values(
+                "risk_score", ascending=False,
+            ).reset_index(drop=True)
             table_data = bu_breakdown.to_dict("records")
 
             # ---- Step 6: narrative summary ----
@@ -361,18 +381,16 @@ class HighRiskAssetsModule(BaseModule):
         if top5:
             rows_html = ""
             for row in top5:
-                bu_pct  = float(row.get("percentage", 0.0))
-                bu_name = str(row.get("business_unit", ""))
-                bu_num  = int(row.get("numerator",    0))
-                bu_den  = int(row.get("denominator",  0))
-                row_bg  = _row_bg(bu_pct)
+                bu_name  = str(row.get("business_unit", ""))
+                bu_num   = int(row.get("numerator",    0))
+                bu_den   = int(row.get("denominator",  0))
+                bu_score = int(row.get("risk_score",   0))
                 rows_html += (
-                    f'<tr style="background:{row_bg};">'
+                    f'<tr>'
                     f'<td style="padding:1.5mm 3mm;">{bu_name}</td>'
                     f'<td style="text-align:right; padding:1.5mm 3mm;">{bu_num:,}</td>'
                     f'<td style="text-align:right; padding:1.5mm 3mm;">{bu_den:,}</td>'
-                    f'<td style="text-align:right; padding:1.5mm 3mm; '
-                    f'font-weight:bold;">{bu_pct:.1f}%</td>'
+                    f'<td style="text-align:right; padding:1.5mm 3mm;">{bu_score:,}</td>'
                     f'</tr>'
                 )
             bu_table_html = f"""
@@ -383,7 +401,7 @@ class HighRiskAssetsModule(BaseModule):
       <th>Business Unit</th>
       <th style="text-align:right;">High-Risk Assets</th>
       <th style="text-align:right;">On-Time Assets</th>
-      <th style="text-align:right;">High-Risk %</th>
+      <th style="text-align:right;">Risk Score</th>
     </tr>
   </thead>
   <tbody>{rows_html}</tbody>
@@ -484,7 +502,7 @@ class HighRiskAssetsModule(BaseModule):
             # ---- BU breakdown table (starts at row 11, worst first) ----
             header_row = 11
             headers = [
-                "Business Unit", "High-Risk Assets", "On-Time Assets", "High-Risk %"
+                "Business Unit", "High-Risk Assets", "On-Time Assets", "Risk Score"
             ]
             for col_idx, header in enumerate(headers, start=1):
                 cell           = ws.cell(row=header_row, column=col_idx, value=header)
@@ -494,8 +512,6 @@ class HighRiskAssetsModule(BaseModule):
 
             for row_offset, row in enumerate(data.table_data or [], start=1):
                 data_row = header_row + row_offset
-                bu_pct   = float(row.get("percentage",  0.0))
-                bu_fill  = _xl_fill(bu_pct)
 
                 ws.cell(row=data_row, column=1,
                         value=str(row.get("business_unit", ""))).alignment = (
@@ -509,11 +525,9 @@ class HighRiskAssetsModule(BaseModule):
                         value=int(row.get("denominator", 0))).alignment = (
                     Alignment(horizontal="right")
                 )
-                pct_cell           = ws.cell(row=data_row, column=4,
-                                             value=f"{bu_pct:.1f}%")
-                pct_cell.fill      = bu_fill
-                pct_cell.font      = Font(bold=True)
-                pct_cell.alignment = Alignment(horizontal="center")
+                score_cell           = ws.cell(row=data_row, column=4,
+                                               value=int(row.get("risk_score", 0)))
+                score_cell.alignment = Alignment(horizontal="right")
 
             # ---- Column widths ----
             ws.column_dimensions[get_column_letter(1)].width = 32

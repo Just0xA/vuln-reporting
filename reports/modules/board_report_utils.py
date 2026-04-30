@@ -25,6 +25,7 @@ Shared utilities
 - ``identify_on_time_assets``     — split into on-time / not-on-time subsets
 - ``extract_business_unit``       — add ``business_unit`` column from Application tag
 - ``compute_per_bu_breakdown``    — per-BU numerator/denominator/percentage table
+- ``compute_bu_risk_scores``      — weighted Risk Score per BU for qualifying assets
 - ``sla_status_from_thresholds``  — classify a value as green/yellow/red/no_data
 """
 
@@ -396,6 +397,77 @@ def compute_per_bu_breakdown(
         )
         .reset_index(drop=True)
     )
+
+
+# ===========================================================================
+# BU risk score computation
+# ===========================================================================
+
+def compute_bu_risk_scores(
+    vulns_df:         pd.DataFrame,
+    qualifying_uuids: set,
+    enriched:         pd.DataFrame,
+    severities:       "frozenset[str]",
+    weights:          "dict[str, int]",
+) -> pd.Series:
+    """
+    Compute a weighted Risk Score per business unit for the qualifying asset set.
+
+    For each qualifying asset, sums (weight × open finding count) across the
+    specified severity tiers using all open findings on that asset (not only the
+    aged/filtered findings that caused the asset to qualify).  Returns the per-BU
+    total of those per-asset scores.
+
+    Parameters
+    ----------
+    vulns_df : pd.DataFrame
+        Open / reopened findings from fetch_all_vulnerabilities().
+    qualifying_uuids : set
+        UUIDs of assets that met the module threshold (high-risk or aged).
+    enriched : pd.DataFrame
+        On-time assets with a ``business_unit`` column (from extract_business_unit).
+    severities : frozenset[str]
+        Lower-cased severity labels to include (e.g. frozenset({"critical", "high"})).
+    weights : dict[str, int]
+        Severity → point value mapping (RISK_WEIGHTS from config).
+
+    Returns
+    -------
+    pd.Series
+        Indexed by ``business_unit``, values are integer Risk Scores.
+        BUs with no qualifying assets are absent from the result.
+    """
+    if not qualifying_uuids or vulns_df.empty:
+        return pd.Series(dtype=int)
+
+    mask = (
+        vulns_df["asset_uuid"].isin(qualifying_uuids)
+        & vulns_df["severity"].str.lower().isin(severities)
+    )
+    risk_vulns = vulns_df.loc[mask, ["asset_uuid", "severity"]].copy()
+    risk_vulns["severity"] = risk_vulns["severity"].str.lower()
+
+    if risk_vulns.empty:
+        return pd.Series(dtype=int)
+
+    risk_vulns["weighted"] = risk_vulns["severity"].map(weights).fillna(0)
+    asset_scores = risk_vulns.groupby("asset_uuid")["weighted"].sum().astype(int)
+
+    bu_map = (
+        enriched.loc[
+            enriched["asset_uuid"].isin(qualifying_uuids),
+            ["asset_uuid", "business_unit"],
+        ]
+        .drop_duplicates("asset_uuid")
+    )
+    bu_asset = bu_map.merge(
+        asset_scores.rename("risk_score").reset_index(),
+        on="asset_uuid",
+        how="left",
+    )
+    bu_asset["risk_score"] = bu_asset["risk_score"].fillna(0).astype(int)
+
+    return bu_asset.groupby("business_unit")["risk_score"].sum()
 
 
 # ===========================================================================
