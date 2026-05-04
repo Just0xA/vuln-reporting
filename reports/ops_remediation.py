@@ -218,7 +218,6 @@ def _fetch_and_prepare(
             "[%s] No vulnerabilities match tag filter (%s=%s) — report will be empty.",
             REPORT_NAME, tag_category, tag_value,
         )
-        return df, assets_df
 
     logger.info("[%s] Applying SLA calculations…", REPORT_NAME)
     df = apply_sla_to_df(df, as_of=as_of)

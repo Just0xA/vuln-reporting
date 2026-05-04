@@ -1565,7 +1565,7 @@ def _build_pdf(
     # Metric 6 values
     exc_count = m6["open_exceptions"]
     exc_rate  = m6["exception_rate"]
-    exc_rate_str = f"{exc_rate:.1f}%"
+    exc_rate_str = f"{exc_rate:.1f}%" if exc_rate is not None else "N/A"
 
     page4 = f"""
 <div class="page-break">
@@ -1862,7 +1862,7 @@ def build_email_kpi_tiles(metrics: dict) -> list[dict]:
 
     # Tile 5 — Exception Rate
     exc_rate = m6["exception_rate"]
-    exc_str  = f"{exc_rate:.1f}%"
+    exc_str  = f"{exc_rate:.1f}%" if exc_rate is not None else "N/A"
     tile_exc = {
         "label":     "Exception Rate",
         "value":     exc_str,
