@@ -44,7 +44,10 @@ Granularity is **coarse**; parallelization is **on**.
   3. `reports/modules/base.py` docstrings and the `CLAUDE.md` "Adding a new module" section document the contract end-to-end including the empty-data guard pattern
   4. `management_summary.py:1853` `cov_pct` formats safely on `None` (no `TypeError` on a zero-licensed-asset run) — sibling fix to the 2026-05-04 `exception_rate` guard
   5. A grep audit of `reports/` finds no remaining `f"{...:.Xf}%"` or similar format spec interpolating an unguarded possibly-`None` metric value
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 01-01-PLAN.md — Helper modules: rag_utils.py + format_utils.py (Wave 1)
+- [ ] 01-02-PLAN.md — BaseModule contract extension + package re-exports (Wave 2)
+- [ ] 01-03-PLAN.md — QUALITY-01 cov_pct fix + QUALITY-03 audit + CLAUDE.md update (Wave 2)
 **UI hint**: no
 
 ### Phase 2: ReportComposer Upgrades
@@ -91,7 +94,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 (with Phases 2 and 3 parall
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Module Render Contract | 0/TBD | Not started | - |
+| 1. Module Render Contract | 0/3 | Not started | - |
 | 2. ReportComposer Upgrades | 0/TBD | Not started | - |
 | 3. Board Summary Module Migration | 0/TBD | Not started | - |
 | 4. YAML Config and Regression Cutover | 0/TBD | Not started | - |
