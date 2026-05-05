@@ -762,7 +762,7 @@ def _build_pdf(
             f"<strong>High:</strong> {fmt_int(sev_counts.get('high', 0))} &nbsp;|&nbsp; "
             f"<strong>Medium:</strong> {fmt_int(sev_counts.get('medium', 0))} &nbsp;|&nbsp; "
             f"<strong>Low:</strong> {fmt_int(sev_counts.get('low', 0))}",
-            f"<strong>Vulnerabilities open &gt; 90 days:</strong> {pct_old:.1f}% of current backlog",
+            f"<strong>Vulnerabilities open &gt; 90 days:</strong> {pct_old:.1f}% of current backlog",  # safe: pct_old guaranteed non-None by _compute_metrics:501-503
             "",
             "<em>Methodology: trend data is reconstructed from first_found dates in "
             "the current open-vulnerability export.  Vulns opened and fully remediated "

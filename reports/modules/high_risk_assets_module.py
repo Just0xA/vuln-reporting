@@ -338,7 +338,7 @@ class HighRiskAssetsModule(BaseModule):
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("%s PDF gauge render failed: %s", self._log_prefix(), exc)
-            pct_display = f"{gauge_value:.1f}%"
+            pct_display = f"{gauge_value:.1f}%"  # safe: gauge_value guaranteed non-None by line 321 (None coalesced to 0.0)
             gauge_html = (
                 f'<p style="text-align:center; font-size:20pt; font-weight:bold; '
                 f'color:{_STATUS_COLOR.get(status, "#333")};">{pct_display}</p>'
@@ -415,6 +415,10 @@ class HighRiskAssetsModule(BaseModule):
             )
 
         # ---- Explanatory paragraph ----
+        # Pre-format module-level threshold constants (never None) so the
+        # multi-line HTML f-string below contains no inline format specs.
+        green_str  = format(_GREEN_THRESHOLD,  ".1f")
+        yellow_str = format(_YELLOW_THRESHOLD, ".1f")
         explain_html = f"""
 <p class="explanatory-text">
   <strong>What this measures:</strong> The percentage of assets scanned on time
@@ -423,8 +427,8 @@ class HighRiskAssetsModule(BaseModule):
   have been open for more than {_AGED_DAYS_THRESHOLD} days.  These assets represent
   the highest sustained risk exposure — they are actively managed yet have significant
   unresolved findings well past normal triage timelines.  Board target is
-  &le;{_GREEN_THRESHOLD:.1f}% (green).  &le;{_YELLOW_THRESHOLD:.1f}% is at-risk (amber).
-  Above {_YELLOW_THRESHOLD:.1f}% is off-target (red).  Business-unit breakdown uses
+  &le;{green_str}% (green).  &le;{yellow_str}% is at-risk (amber).
+  Above {yellow_str}% is off-target (red).  Business-unit breakdown uses
   the Tenable &ldquo;Application&rdquo; tag category.
 </p>"""
 
@@ -495,9 +499,9 @@ class HighRiskAssetsModule(BaseModule):
             _xl_kv(ws, 8, "Scope:",
                    "On-time-scanned assets only (last_licensed_scan_date within last 30 days)")
             _xl_kv(ws, 9, "SLA Thresholds (lower is better):",
-                   f"Green <={_GREEN_THRESHOLD:.1f}%  |  "
-                   f"Amber <={_YELLOW_THRESHOLD:.1f}%  |  "
-                   f"Red >{_YELLOW_THRESHOLD:.1f}%")
+                   f"Green <={_GREEN_THRESHOLD:.1f}%  |  "  # safe: module-level float constant, never None
+                   f"Amber <={_YELLOW_THRESHOLD:.1f}%  |  "  # safe: module-level float constant, never None
+                   f"Red >{_YELLOW_THRESHOLD:.1f}%")  # safe: module-level float constant, never None
 
             # ---- BU breakdown table (starts at row 11, worst first) ----
             header_row = 11
@@ -720,7 +724,7 @@ def _build_summary(
         )
     status_label = _STATUS_LABEL.get(status, status)
     return (
-        f"{high_risk_pct:.1f}% of on-time-scanned assets are high-risk — "
+        f"{high_risk_pct:.1f}% of on-time-scanned assets are high-risk — "  # safe: high_risk_pct guarded by line 716 early-return on None
         f"{high_risk_count:,} of {total_on_time:,} assets have "
         f">={_HIGH_RISK_COUNT} Critical/High vulnerabilities open "
         f">{_AGED_DAYS_THRESHOLD} days. "

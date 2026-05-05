@@ -281,7 +281,7 @@ class TotalVulnsBySeverityModule(BaseModule):
                 sev_cell.font = Font(bold=True, color=fg)
 
                 ws.cell(row=row_idx, column=2, value=count)
-                ws.cell(row=row_idx, column=3, value=f"{pct:.1f}%")
+                ws.cell(row=row_idx, column=3, value=f"{pct:.1f}%")  # safe: pct guaranteed non-None by line 274 (else 0.0)
 
             # ---- Total row ----
             total_row = len(_SEVERITIES) + 2

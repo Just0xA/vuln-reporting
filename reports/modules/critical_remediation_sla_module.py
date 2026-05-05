@@ -360,7 +360,7 @@ class CriticalRemediationSLAModule(BaseModule):
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("%s PDF gauge render failed: %s", self._log_prefix(), exc)
-            pct_display = f"{gauge_value:.1f}%"
+            pct_display = f"{gauge_value:.1f}%"  # safe: gauge_value guaranteed non-None by line 343 (None coalesced to 0.0)
             gauge_html = (
                 f'<p style="text-align:center; font-size:20pt; font-weight:bold; '
                 f'color:{_STATUS_COLOR.get(status, "#333")};">{pct_display}</p>'
@@ -417,7 +417,7 @@ class CriticalRemediationSLAModule(BaseModule):
                     f'<td style="text-align:right; padding:1.5mm 3mm;">{bu_num:,}</td>'
                     f'<td style="text-align:right; padding:1.5mm 3mm;">{bu_den:,}</td>'
                     f'<td style="text-align:right; padding:1.5mm 3mm; '
-                    f'font-weight:bold;">{bu_pct:.1f}%</td>'
+                    f'font-weight:bold;">{bu_pct:.1f}%</td>'  # safe: bu_pct non-None per compute_per_bu_breakdown contract (zero-denom BUs excluded)
                     f'</tr>'
                 )
             bu_table_html = f"""
@@ -443,14 +443,18 @@ class CriticalRemediationSLAModule(BaseModule):
             )
 
         # ---- Explanatory paragraph ----
+        # Pre-format module-level threshold constants (never None) so the
+        # multi-line HTML f-string below contains no inline format specs.
+        green_str  = format(_GREEN_THRESHOLD,  ".0f")
+        yellow_str = format(_YELLOW_THRESHOLD, ".0f")
         explain_html = f"""
 <p class="explanatory-text">
   <strong>What this measures:</strong> Of Critical vulnerabilities (VPR 9.0&ndash;10.0)
   that were fixed in the last 30 days on assets scanned on time, what percentage were
   remediated within the {_CRITICAL_SLA_DAYS}-day SLA?  Only assets with a licensed scan
   in the last {ON_TIME_WINDOW_DAYS} days are in scope — this prevents stale assets from
-  inflating the denominator.  Board target is &ge;{_GREEN_THRESHOLD:.0f}% (green).
-  &ge;{_YELLOW_THRESHOLD:.0f}% is at-risk (amber).  Below {_YELLOW_THRESHOLD:.0f}% is
+  inflating the denominator.  Board target is &ge;{green_str}% (green).
+  &ge;{yellow_str}% is at-risk (amber).  Below {yellow_str}% is
   off-target (red).
   <em>Note: this metric approximates "open during the window" using fixed-finding data
   combined with still-open findings; see the calculations document for detail.</em>
@@ -520,9 +524,9 @@ class CriticalRemediationSLAModule(BaseModule):
             _xl_kv(ws, 8, "Window:",
                    f"Last {ON_TIME_WINDOW_DAYS} days (last_fixed >= report_date − 30d)")
             _xl_kv(ws, 9, "SLA Thresholds:",
-                   f"Green ≥{_GREEN_THRESHOLD:.0f}%  |  "
-                   f"Amber ≥{_YELLOW_THRESHOLD:.0f}%  |  "
-                   f"Red <{_YELLOW_THRESHOLD:.0f}%")
+                   f"Green ≥{_GREEN_THRESHOLD:.0f}%  |  "  # safe: module-level int constant, never None
+                   f"Amber ≥{_YELLOW_THRESHOLD:.0f}%  |  "  # safe: module-level int constant, never None
+                   f"Red <{_YELLOW_THRESHOLD:.0f}%")  # safe: module-level int constant, never None
             _xl_kv(ws, 10, "Scope:",
                    "Assets with last_licensed_scan_date within last 30 days only")
 
@@ -555,7 +559,7 @@ class CriticalRemediationSLAModule(BaseModule):
                     Alignment(horizontal="right")
                 )
                 pct_cell           = ws.cell(row=data_row, column=4,
-                                             value=f"{bu_pct:.1f}%")
+                                             value=f"{bu_pct:.1f}%")  # safe: bu_pct non-None per compute_per_bu_breakdown contract
                 pct_cell.fill      = bu_fill
                 pct_cell.font      = Font(bold=True)
                 pct_cell.alignment = Alignment(horizontal="center")
@@ -764,7 +768,7 @@ def _build_summary(
 
     status_label = _STATUS_LABEL.get(status, status)
     return (
-        f"Critical remediation SLA compliance is {sla_pct:.1f}% — "
+        f"Critical remediation SLA compliance is {sla_pct:.1f}% — "  # safe: sla_pct guarded by None/zero-data early-returns above
         f"{fixed_within_sla:,} of {total_fixed:,} Critical vulnerabilities fixed "
         f"in the last 30 days were remediated within the {_CRITICAL_SLA_DAYS}-day SLA. "
         f"Status: {status_label}."

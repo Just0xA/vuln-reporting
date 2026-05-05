@@ -467,7 +467,7 @@ def _write_summary_tab(
         (
             "On Time (scanned within window)",
             metrics["on_time"],
-            f"{metrics['on_time'] / total * 100:.1f}%  ← Scan Coverage SLA numerator",
+            f"{metrics['on_time'] / total * 100:.1f}%  ← Scan Coverage SLA numerator",  # safe: on_time int + total `or 1`-guarded
             _FILL_GREEN,
         ),
         (
