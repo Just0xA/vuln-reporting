@@ -57,6 +57,16 @@ from reports.modules.registry import registry, register_module  # noqa: F401
 # Core data contracts
 from reports.modules.base import BaseModule, ModuleConfig, ModuleData  # noqa: F401
 
+# Render-time helpers (Phase 1)
+from reports.modules.format_utils import (  # noqa: F401
+    safe_pct, safe_int, safe_format,
+)
+from reports.modules.rag_utils import (  # noqa: F401
+    STATUS_COLOR, STATUS_LABEL,
+    rag_status_from_value, build_rag_strip_entry,
+    NO_DATA_HEADLINE, NO_DATA_DRIVER,
+)
+
 # Composition utilities
 from reports.modules.composer import ReportComposer  # noqa: F401
 
@@ -73,4 +83,14 @@ __all__ = [
     "ModuleConfig",
     "ModuleData",
     "ReportComposer",
+    # Phase 1 render helpers
+    "safe_pct",
+    "safe_int",
+    "safe_format",
+    "STATUS_COLOR",
+    "STATUS_LABEL",
+    "rag_status_from_value",
+    "build_rag_strip_entry",
+    "NO_DATA_HEADLINE",
+    "NO_DATA_DRIVER",
 ]
