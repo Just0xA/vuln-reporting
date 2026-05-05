@@ -109,20 +109,39 @@ class ModuleData:
         Audit and calculation metadata — timestamps, row counts,
         filter parameters, data sources.  Written to the Report Info
         tab in Excel and used by ``collect_audit_info()``.
+    driver_narrative : str
+        Plain-language "what's driving it" line consumed by
+        ``render_email_panel()``.  Empty string default; modules
+        populate inside ``compute()`` so renderers don't get
+        DataFrames (D-07).
+    analyst_rows : list[tuple[str, pd.DataFrame]]
+        Pivot-friendly drill-down rows used by
+        ``render_analyst_tabs()``.  Each tuple is
+        ``(sheet_name, DataFrame)``.  Empty list default.
+    rag_strip : dict
+        Pre-built cover-page strip cell with keys ``label``,
+        ``headline_value``, ``rag_color``, ``rag_label`` per
+        CONTRACT-03.  Empty dict default; populated inside
+        ``compute()`` so renderers stay pure.
     error : str or None
         ``None`` on success.  On failure, a human-readable error
         message.  Renderers must check this before accessing other
         fields.
     """
 
-    module_id:    str
-    display_name: str
-    metrics:      dict
-    table_data:   list[dict]
-    chart_data:   dict
-    summary_text: str
-    metadata:     dict
-    error:        Optional[str]
+    module_id:        str
+    display_name:     str
+    metrics:          dict
+    table_data:       list[dict]
+    chart_data:       dict
+    summary_text:     str
+    metadata:         dict
+    # --- New in Phase 1 (CONTRACT-04) ---
+    driver_narrative: str                            = ""
+    analyst_rows:     list[tuple[str, pd.DataFrame]] = field(default_factory=list)
+    rag_strip:        dict                           = field(default_factory=dict)
+    # ------------------------------------
+    error:            Optional[str]                  = None
 
 
 # ===========================================================================
@@ -299,6 +318,136 @@ class BaseModule(ABC):
         return []
 
     # ------------------------------------------------------------------
+    # Phase 1 renderer methods — concrete with no-op defaults
+    # ------------------------------------------------------------------
+    # render_email_panel, render_analyst_tabs, render_rag_strip_entry
+    # extend the four-channel render contract added in Phase 1
+    # (CONTRACT-01..03). All are concrete with no-op defaults so
+    # un-migrated modules continue to instantiate (D-01); subclasses
+    # override the channels they contribute to per SUPPORTED_OUTPUTS.
+    # ------------------------------------------------------------------
+
+    def render_email_panel(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> str:
+        """
+        Render module output as an inline-CSS HTML fragment for the
+        composed email body.
+
+        **Default:** returns ``""`` (no contribution to the email body).
+        Override when ``"email"`` is in ``self.SUPPORTED_OUTPUTS`` and
+        the module wants to appear as a per-module panel in the
+        assembled email body.
+
+        Contract for overrides
+        ----------------------
+        - Return a **self-contained inline-CSS HTML fragment** — no
+          ``<html>``, ``<head>``, ``<body>``, or ``<style>`` blocks.
+          Outlook / Gmail / Apple Mail compatibility requires inline
+          style attributes only.
+        - Embed gauge images as ``cid:`` references (the composer
+          provides the CID image map) OR as ``data:image/png;base64,...``
+          URIs. Both are tolerated; ``cid:`` is preferred for size.
+        - Include a 1-line "what's driving it" string sourced from
+          ``data.driver_narrative`` so the panel matches the
+          cover-page strip.
+        - On ``data.error`` or empty driver narrative, return ``""``
+          (the composer concatenates non-empty fragments only).
+        - Use ``safe_pct`` / ``safe_int`` / ``safe_format`` from
+          ``reports.modules.format_utils`` for any numeric
+          interpolation.  Inline f-string format specs on
+          possibly-``None`` metric values are forbidden.
+
+        Returns
+        -------
+        str
+            HTML fragment, or ``""`` to omit this module from the
+            panel section.
+        """
+        return ""
+
+    def render_analyst_tabs(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> list[tuple[str, pd.DataFrame]]:
+        """
+        Return one or more (sheet_name, DataFrame) tuples of
+        pivot-friendly drill-down rows for the analyst-detail
+        companion workbook.
+
+        **Default:** returns ``[]``.  Un-migrated modules don't
+        appear as tabs in the analyst workbook (no empty-tab noise).
+
+        Contract for overrides
+        ----------------------
+        - Each tuple is one worksheet.  ``sheet_name`` must be unique
+          within the module's contribution and ``<= 31`` chars
+          (Excel limit).
+        - The DataFrame should be **flat and pivot-table-friendly** —
+          one row per finding/asset, no aggregation.  Analysts pivot
+          themselves.
+        - On ``data.error`` or zero-row data, return ``[]``.  The
+          composer produces no tab for an empty contribution.
+        - Source data MUST come from ``data.analyst_rows`` (populated
+          inside ``compute()``); this method is a pure render path.
+
+        Returns
+        -------
+        list[tuple[str, pd.DataFrame]]
+            ``[]`` if the module emits no analyst detail.
+        """
+        return []
+
+    def render_rag_strip_entry(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> dict:
+        """
+        Return the cover-page RAG-strip cell for this module.
+
+        **Default:** returns a gray "No Data" cell shaped like
+        ``{"label": self.DISPLAY_NAME, "headline_value": "—",
+        "rag_color": "#757575", "rag_label": "No Data"}``.
+        The strip ALWAYS shows one cell per module so missed
+        overrides are visually obvious instead of silently
+        disappearing.
+
+        Contract for overrides
+        ----------------------
+        - Return a dict with exactly four keys: ``label``,
+          ``headline_value``, ``rag_color``, ``rag_label``.
+          No additional keys in v1 (per CONTRACT-03).
+        - ``headline_value`` is a pre-formatted string
+          (e.g. ``"87.4%"``, ``"12 assets"``, ``"—"``);
+          the composer does not reformat.
+        - On ``data.error`` or no-data conditions, return the
+          gray default (use ``rag_utils.build_rag_strip_entry``
+          with status ``"no_data"`` for consistency).
+        - Use ``safe_pct`` / ``safe_int`` / ``safe_format`` for
+          the headline value when sourcing from possibly-``None``
+          metrics.
+
+        Returns
+        -------
+        dict
+            Strip cell dict.  Always non-empty so the cover strip
+            is structurally consistent.
+        """
+        from reports.modules.rag_utils import (  # noqa: PLC0415
+            STATUS_COLOR, STATUS_LABEL, NO_DATA_HEADLINE,
+        )
+        return {
+            "label":          self.DISPLAY_NAME,
+            "headline_value": NO_DATA_HEADLINE,
+            "rag_color":      STATUS_COLOR["no_data"],
+            "rag_label":      STATUS_LABEL["no_data"],
+        }
+
+    # ------------------------------------------------------------------
     # Optional methods — concrete implementations with sensible defaults
     # ------------------------------------------------------------------
 
@@ -404,21 +553,38 @@ class BaseModule(ABC):
         Convenience method for returning a failed ModuleData from
         inside a caught exception handler.
 
+        Populates the three Phase 1 render fields
+        (``driver_narrative``, ``analyst_rows``, ``rag_strip``) with
+        safe defaults so the cover strip shows a gray "No Data" cell
+        and the email panel / analyst tabs contribute nothing instead
+        of crashing the assembler.
+
         Usage::
 
             except Exception as exc:
                 logger.error(...)
                 return self._empty_result(str(exc), config)
         """
+        from reports.modules.rag_utils import (  # noqa: PLC0415
+            STATUS_COLOR, STATUS_LABEL, NO_DATA_HEADLINE, NO_DATA_DRIVER,
+        )
         return ModuleData(
-            module_id    = self.MODULE_ID,
-            display_name = self.DISPLAY_NAME,
-            metrics      = {},
-            table_data   = [],
-            chart_data   = {},
-            summary_text = "",
-            metadata     = {},
-            error        = error_message,
+            module_id        = self.MODULE_ID,
+            display_name     = self.DISPLAY_NAME,
+            metrics          = {},
+            table_data       = [],
+            chart_data       = {},
+            summary_text     = "",
+            metadata         = {},
+            driver_narrative = NO_DATA_DRIVER,
+            analyst_rows     = [],
+            rag_strip        = {
+                "label":          self.DISPLAY_NAME,
+                "headline_value": NO_DATA_HEADLINE,
+                "rag_color":      STATUS_COLOR["no_data"],
+                "rag_label":      STATUS_LABEL["no_data"],
+            },
+            error            = error_message,
         )
 
     def _log_prefix(self) -> str:
