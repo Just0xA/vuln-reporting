@@ -14,7 +14,7 @@ The journey: define the contract → upgrade the composer → migrate Board Summ
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Module Render Contract** - Extend `BaseModule` with three new render hooks and bake in the empty-data guard pattern
+- [x] **Phase 1: Module Render Contract** - Extend `BaseModule` with three new render hooks and bake in the empty-data guard pattern (completed 2026-05-05)
 - [ ] **Phase 2: ReportComposer Upgrades** - Assemble RAG-strip cover pages, per-module email bodies, and the paired analyst-detail workbook
 - [ ] **Phase 3: Board Summary Module Migration** - Migrate the four board metric modules to the new contract and wire `board_summary.py` to the upgraded composer
 - [ ] **Phase 4: YAML Config and Regression Cutover** - Wire `jsonschema` runtime validation, ship the `analyst_detail` opt-out, and confirm zero regression for existing Board Summary recipient groups
@@ -94,7 +94,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 (with Phases 2 and 3 parall
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Module Render Contract | 0/3 | Not started | - |
+| 1. Module Render Contract | 3/3 | Complete | 2026-05-05 |
 | 2. ReportComposer Upgrades | 0/TBD | Not started | - |
 | 3. Board Summary Module Migration | 0/TBD | Not started | - |
 | 4. YAML Config and Regression Cutover | 0/TBD | Not started | - |
