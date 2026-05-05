@@ -452,7 +452,7 @@ def _build_charts(metrics: dict, charts_dir: Path) -> list[dict]:
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     h + max(hist_df["asset_count"].max() * 0.01, 0.3),
-                    f"{int(h):,}\n({pct:.0f}%)",
+                    f"{int(h):,}\n({pct:.0f}%)",  # safe: pct guaranteed non-None by _compute_histogram:338
                     ha="center", va="bottom", fontsize=9,
                 )
         hist_png = save_matplotlib_figure(fig, charts_dir / "risk_histogram")

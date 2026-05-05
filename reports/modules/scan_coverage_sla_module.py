@@ -228,7 +228,7 @@ class ScanCoverageSLAModule(BaseModule):
                 )
             else:
                 summary_text = (
-                    f"Scan coverage is {scan_coverage_pct:.1f}% — "
+                    f"Scan coverage is {scan_coverage_pct:.1f}% — "  # safe: scan_coverage_pct guarded by `if is None` above (line 224)
                     f"{scanned_on_time:,} of {total_licensed:,} licensed assets "
                     f"were scanned within the last {ON_TIME_WINDOW_DAYS} days "
                     f"({unlicensed_count:,} unlicensed assets excluded). "
@@ -340,7 +340,7 @@ class ScanCoverageSLAModule(BaseModule):
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("%s PDF gauge render failed: %s", self._log_prefix(), exc)
-            pct_display = f"{gauge_value:.1f}%"
+            pct_display = f"{gauge_value:.1f}%"  # safe: gauge_value guaranteed non-None by upstream coalescing (None coalesced to 0.0)
             gauge_html = (
                 f'<p style="text-align:center; font-size:20pt; font-weight:bold; '
                 f'color:{_STATUS_COLOR.get(status, "#333")};">{pct_display}</p>'
@@ -394,7 +394,7 @@ class ScanCoverageSLAModule(BaseModule):
                     f'<td style="text-align:right; padding:1.5mm 3mm;">{bu_num:,}</td>'
                     f'<td style="text-align:right; padding:1.5mm 3mm;">{bu_den:,}</td>'
                     f'<td style="text-align:right; padding:1.5mm 3mm; '
-                    f'font-weight:bold;">{bu_pct:.1f}%</td>'
+                    f'font-weight:bold;">{bu_pct:.1f}%</td>'  # safe: bu_pct non-None per compute_per_bu_breakdown contract
                     f'</tr>'
                 )
             bu_table_html = f"""
@@ -531,7 +531,7 @@ class ScanCoverageSLAModule(BaseModule):
                     Alignment(horizontal="right")
                 )
                 pct_cell           = ws.cell(row=data_row, column=4,
-                                             value=f"{bu_pct:.1f}%")
+                                             value=f"{bu_pct:.1f}%")  # safe: bu_pct non-None per compute_per_bu_breakdown contract
                 pct_cell.fill      = bu_fill
                 pct_cell.font      = Font(bold=True)
                 pct_cell.alignment = Alignment(horizontal="center")

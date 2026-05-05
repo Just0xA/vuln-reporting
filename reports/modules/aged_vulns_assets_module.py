@@ -332,7 +332,7 @@ class AgedVulnsAssetsModule(BaseModule):
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("%s PDF gauge render failed: %s", self._log_prefix(), exc)
-            pct_display = f"{gauge_value:.1f}%"
+            pct_display = f"{gauge_value:.1f}%"  # safe: gauge_value guaranteed non-None by line 315 (None coalesced to 0.0)
             gauge_html = (
                 f'<p style="text-align:center; font-size:20pt; font-weight:bold; '
                 f'color:{_STATUS_COLOR.get(status, "#333")};">{pct_display}</p>'
@@ -409,6 +409,10 @@ class AgedVulnsAssetsModule(BaseModule):
             )
 
         # ---- Explanatory paragraph ----
+        # Pre-format module-level threshold constants (never None) so the
+        # multi-line HTML f-string below contains no inline format specs.
+        green_str  = format(_GREEN_THRESHOLD,  ".0f")
+        yellow_str = format(_YELLOW_THRESHOLD, ".0f")
         explain_html = f"""
 <p class="explanatory-text">
   <strong>What this measures:</strong> The percentage of assets scanned on time
@@ -416,8 +420,8 @@ class AgedVulnsAssetsModule(BaseModule):
   Medium, High, or Critical vulnerability (VPR&nbsp;&ge;4.0) open for more than
   {_AGED_DAYS_THRESHOLD} days.  Long-standing unresolved findings — even at medium
   severity — represent persistent, accepted risk exposure and can indicate systemic
-  remediation gaps.  Board target is &le;{_GREEN_THRESHOLD:.0f}% (green).
-  &le;{_YELLOW_THRESHOLD:.0f}% is at-risk (amber).  Above {_YELLOW_THRESHOLD:.0f}%
+  remediation gaps.  Board target is &le;{green_str}% (green).
+  &le;{yellow_str}% is at-risk (amber).  Above {yellow_str}%
   is off-target (red).  Business-unit breakdown uses the Tenable
   &ldquo;Application&rdquo; tag category.
 </p>"""
@@ -489,9 +493,9 @@ class AgedVulnsAssetsModule(BaseModule):
             _xl_kv(ws, 8, "Scope:",
                    "On-time-scanned assets only (last_licensed_scan_date within last 30 days)")
             _xl_kv(ws, 9, "SLA Thresholds (lower is better):",
-                   f"Green <={_GREEN_THRESHOLD:.0f}%  |  "
-                   f"Amber <={_YELLOW_THRESHOLD:.0f}%  |  "
-                   f"Red >{_YELLOW_THRESHOLD:.0f}%")
+                   f"Green <={_GREEN_THRESHOLD:.0f}%  |  "  # safe: module-level int constant, never None
+                   f"Amber <={_YELLOW_THRESHOLD:.0f}%  |  "  # safe: module-level int constant, never None
+                   f"Red >{_YELLOW_THRESHOLD:.0f}%")  # safe: module-level int constant, never None
 
             # ---- BU breakdown table (starts at row 11, worst first) ----
             header_row = 11
@@ -699,7 +703,7 @@ def _build_summary(
         )
     status_label = _STATUS_LABEL.get(status, status)
     return (
-        f"{aged_assets_pct:.1f}% of on-time-scanned assets have aged vulnerabilities — "
+        f"{aged_assets_pct:.1f}% of on-time-scanned assets have aged vulnerabilities — "  # safe: aged_assets_pct guarded by line 695 early-return on None
         f"{aged_assets_count:,} of {total_on_time:,} assets carry at least one "
         f"Medium/High/Critical finding open >{_AGED_DAYS_THRESHOLD} days. "
         f"Status: {status_label}."

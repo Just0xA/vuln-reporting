@@ -287,7 +287,7 @@ class PatchComplianceRateModule(BaseModule):
             summary_text = "No open vulnerabilities found."
         else:
             summary_text = (
-                f"Overall patch compliance is {overall_rate:.1f}% — "
+                f"Overall patch compliance is {overall_rate:.1f}% — "  # safe: overall_rate guarded by `if is None` above
                 f"{within_total:,} of {total_open:,} open vulnerabilities "
                 f"are within their remediation SLA target."
             )

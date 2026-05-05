@@ -79,6 +79,7 @@ from utils.formatters import report_timestamp, safe_filename
 from reports.modules.chart_utils import draw_gauge
 from reports.modules.registry import registry as _module_registry
 from reports.modules.base import ModuleConfig as _ModuleConfig
+from reports.modules import safe_pct  # Phase 1: None-safe percent formatter (QUALITY-01)
 
 # ---------------------------------------------------------------------------
 # Module constants
@@ -1121,7 +1122,7 @@ def _build_age_bar_chart(m5_data: list) -> str:
     # Annotate each bar
     for bar, b in zip(bars, m5_data):
         w = bar.get_width()
-        pct_str = f"{b['pct']:.1f}%"
+        pct_str = f"{b['pct']:.1f}%"  # safe: b['pct'] guaranteed non-None by _compute_metric_5:597,620
         label_str = f"{w:,}  ({pct_str})" if w > 0 else "0"
         ax.text(
             w + (total * 0.01 if total > 0 else 1),
@@ -1850,8 +1851,15 @@ def build_email_kpi_tiles(metrics: dict) -> list[dict]:
         cov_sub   = "data unavailable"
     else:
         cov_pct   = m2["coverage_pct"]
-        cov_str   = f"{cov_pct:.1f}%"
-        cov_color = _GREEN if cov_pct >= 90 else (_AMBER if cov_pct >= 75 else _RED)
+        cov_str   = safe_pct(cov_pct, default="N/A")  # Phase 1 QUALITY-01: was f"{cov_pct:.1f}%"
+        if cov_pct is None:
+            cov_color = _GREY
+        elif cov_pct >= 90:
+            cov_color = _GREEN
+        elif cov_pct >= 75:
+            cov_color = _AMBER
+        else:
+            cov_color = _RED
         cov_sub   = f"{m2['scanned']:,} of {m2['total_licensed']:,} assets scanned"
     tile_coverage = {
         "label":     "Scan Coverage",
