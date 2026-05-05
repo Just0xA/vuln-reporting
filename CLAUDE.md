@@ -475,7 +475,7 @@ This pattern is used by `board_summary` and `management_summary`.
 Every metric module lives in `reports/modules/` and must:
 1. Be named `*_module.py` (auto-discovered by `registry.discover()` on package import)
 2. Decorate the class with `@register_module`
-3. Extend `BaseModule` and implement `compute()`, `render_pdf_section()`, `render_excel_tabs()`, and `render_email_kpis()`
+3. Extend `BaseModule` and implement `compute()`. Override any of the renderer methods (`render_pdf_section`, `render_excel_tabs`, `render_email_kpis`, `render_email_panel`, `render_analyst_tabs`, `render_rag_strip_entry`) whose channel the module contributes to. All renderers are concrete with no-op defaults — un-overridden methods produce empty contributions (gray "No Data" cell for the RAG strip; empty string for email panel; empty list for analyst tabs).
 
 ```python
 from reports.modules import register_module
@@ -487,6 +487,57 @@ class MyMetricModule(BaseModule):
     DISPLAY_NAME = "My Metric"
     ...
 ```
+
+### Four-channel render contract
+
+Every metric module can render itself into up to four channels via concrete methods on `BaseModule`. All are **concrete with no-op defaults** (NOT `@abstractmethod`) so existing modules continue to instantiate without changes.
+
+| Method | Channel | Default | Override when |
+|--------|---------|---------|---------------|
+| `render_pdf_section(data, config) -> str` | PDF | `""` | `"pdf"` in `SUPPORTED_OUTPUTS` |
+| `render_excel_tabs(data, workbook, config) -> list[str]` | Excel | `[]` | `"excel"` in `SUPPORTED_OUTPUTS` |
+| `render_email_kpis(data, config) -> list[dict]` | Email KPI tiles (legacy) | `[]` | Module surfaces a KPI tile |
+| `render_email_panel(data, config) -> str` | Email body panel (CONTRACT-01) | `""` | Module appears as a per-module panel in composed email body |
+| `render_analyst_tabs(data, config) -> list[tuple[str, pd.DataFrame]]` | Analyst-detail companion workbook (CONTRACT-02) | `[]` | Module produces drill-down rows for analysts |
+| `render_rag_strip_entry(data, config) -> dict` | Cover-page RAG strip (CONTRACT-03) | Gray "No Data" cell | Module appears in the cover-page strip |
+
+The supporting fields on `ModuleData` (CONTRACT-04) carry the data each renderer needs:
+
+| Field | Purpose |
+|-------|---------|
+| `driver_narrative: str` | 1-line "what's driving it" string consumed by `render_email_panel`. Populated inside `compute()`. |
+| `analyst_rows: list[tuple[str, pd.DataFrame]]` | Pivot-friendly drill-down data consumed by `render_analyst_tabs`. Populated inside `compute()`. |
+| `rag_strip: dict` | Pre-built cover-page strip cell `{label, headline_value, rag_color, rag_label}` consumed by `render_rag_strip_entry`. Populated inside `compute()`. |
+
+### Empty-data guard pattern
+
+Filtered-to-zero recipient groups are a regular occurrence (Owner=Configuration Mangement typo, etc.) — render methods MUST not crash on a zero-row `ModuleData`. Two rules:
+
+1. **Use `safe_pct` / `safe_int` / `safe_format` from `reports.modules.format_utils`** when interpolating any metric value that could be `None` or `NaN`. Inline f-string format specs on possibly-`None` values are forbidden.
+
+   ```python
+   from reports.modules import safe_pct, safe_int, safe_format
+
+   # Good
+   panel_html = f"<p>Coverage: {safe_pct(cov_pct)}</p>"
+
+   # Bad — crashes on cov_pct = None
+   panel_html = f"<p>Coverage: {cov_pct:.1f}%</p>"
+   ```
+
+2. **Return safe defaults instead of raising** in every render method. The `BaseModule._empty_result()` helper produces a coherent failed-`ModuleData` with a gray "No Data" strip cell and "No data in scope." driver narrative — overrides can rely on it as a reference shape.
+
+   ```python
+   def render_rag_strip_entry(self, data, config):
+       if data.error or not data.metrics:
+           from reports.modules import build_rag_strip_entry
+           return build_rag_strip_entry(self.DISPLAY_NAME, "—", "no_data")
+       headline = safe_pct(data.metrics["scan_coverage_pct"])
+       status = rag_status_from_value(data.metrics["scan_coverage_pct"], 95.0, 90.0)
+       return build_rag_strip_entry(self.DISPLAY_NAME, headline, status)
+   ```
+
+The shared RAG palette + sentinels live in `reports/modules/rag_utils.py` (`STATUS_COLOR`, `STATUS_LABEL`, `NO_DATA_HEADLINE`, `NO_DATA_DRIVER`). The shared formatters live in `reports/modules/format_utils.py`. Both are also re-exported at the package level so modules can `from reports.modules import safe_pct, build_rag_strip_entry, rag_status_from_value`.
 
 ### Adding a new module to an existing composed report
 
@@ -503,6 +554,8 @@ class MyMetricModule(BaseModule):
 | `reports/modules/composer.py` | `ReportComposer` — runs modules, assembles PDF/Excel/email |
 | `reports/modules/board_report_utils.py` | Shared utilities for the four board metric modules |
 | `reports/modules/chart_utils.py` | `draw_gauge()` and other shared rendering helpers |
+| `reports/modules/rag_utils.py` | Shared RAG palette (`STATUS_COLOR`, `STATUS_LABEL`), classifier wrapper (`rag_status_from_value`), strip-cell builder (`build_rag_strip_entry`), no-data sentinels |
+| `reports/modules/format_utils.py` | None/NaN-safe formatters (`safe_pct`, `safe_int`, `safe_format`) for use in render methods |
 
 ### PDF assembly note
 
