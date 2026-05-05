@@ -100,40 +100,38 @@ Explicitly excluded from v1. Recorded so they don't drift back in mid-milestone.
 
 ## Traceability
 
-Empty until roadmap creation populates phase mappings.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONTRACT-01 | TBD | Pending |
-| CONTRACT-02 | TBD | Pending |
-| CONTRACT-03 | TBD | Pending |
-| CONTRACT-04 | TBD | Pending |
-| CONTRACT-05 | TBD | Pending |
-| COMPOSER-01 | TBD | Pending |
-| COMPOSER-02 | TBD | Pending |
-| COMPOSER-03 | TBD | Pending |
-| COMPOSER-04 | TBD | Pending |
-| BOARD-01 | TBD | Pending |
-| BOARD-02 | TBD | Pending |
-| BOARD-03 | TBD | Pending |
-| BOARD-04 | TBD | Pending |
-| BOARD-05 | TBD | Pending |
-| BOARD-06 | TBD | Pending |
-| BOARD-07 | TBD | Pending |
-| BOARD-08 | TBD | Pending |
-| CONFIG-01 | TBD | Pending |
-| CONFIG-02 | TBD | Pending |
-| CONFIG-03 | TBD | Pending |
-| CONFIG-04 | TBD | Pending |
-| QUALITY-01 | TBD | Pending |
-| QUALITY-02 | TBD | Pending |
-| QUALITY-03 | TBD | Pending |
+| CONTRACT-01 | Phase 1 | Pending |
+| CONTRACT-02 | Phase 1 | Pending |
+| CONTRACT-03 | Phase 1 | Pending |
+| CONTRACT-04 | Phase 1 | Pending |
+| CONTRACT-05 | Phase 1 | Pending |
+| COMPOSER-01 | Phase 2 | Pending |
+| COMPOSER-02 | Phase 2 | Pending |
+| COMPOSER-03 | Phase 2 | Pending |
+| COMPOSER-04 | Phase 2 | Pending |
+| BOARD-01 | Phase 3 | Pending |
+| BOARD-02 | Phase 3 | Pending |
+| BOARD-03 | Phase 3 | Pending |
+| BOARD-04 | Phase 3 | Pending |
+| BOARD-05 | Phase 3 | Pending |
+| BOARD-06 | Phase 3 | Pending |
+| BOARD-07 | Phase 3 | Pending |
+| BOARD-08 | Phase 4 | Pending |
+| CONFIG-01 | Phase 4 | Pending |
+| CONFIG-02 | Phase 4 | Pending |
+| CONFIG-03 | Phase 4 | Pending |
+| CONFIG-04 | Phase 4 | Pending |
+| QUALITY-01 | Phase 1 | Pending |
+| QUALITY-02 | Phase 3 | Pending |
+| QUALITY-03 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 24 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 24 ⚠️ (will be 0 after `gsd-roadmapper` runs)
+- Mapped to phases: 24 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-05*
-*Last updated: 2026-05-05 after initialization*
+*Last updated: 2026-05-05 after roadmap creation (Traceability populated)*
