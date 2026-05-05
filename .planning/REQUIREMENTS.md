@@ -12,11 +12,11 @@ Each requirement maps to exactly one phase of the v1 roadmap.
 
 Extends `BaseModule` so every metric module can render itself to four channels.
 
-- [ ] **CONTRACT-01**: `BaseModule` defines an abstract `render_email_panel(data: ModuleData) -> str` method returning an HTML fragment that contains a base64-CID gauge image, headline percentage, RAG color/label, and a 1-line "what's driving it" string
-- [ ] **CONTRACT-02**: `BaseModule` defines an abstract `render_analyst_tabs(data: ModuleData) -> list[tuple[str, pd.DataFrame]]` method returning one or more (sheet_name, DataFrame) tuples of pivot-friendly drill-down rows for analysts
-- [ ] **CONTRACT-03**: `BaseModule` defines an abstract `render_rag_strip_entry(data: ModuleData) -> dict` method returning the cover-page strip cell (`{label, headline_value, rag_color, rag_label}`)
-- [ ] **CONTRACT-04**: `ModuleData` dataclass carries the additional render outputs needed by the new hooks (driver-narrative string, analyst row data, RAG cell payload) without forcing existing modules to recompute
-- [ ] **CONTRACT-05**: The contract is documented in `reports/modules/base.py` docstrings and a new entry in `CLAUDE.md` "Adding a new module" section, including the empty-data guard pattern that all four render methods MUST follow
+- [x] **CONTRACT-01**: `BaseModule` defines an abstract `render_email_panel(data: ModuleData) -> str` method returning an HTML fragment that contains a base64-CID gauge image, headline percentage, RAG color/label, and a 1-line "what's driving it" string
+- [x] **CONTRACT-02**: `BaseModule` defines an abstract `render_analyst_tabs(data: ModuleData) -> list[tuple[str, pd.DataFrame]]` method returning one or more (sheet_name, DataFrame) tuples of pivot-friendly drill-down rows for analysts
+- [x] **CONTRACT-03**: `BaseModule` defines an abstract `render_rag_strip_entry(data: ModuleData) -> dict` method returning the cover-page strip cell (`{label, headline_value, rag_color, rag_label}`)
+- [x] **CONTRACT-04**: `ModuleData` dataclass carries the additional render outputs needed by the new hooks (driver-narrative string, analyst row data, RAG cell payload) without forcing existing modules to recompute
+- [x] **CONTRACT-05**: The contract is documented in `reports/modules/base.py` docstrings and a new entry in `CLAUDE.md` "Adding a new module" section, including the empty-data guard pattern that all four render methods MUST follow
 
 ### Report Composer Upgrades (COMPOSER)
 
@@ -53,9 +53,9 @@ Recipient groups can opt out of the analyst companion; misconfigured YAML fails 
 
 Folded in because the same code paths are being touched by the modular work.
 
-- [ ] **QUALITY-01**: `management_summary.py:1853` `cov_pct` format string is guarded against `None` using the same pattern used to fix `exception_rate` on 2026-05-04 (sibling fix)
+- [x] **QUALITY-01**: `management_summary.py:1853` `cov_pct` format string is guarded against `None` using the same pattern used to fix `exception_rate` on 2026-05-04 (sibling fix)
 - [ ] **QUALITY-02**: Every new module render method (`render_email_panel`, `render_analyst_tabs`, `render_rag_strip_entry`) returns a sensible empty/N-A representation rather than raising when invoked on a zero-row `ModuleData` (e.g., dash placeholder, gray RAG, "No data in scope" driver line)
-- [ ] **QUALITY-03**: A grep-style audit of `reports/` confirms no other `f"{...:.Xf}%"` format spec interpolates a possibly-`None` metric value; any survivors are guarded with the same pattern (audit findings are added as commits to the relevant phase)
+- [x] **QUALITY-03**: A grep-style audit of `reports/` confirms no other `f"{...:.Xf}%"` format spec interpolates a possibly-`None` metric value; any survivors are guarded with the same pattern (audit findings are added as commits to the relevant phase)
 
 ## v2 Requirements
 
@@ -102,11 +102,11 @@ Explicitly excluded from v1. Recorded so they don't drift back in mid-milestone.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONTRACT-01 | Phase 1 | Pending |
-| CONTRACT-02 | Phase 1 | Pending |
-| CONTRACT-03 | Phase 1 | Pending |
-| CONTRACT-04 | Phase 1 | Pending |
-| CONTRACT-05 | Phase 1 | Pending |
+| CONTRACT-01 | Phase 1 | Validated |
+| CONTRACT-02 | Phase 1 | Validated |
+| CONTRACT-03 | Phase 1 | Validated |
+| CONTRACT-04 | Phase 1 | Validated |
+| CONTRACT-05 | Phase 1 | Validated |
 | COMPOSER-01 | Phase 2 | Pending |
 | COMPOSER-02 | Phase 2 | Pending |
 | COMPOSER-03 | Phase 2 | Pending |
@@ -123,15 +123,16 @@ Explicitly excluded from v1. Recorded so they don't drift back in mid-milestone.
 | CONFIG-02 | Phase 4 | Pending |
 | CONFIG-03 | Phase 4 | Pending |
 | CONFIG-04 | Phase 4 | Pending |
-| QUALITY-01 | Phase 1 | Pending |
+| QUALITY-01 | Phase 1 | Validated |
 | QUALITY-02 | Phase 3 | Pending |
-| QUALITY-03 | Phase 1 | Pending |
+| QUALITY-03 | Phase 1 | Validated |
 
 **Coverage:**
 - v1 requirements: 24 total
 - Mapped to phases: 24 ✓
 - Unmapped: 0
+- Validated: 7 (CONTRACT-01..05, QUALITY-01, QUALITY-03 — Phase 1 complete 2026-05-05)
 
 ---
 *Requirements defined: 2026-05-05*
-*Last updated: 2026-05-05 after roadmap creation (Traceability populated)*
+*Last updated: 2026-05-05 after Phase 1 completion (7 REQ-IDs validated)*
