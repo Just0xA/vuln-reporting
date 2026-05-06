@@ -34,7 +34,7 @@ Each of the four existing board metric modules implements the new contract; the 
 - [ ] **BOARD-01**: `scan_coverage_sla_module` implements `render_email_panel`, `render_analyst_tabs`, and `render_rag_strip_entry`; the analyst tab lists every overdue licensed asset with hostname, IPv4, FQDN, last_licensed_scan_date, days_since_licensed_scan, and Application/BU tag
 - [ ] **BOARD-02**: `critical_remediation_sla_module` implements all three contract methods; the analyst tab lists every overdue critical finding with asset, plugin, days overdue, first found, owner tag, and remediation due date
 - [ ] **BOARD-03**: `high_risk_assets_module` implements all three contract methods; the analyst tab lists every asset that crossed the high-risk threshold with hostname, BU, count of Crit/High open >30d, and the contributing finding IDs
-- [ ] **BOARD-04**: `aged_vulns_assets_module` implements all three contract methods; the analyst tab lists every asset with at least one Med/High/Crit vuln open >90d with hostname, BU, oldest finding age, count of aged findings, and contributing plugins
+- [x] **BOARD-04**: `aged_vulns_assets_module` implements all three contract methods; the analyst tab lists every asset with at least one Med/High/Crit vuln open >90d with hostname, BU, oldest finding age, count of aged findings, and contributing plugins
 - [ ] **BOARD-05**: `board_summary.py` PDF output uses the new RAG-strip cover from `COMPOSER-01` (replacing the current thin cover page)
 - [ ] **BOARD-06**: `board_summary.py` email body uses the new per-module panel composition from `COMPOSER-02` (replacing today's bare delivery)
 - [ ] **BOARD-07**: `board_summary.py` always emits the analyst companion workbook from `COMPOSER-03` and includes it as an additional attachment alongside the existing PDF and Excel
@@ -114,7 +114,7 @@ Explicitly excluded from v1. Recorded so they don't drift back in mid-milestone.
 | BOARD-01 | Phase 3 | Pending |
 | BOARD-02 | Phase 3 | Pending |
 | BOARD-03 | Phase 3 | Pending |
-| BOARD-04 | Phase 3 | Pending |
+| BOARD-04 | Phase 3 | Complete |
 | BOARD-05 | Phase 3 | Pending |
 | BOARD-06 | Phase 3 | Pending |
 | BOARD-07 | Phase 3 | Pending |
