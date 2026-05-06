@@ -900,6 +900,94 @@ class ReportComposer:
         return merged
 
     # ------------------------------------------------------------------
+    # Email body assembly (Phase 2 D-09..D-14, COMPOSER-02)
+    # ------------------------------------------------------------------
+
+    def assemble_email_body(
+        self,
+        results: list[ModuleData],
+    ) -> str:
+        """
+        Assemble per-module email panels into a panels-only HTML fragment.
+
+        Iterates ``results`` in ``_module_configs`` order, calls each
+        module's ``render_email_panel()`` (Phase 1 contract), and
+        concatenates the non-empty HTML fragments. The returned string
+        is a fragment — no ``<html>``, ``<head>``, ``<body>``, scope
+        banner, SLA table, or footer (D-09); the wrapping shell stays
+        in ``templates/report_email.html``.
+
+        Per-module exception isolation mirrors ``assemble_pdf()``'s
+        existing pattern at composer.py:522-533 (D-28). One module's
+        render failure inserts a visible error placeholder ``<div>``
+        in the panel position but never aborts assembly.
+
+        Modules that return ``""`` or whitespace are silently skipped
+        (D-14) — mirrors ``assemble_pdf()``'s skip-empty rule at
+        composer.py:535. Un-migrated modules whose ``render_email_panel``
+        is the no-op ``""`` default contribute nothing to the body (their
+        cover-page strip cell still renders separately as gray "No Data").
+
+        Modules absent from the registry are silently skipped (mirrors
+        ``collect_email_kpis()``'s behavior at composer.py:691-692).
+
+        Per D-13 the composer never calls ``draw_gauge()`` itself —
+        ``render_email_panel()`` (Phase 3) embeds gauges as
+        ``data:image/png;base64,...`` inside the returned HTML fragment.
+
+        Parameters
+        ----------
+        results : list[ModuleData]
+            Output of ``run_all()``.
+
+        Returns
+        -------
+        str
+            Concatenated panel HTML fragments joined by ``"\\n"``.
+            Empty string when every panel is empty (the email template's
+            ``{% if module_panels_html %}`` conditional then falls through
+            to the legacy KPI tiles section).
+        """
+        panels: list[str] = []
+
+        for data in results:
+            mod_class = registry.get(data.module_id)
+            if mod_class is None:
+                logger.warning(
+                    "ReportComposer.assemble_email_body: module '%s' not "
+                    "in registry — skipping panel.",
+                    data.module_id,
+                )
+                continue
+
+            try:
+                config   = self._config_for(data.module_id)
+                instance = mod_class()
+                html     = instance.render_email_panel(data, config)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "ReportComposer.assemble_email_body [%s]: "
+                    "render_email_panel() raised: %s\n%s",
+                    data.module_id, exc, traceback.format_exc(),
+                )
+                html = (
+                    '<div style="border:1px solid #d32f2f; '
+                    'background:#FFF3CD; color:#5D4037; '
+                    'padding:8px 12px; margin:6px 0; '
+                    'font-family:Arial,Helvetica,sans-serif; font-size:10pt;">'
+                    f'<strong>{data.display_name}</strong>: '
+                    f'email panel render failed — {exc}'
+                    '</div>'
+                )
+
+            if not html or not html.strip():
+                continue   # D-14 — skip empty / whitespace-only panels
+
+            panels.append(html)
+
+        return "\n".join(panels)
+
+    # ------------------------------------------------------------------
     # Audit info collection
     # ------------------------------------------------------------------
 
