@@ -1183,3 +1183,147 @@ def _write_metadata_tab(
         )
 
     return TAB_NAME
+
+
+# ===========================================================================
+# Phase 2 analyst workbook helpers (COMPOSER-03)
+# ===========================================================================
+
+def _unique_sheet_name(name: str, used: set[str]) -> str:
+    """
+    Return a unique Excel-31-char-safe sheet name for ``name``.
+
+    If ``name[:31]`` is not in ``used``, return it. Otherwise append
+    ``_2``, ``_3``, ... while keeping the total length <= 31 by
+    truncating the base name to leave room for the suffix
+    (Phase 2 D-18).
+
+    Collision semantics note (acknowledged for v1):
+    When two long sheet names share their first 31 characters but
+    differ later, only the auto-suffix counter (``_2``, ``_3``, ...)
+    discriminates them — exactly Excel's own behavior. Acceptable for
+    v1 since board modules use short, distinct sheet names. v2 may
+    revisit if module-supplied sheet names start colliding past index
+    30 in practice.
+
+    Parameters
+    ----------
+    name : str
+        Desired sheet name. Will be truncated to fit Excel's 31-char
+        worksheet name limit.
+    used : set[str]
+        Set of sheet names already taken in the target workbook.
+        The returned name will not be in this set.
+
+    Returns
+    -------
+    str
+        A unique sheet name <= 31 characters. The caller is expected
+        to add the returned name to ``used`` before requesting another
+        unique name.
+
+    Raises
+    ------
+    ValueError
+        If a unique name cannot be generated within 100 suffix
+        attempts (defensive guard against pathological inputs).
+    """
+    base = name[:31]
+    if base not in used:
+        return base
+    for i in range(2, 100):
+        suffix    = f"_{i}"
+        max_base  = 31 - len(suffix)
+        candidate = name[:max_base] + suffix
+        if candidate not in used:
+            return candidate
+    raise ValueError(
+        f"_unique_sheet_name: could not generate unique sheet name "
+        f"from {name!r} after 99 attempts."
+    )
+
+
+def _write_analyst_metadata_tab(
+    workbook,
+    *,
+    slug:         str,
+    generated_at: Any,
+    scope_label:  str,
+    module_ids:   list[str],
+    failures:     list[tuple[str, str]],
+) -> str:
+    """
+    Append the analyst workbook ``_Metadata`` tab.
+
+    Per Phase 2 D-19, the tab carries exactly four canonical rows
+    (Report / Generated / Scope / Modules) in a two-column key/value
+    layout that mirrors :func:`_write_metadata_tab`. Per-tab row counts
+    and run duration are deliberately excluded — those bleed runtime
+    concerns the analyst workbook is not the right surface for.
+
+    When ``failures`` is non-empty, a "Failures" subsection is appended
+    listing ``module_id : error_message`` rows (Phase 2 D-28). Failed
+    modules are still listed in the canonical Modules row so the
+    audit trail is complete.
+
+    Parameters
+    ----------
+    workbook : openpyxl.Workbook
+    slug : str
+        Report slug (e.g. ``"board_summary"``).
+    generated_at : Any
+        Datetime-like with ``.strftime`` or any value that ``str()``
+        will format sensibly.
+    scope_label : str
+        Pre-formatted scope string (e.g. ``"Application = UC Engineering"``
+        or ``"All Assets"``). Computed by the caller — composer does
+        not assemble scope strings itself.
+    module_ids : list[str]
+        Module IDs in ``_module_configs`` order. Comma-joined into
+        the Modules row.
+    failures : list[tuple[str, str]]
+        Per-module render failures. Empty list when all modules
+        succeeded.
+
+    Returns
+    -------
+    str
+        The tab name written (always ``"_Metadata"``).
+    """
+    TAB_NAME = "_Metadata"
+
+    try:
+        ws = workbook.create_sheet(TAB_NAME)
+
+        gen_str = (
+            generated_at.strftime("%Y-%m-%d %H:%M UTC")
+            if hasattr(generated_at, "strftime")
+            else str(generated_at)
+        )
+
+        # ── D-19 canonical rows (key/value, two columns) ─────────────
+        ws["A1"] = "Report"
+        ws["B1"] = slug
+        ws["A2"] = "Generated"
+        ws["B2"] = gen_str
+        ws["A3"] = "Scope"
+        ws["B3"] = scope_label or "All Assets"
+        ws["A4"] = "Modules"
+        ws["B4"] = ", ".join(module_ids)
+
+        # ── Failures subsection (D-28 audit trail) ───────────────────
+        if failures:
+            ws["A6"] = "Failures"
+            ws["A7"] = "Module ID"
+            ws["B7"] = "Error"
+            for row_idx, (module_id, err) in enumerate(failures, start=8):
+                ws.cell(row=row_idx, column=1, value=module_id)
+                ws.cell(row=row_idx, column=2, value=err)
+
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "_write_analyst_metadata_tab: could not write metadata tab: %s",
+            exc,
+        )
+
+    return TAB_NAME
