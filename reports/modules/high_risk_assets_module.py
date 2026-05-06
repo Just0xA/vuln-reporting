@@ -74,9 +74,11 @@ _AGED_DAYS_THRESHOLD: int = 30
 # draw_gauge threshold list: each tuple = (upper_bound, colour)
 # For lower_is_better the gauge reads left=green, right=red:
 #   0–0.5  green | 0.5–1.0 amber | 1.0–100 red
+# WR-04 fix — gauge amber band aligned with rag_utils.STATUS_COLOR['yellow']
+# (#f57c00) so the gauge, status badge, and RAG strip use the same orange.
 _GAUGE_THRESHOLDS = [
     (_GREEN_THRESHOLD,  "#388e3c"),   # 0 – 0.5  green
-    (_YELLOW_THRESHOLD, "#fbc02d"),   # 0.5 – 1.0 amber
+    (_YELLOW_THRESHOLD, "#f57c00"),   # 0.5 – 1.0 amber
     (100.0,             "#d32f2f"),   # 1.0 – 100 red
 ]
 
