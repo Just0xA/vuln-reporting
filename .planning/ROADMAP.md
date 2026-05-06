@@ -79,9 +79,9 @@ Granularity is **coarse**; parallelization is **on**.
   5. Each render method called against a zero-row `ModuleData` returns a sensible empty/N-A representation (dash placeholder, gray RAG, "No data in scope" driver line) instead of raising
 **Plans**: 6 plans
 - [x] 03-01-PLAN.md — Foundation: populate_rag_strip helper, unified RAG-strip PDF cover, email_inline_images bundle key, bundle-driven email_sender body+analyst routing, CLAUDE.md doc paragraph (Wave 1)
-- [ ] 03-02-PLAN.md — scan_coverage_sla_module migration end-to-end (higher_is_better) (Wave 2)
-- [ ] 03-03-PLAN.md — critical_remediation_sla_module migration end-to-end (higher_is_better, finding-level analyst rows) (Wave 2)
-- [ ] 03-04-PLAN.md — high_risk_assets_module migration end-to-end (lower_is_better, contributing_finding_ids join) (Wave 2)
+- [x] 03-02-PLAN.md — scan_coverage_sla_module migration end-to-end (higher_is_better) (Wave 2)
+- [x] 03-03-PLAN.md — critical_remediation_sla_module migration end-to-end (higher_is_better, finding-level analyst rows) (Wave 2)
+- [x] 03-04-PLAN.md — high_risk_assets_module migration end-to-end (lower_is_better, contributing_finding_ids join) (Wave 2)
 - [ ] 03-05-PLAN.md — aged_vulns_assets_module migration end-to-end (lower_is_better, single tab + worst_severity column) (Wave 2)
 - [ ] 03-06-PLAN.md — Phase 3 regression snapshot extension (QUALITY-02 zero-row coverage) + smoke script real-panel update (Wave 3)
 **UI hint**: no
