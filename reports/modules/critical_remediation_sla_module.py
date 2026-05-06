@@ -299,6 +299,19 @@ class CriticalRemediationSLAModule(BaseModule):
                 missed = fixed_in_window[
                     fixed_in_window["days_to_fix"] > _CRITICAL_SLA_DAYS
                 ].copy()
+                # WR-03 fix — exclude risk-managed findings (accepted /
+                # recasted) from the per-finding "missed Critical SLA"
+                # drill-down. fetch_fixed_vulnerabilities() returns the
+                # FIXED population, but Tenable also includes accepted /
+                # recasted findings in that cohort when the rule's state
+                # changes. Surfacing those rows as "missed SLA" misleads
+                # operators — they are risk-managed, not unremediated.
+                # The same guard also tightens the email-panel driver
+                # narrative ("{missed_count} critical findings missed
+                # SLA.") since missed_count is derived from this slice.
+                if "severity_modification_type" in missed.columns:
+                    _smod = missed["severity_modification_type"].astype("string").str.lower()
+                    missed = missed[~_smod.isin(["accepted", "recasted"])].copy()
                 if not missed.empty:
                     missed = missed.assign(
                         plugin = missed.apply(
