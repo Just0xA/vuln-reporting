@@ -977,6 +977,17 @@ class ReportComposer:
             )
             return None
 
+        # WR-04: slug is also written to the _Metadata Report row and is
+        # public-callable; reject path-traversal-style values up front.
+        # Empty slug stays permitted (the default) since this method does
+        # not interpolate slug into any filesystem path itself.
+        if slug and not _SAFE_SLUG_RE.match(slug):
+            raise ValueError(
+                f"assemble_analyst_workbook: slug {slug!r} must match "
+                f"{_SAFE_SLUG_RE.pattern} (letters, digits, underscore, "
+                "hyphen only — no path separators)."
+            )
+
         # Defer openpyxl import to keep module-level imports lean (CONVENTIONS.md)
         import openpyxl  # noqa: PLC0415
 
@@ -1428,6 +1439,17 @@ class ReportComposer:
             ``metrics`` (dict[str, dict]),
             ``errors`` (list[str]).
         """
+        # WR-04: slug is interpolated into ``analyst_filename`` below
+        # (``f"{slug}_{date_str}_analyst.xlsx"``). Without validation a caller
+        # passing ``slug="../escape"`` would land the workbook outside
+        # ``output_dir``. Whitelist letters/digits/underscore/hyphen only.
+        if not _SAFE_SLUG_RE.match(slug):
+            raise ValueError(
+                f"run_full_pipeline: slug {slug!r} must match "
+                f"{_SAFE_SLUG_RE.pattern} (letters, digits, underscore, "
+                "hyphen only — no path separators)."
+            )
+
         # Defer openpyxl import to keep module-level imports lean (CONVENTIONS.md).
         import openpyxl  # noqa: PLC0415
         from pathlib import Path  # noqa: PLC0415
