@@ -1269,6 +1269,147 @@ class ReportComposer:
                 mid,
             )
 
+    # ------------------------------------------------------------------
+    # Full pipeline orchestrator (Phase 2 D-22..D-27, COMPOSER-04)
+    # ------------------------------------------------------------------
+
+    def run_full_pipeline(
+        self,
+        results:           list[ModuleData],
+        output_dir:        Any,
+        *,
+        slug:              str,
+        report_date:       Any  = None,
+        generate_analyst:  bool = True,
+        pdf_title:         str  = "Vulnerability Management Report",
+        pdf_subtitle:      str  = "",
+        scope_label:       str  = "",
+    ) -> dict[str, Any]:
+        """
+        Drive the four render channels and return a typed bundle dict.
+
+        High-level orchestrator that calls the per-channel methods
+        internally:
+
+        - ``assemble_pdf(results, ...)``  → ``bundle["pdf_html"]``
+          (Plan 02-01 page-2 RAG strip is inserted automatically.)
+        - ``assemble_excel(results, wb)`` → ``bundle["excel_workbook"]``
+        - ``assemble_analyst_workbook(results, ..., generate=generate_analyst)``
+          → ``bundle["analyst_workbook_path"]`` (``None`` when D-20 all-empty
+          fallback hits or when ``generate_analyst=False``).
+        - ``assemble_email_body(results)`` → ``bundle["email_body_html"]``
+        - ``collect_email_kpis(results)`` → ``bundle["email_kpis"]``
+          (Existing legacy channel kept for un-migrated callers per D-23.)
+        - ``{r.module_id: r.metrics for r in results}`` → ``bundle["metrics"]``
+        - ``get_error_summary(results)`` → ``bundle["errors"]``
+
+        Per-channel methods stay public as building blocks (D-23).
+        Tests, debug scripts, and à-la-carte callers can use them
+        directly; ``run_full_pipeline()`` is the convenience layer.
+
+        Module ordering across all channels is driven by the
+        ``_module_configs`` list passed to ``__init__`` (D-27).
+
+        Phase 4 opt-out hook (D-25): ``generate_analyst`` is forwarded
+        to ``assemble_analyst_workbook(generate=...)``. Phase 2 always
+        calls with ``True``; Phase 4 wires
+        ``generate_analyst = group_config.get('analyst_detail', True)``
+        at the report-script level.
+
+        Parameters
+        ----------
+        results : list[ModuleData]
+            Output of ``run_all()``.
+        output_dir : Path
+            Directory where the analyst workbook is written. The PDF
+            and main Excel are returned in-memory (caller writes them).
+        slug : str, keyword-only
+            Report slug used for the analyst filename
+            (``{slug}_{date}_analyst.xlsx`` per D-16) and the
+            ``_Metadata`` Report row (D-19).
+        report_date : Any, keyword-only
+            Date-like for the analyst filename. Falls back to
+            ``self._report_date`` when ``None``.
+        generate_analyst : bool, keyword-only
+            Phase 4 opt-out hook. Always ``True`` in Phase 2.
+        pdf_title : str, keyword-only
+            Forwarded to ``assemble_pdf(title=...)``.
+        pdf_subtitle : str, keyword-only
+            Forwarded to ``assemble_pdf(subtitle=...)``.
+        scope_label : str, keyword-only
+            Forwarded to ``assemble_analyst_workbook(scope_label=...)``
+            for the ``_Metadata`` Scope row (D-19).
+
+        Returns
+        -------
+        dict[str, Any]
+            Bundle dict with exactly these seven keys:
+            ``pdf_html`` (str),
+            ``excel_workbook`` (openpyxl.Workbook),
+            ``analyst_workbook_path`` (Path | None),
+            ``email_body_html`` (str),
+            ``email_kpis`` (dict[str, str]),
+            ``metrics`` (dict[str, dict]),
+            ``errors`` (list[str]).
+        """
+        # Defer openpyxl import to keep module-level imports lean (CONVENTIONS.md).
+        import openpyxl  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+
+        bundle: dict[str, Any] = {
+            "pdf_html":              "",
+            "excel_workbook":        None,
+            "analyst_workbook_path": None,
+            "email_body_html":       "",
+            "email_kpis":            {},
+            "metrics":               {},
+            "errors":                [],
+        }
+
+        # ── PDF (page-2 RAG strip is inserted internally by Plan 02-01) ──
+        bundle["pdf_html"] = self.assemble_pdf(
+            results,
+            title    = pdf_title,
+            subtitle = pdf_subtitle,
+        )
+
+        # ── Main Excel (caller writes the bytes) ─────────────────────────
+        wb = openpyxl.Workbook()
+        if wb.worksheets:
+            wb.remove(wb.worksheets[0])   # mirrors board_summary.py:248-250
+        self.assemble_excel(results, wb)
+        bundle["excel_workbook"] = wb
+
+        # ── Analyst workbook (separate file, written here) ───────────────
+        eff_report_date = report_date if report_date is not None else self._report_date
+        date_str = (
+            eff_report_date.strftime("%Y-%m-%d")
+            if hasattr(eff_report_date, "strftime")
+            else str(eff_report_date)
+        )
+        analyst_filename = f"{slug}_{date_str}_analyst.xlsx"   # D-16
+        bundle["analyst_workbook_path"] = self.assemble_analyst_workbook(
+            results,
+            Path(output_dir) / analyst_filename,
+            slug         = slug,
+            scope_label  = scope_label,
+            generate     = generate_analyst,
+        )
+
+        # ── Email body fragment (panels-only per D-09) ───────────────────
+        bundle["email_body_html"] = self.assemble_email_body(results)
+
+        # ── Email KPIs (existing legacy channel — kept per D-23) ─────────
+        bundle["email_kpis"] = self.collect_email_kpis(results)
+
+        # ── Per-module metrics dict ──────────────────────────────────────
+        bundle["metrics"] = {r.module_id: r.metrics for r in results}
+
+        # ── Aggregated error list ────────────────────────────────────────
+        bundle["errors"] = self.get_error_summary(results)
+
+        return bundle
+
 
 # ===========================================================================
 # Module-level helpers (not part of the public API)
