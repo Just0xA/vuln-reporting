@@ -257,7 +257,7 @@ _PDF_CSS = """
   /* ── Page-2 RAG strip (D-02..D-08) ─────────────────────────────── */
   .rag-strip {
     page-break-after: always;
-    padding: 18mm 6mm 0 6mm;
+    padding: 18mm 0 0 0;        /* @page margins handle horizontal centering */
   }
 
   .rag-strip-header {
@@ -281,13 +281,17 @@ _PDF_CSS = """
   }
 
   .rag-cell {
-    /* 4 cells per row max with 4mm gap (3 gaps in a 4-cell row).
-       basis = (100% - 3 × 4mm) / 4 = 25% - 3mm.
-       max-width pinned so partial trailing rows (e.g. 5–7 modules)
-       keep cells the same width as a full row instead of stretching. */
-    flex: 0 0 calc(25% - 3mm);
-    max-width: calc(25% - 3mm);
-    min-height: 50mm;
+    /* Fixed mm flex-basis (NOT calc(% − mm)) — WeasyPrint's flex
+       implementation does not always resolve mixed % / mm calc()
+       basis values and falls back to shrink-to-content when it
+       can't, leaving cells sized to label width.
+       Page geometry (A4 landscape, @page margin 12mm both sides):
+         content width = 273mm; 4 cells × 62mm + 3 gaps × 4mm = 260mm;
+         13mm total horizontal gutter (6.5mm each side) — visually
+         centered. */
+    flex: 0 0 62mm;
+    width: 62mm;
+    min-height: 55mm;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
