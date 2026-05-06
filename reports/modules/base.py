@@ -440,6 +440,17 @@ class BaseModule(ABC):
         from reports.modules.rag_utils import (  # noqa: PLC0415
             STATUS_COLOR, STATUS_LABEL, NO_DATA_HEADLINE,
         )
+        # Honor compute()-populated data.rag_strip per CONTRACT-04
+        # (ModuleData.rag_strip is the "Pre-built cover-page strip cell ...
+        # consumed by render_rag_strip_entry"). When the module computed a
+        # cell dict, return it directly; otherwise fall through to the
+        # gray "No Data" default so un-migrated modules still appear on
+        # the strip with a visible placeholder.
+        rs = getattr(data, "rag_strip", None)
+        if isinstance(rs, dict) and all(
+            k in rs for k in ("label", "headline_value", "rag_color", "rag_label")
+        ):
+            return rs
         return {
             "label":          self.DISPLAY_NAME,
             "headline_value": NO_DATA_HEADLINE,

@@ -645,6 +645,8 @@ class ReportComposer:
             '<p class="explanatory-text">No module output to display.</p>'
         )
 
+        rag_strip_page = self._build_rag_strip_page(results)
+
         return "\n".join([
             _PDF_DOCTYPE,
             "<html>",
@@ -656,10 +658,120 @@ class ReportComposer:
             "</head>",
             "<body>",
             cover,
+            rag_strip_page,    # NEW — Phase 2 D-02
             body,
             "</body>",
             "</html>",
         ])
+
+    # ------------------------------------------------------------------
+    # Page-2 RAG strip (Phase 2 D-02..D-08, COMPOSER-01)
+    # ------------------------------------------------------------------
+
+    def _build_rag_strip_page(self, results: list[ModuleData]) -> str:
+        """
+        Build the dedicated page-2 ``<div class="rag-strip">`` HTML.
+
+        Iterates results in ``_module_configs`` order, calls each
+        module's ``render_rag_strip_entry()`` (Phase 1 contract), and
+        renders one cell per module: label-top + headline-value-middle
+        + RAG-colored band-bottom containing the status-icon shape AND
+        the rag_label text (D-04 / D-08).
+
+        Per-module exception isolation mirrors ``assemble_pdf()``'s
+        existing pattern at composer.py:522-533 (D-28). Modules whose
+        class is missing from the registry, whose render method raises,
+        or whose entry returns an empty dict all collapse to a gray
+        "No Data" placeholder cell — never skipped, so the strip always
+        shows one cell per configured module (D-06).
+
+        Returns
+        -------
+        str
+            Complete ``<div class="rag-strip">...</div>`` block produced
+            from ``_PDF_RAG_STRIP_TEMPLATE``. Always non-empty so the
+            page is rendered even when every module returned no data.
+        """
+        from reports.modules.rag_utils import (  # noqa: PLC0415
+            STATUS_COLOR, STATUS_LABEL, STATUS_ICON, NO_DATA_HEADLINE,
+        )
+
+        def _gray_placeholder(label: str) -> dict:
+            return {
+                "label":          label,
+                "headline_value": NO_DATA_HEADLINE,
+                "rag_color":      STATUS_COLOR["no_data"],
+                "rag_label":      STATUS_LABEL["no_data"],
+            }
+
+        def _icon_for(rag_color_hex: str) -> str:
+            # Reverse-lookup the status key from the rag_color hex so the
+            # icon palette stays loosely coupled to whatever palette the
+            # module returned. Fallback to no_data if the color is unknown.
+            for key, hex_str in STATUS_COLOR.items():
+                if str(hex_str).lower() == str(rag_color_hex).lower():
+                    return STATUS_ICON.get(key, STATUS_ICON["no_data"])
+            return STATUS_ICON["no_data"]
+
+        cells: list[str] = []
+
+        for data in results:
+            mod_class = registry.get(data.module_id)
+            if mod_class is None:
+                logger.warning(
+                    "ReportComposer._build_rag_strip_page: module '%s' not "
+                    "in registry — emitting gray placeholder cell.",
+                    data.module_id,
+                )
+                cell_dict = _gray_placeholder(data.display_name or data.module_id)
+            else:
+                try:
+                    config   = self._config_for(data.module_id)
+                    instance = mod_class()
+                    cell_dict = instance.render_rag_strip_entry(data, config)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        "ReportComposer._build_rag_strip_page [%s]: "
+                        "render_rag_strip_entry() raised: %s\n%s",
+                        data.module_id, exc, traceback.format_exc(),
+                    )
+                    cell_dict = _gray_placeholder(data.display_name or data.module_id)
+
+            # Defensive: if a module returned a malformed dict, fall back to gray.
+            if not isinstance(cell_dict, dict) or not all(
+                k in cell_dict for k in ("label", "headline_value", "rag_color", "rag_label")
+            ):
+                logger.warning(
+                    "ReportComposer._build_rag_strip_page [%s]: "
+                    "render_rag_strip_entry returned malformed dict %r — "
+                    "using gray placeholder.",
+                    data.module_id, cell_dict,
+                )
+                cell_dict = _gray_placeholder(data.display_name or data.module_id)
+
+            label          = str(cell_dict["label"])
+            headline_value = str(cell_dict["headline_value"])
+            rag_color      = str(cell_dict["rag_color"])
+            rag_label      = str(cell_dict["rag_label"])
+            icon           = _icon_for(rag_color)
+
+            cells.append(
+                '    <div class="rag-cell">\n'
+                f'      <div class="rag-cell-label">{label}</div>\n'
+                f'      <div class="rag-cell-value">{headline_value}</div>\n'
+                f'      <div class="rag-cell-band" '
+                f'style="background-color: {rag_color};">\n'
+                f'        <span class="rag-cell-icon">{icon}</span>'
+                f'<span class="rag-cell-rag-label">{rag_label}</span>\n'
+                '      </div>\n'
+                '    </div>'
+            )
+
+        cells_html = "\n".join(cells)
+        return _PDF_RAG_STRIP_TEMPLATE.format(
+            header     = "Risk Status Summary",
+            cells_html = cells_html,
+        )
 
     # ------------------------------------------------------------------
     # Excel assembly
