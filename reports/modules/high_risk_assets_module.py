@@ -22,6 +22,7 @@ Numerator:   subset where the count of Critical/High open findings with
 
 from __future__ import annotations
 
+import html
 import logging
 from typing import Any
 
@@ -35,12 +36,23 @@ from config import RISK_WEIGHTS
 from reports.modules.board_report_utils import (
     compute_bu_risk_scores,
     compute_per_bu_breakdown,
+    deduplicate_assets_by_name,
     extract_business_unit,
     identify_on_time_assets,
     sla_status_from_thresholds,
     ON_TIME_WINDOW_DAYS,
 )
 from reports.modules.chart_utils import draw_gauge
+from reports.modules.format_utils import safe_int, safe_pct
+from reports.modules.rag_utils import (
+    NO_DATA_DRIVER,
+    NO_DATA_HEADLINE,
+    STATUS_COLOR as _RAG_STATUS_COLOR,
+    STATUS_ICON,
+    STATUS_LABEL as _RAG_STATUS_LABEL,
+    build_rag_strip_entry,
+    rag_status_from_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +174,16 @@ class HighRiskAssetsModule(BaseModule):
         try:
             # ---- Step 1: derive on-time asset set ----
             on_time, _ = identify_on_time_assets(assets_df, report_date)
-            on_time_uuids = set(on_time["asset_uuid"].dropna())
+            # [Rule 1] Defensive — when assets_df is empty (or has no
+            # asset_uuid column at all), identify_on_time_assets returns an
+            # empty frame whose columns may not include asset_uuid; using
+            # `on_time["asset_uuid"]` would KeyError and skip the no_data
+            # early-return below. Probe via `.get` instead so the no_data
+            # early-return path always wins on empty input.
+            if "asset_uuid" in on_time.columns:
+                on_time_uuids = set(on_time["asset_uuid"].dropna())
+            else:
+                on_time_uuids = set()
             total_on_time = len(on_time)
 
             if total_on_time == 0:
@@ -185,7 +206,15 @@ class HighRiskAssetsModule(BaseModule):
                         "No on-time-scanned assets were found — "
                         "high-risk asset percentage cannot be computed."
                     ),
-                    metadata     = _build_metadata(report_date),
+                    metadata     = {**_build_metadata(report_date), "email_gauge_b64": ""},
+                    # ── Phase 3 contract fields (D-07/D-15) ──
+                    driver_narrative = NO_DATA_DRIVER,
+                    analyst_rows     = [],
+                    rag_strip        = build_rag_strip_entry(
+                        display_name       = self.DISPLAY_NAME,
+                        headline_value_str = NO_DATA_HEADLINE,
+                        status             = "no_data",
+                    ),
                     error        = None,
                 )
 
@@ -196,7 +225,7 @@ class HighRiskAssetsModule(BaseModule):
                 rd_ts = pd.Timestamp(report_date, tz="UTC")
 
             # ---- Step 3: filter vulns to on-time assets + Critical/High ----
-            high_risk_uuids, aged_counts_per_asset = _find_high_risk_assets(
+            high_risk_uuids, aged_counts_per_asset, aged_findings = _find_high_risk_assets(
                 vulns_df, on_time_uuids, rd_ts,
             )
             high_risk_count = len(high_risk_uuids)
@@ -250,6 +279,158 @@ class HighRiskAssetsModule(BaseModule):
                 else str(report_date)
             )
 
+            # ============================================================
+            # Phase 3 — populate the three new ModuleData fields
+            # (D-05/D-06/D-07/D-10/D-11/D-13/D-14/T-03-04-01..03)
+            # ============================================================
+
+            # ---- Step 7a: analyst rows DataFrame (D-10/D-11/D-13) ----
+            # Source: the high_risk_uuids subset + aged_findings frame from
+            # _find_high_risk_assets. D-13 — apply asset-level dedup.
+            if high_risk_uuids and not aged_findings.empty:
+                # Filter to the high-risk asset subset
+                aged_high_risk = aged_findings[
+                    aged_findings["asset_uuid"].isin(high_risk_uuids)
+                ].copy()
+
+                # Group by asset_uuid: count of aged Crit/High + sorted unique
+                # plugin IDs joined as ", ".join(str(p) for p in sorted(unique_ids)).
+                # Deterministic numeric sort where possible; fall back to lexical.
+                def _join_ids(s):  # noqa: PLC0415
+                    # Deterministic sort: numeric ascending where possible,
+                    # fall back to lexical for non-int IDs.
+                    unique_vals = set(s.dropna().tolist())
+                    try:
+                        int_ids = [int(v) for v in unique_vals]
+                        return ", ".join(str(v) for v in sorted(set(int_ids)))
+                    except Exception:    # noqa: BLE001
+                        return ", ".join(sorted(set(map(str, unique_vals))))
+
+                grouped = (
+                    aged_high_risk
+                    .groupby("asset_uuid", as_index=False)
+                    .agg(
+                        crit_high_open_count    = ("plugin_id", "count"),
+                        contributing_finding_ids= ("plugin_id", _join_ids),
+                    )
+                )
+
+                # W6 — JOIN real (hostname, business_unit, last_seen) from
+                # assets_df. `deduplicate_assets_by_name` REQUIRES the
+                # `last_seen` column AND uses it to break duplicate-hostname
+                # ties (board_report_utils.py:94, 102-107). We project the
+                # REAL last_seen from assets_df rather than injecting a
+                # pd.NaT placeholder — placeholders make dedup
+                # nondeterministic when multiple rows share a hostname.
+                asset_cols = assets_df.copy()
+                if "business_unit" not in asset_cols.columns:
+                    asset_cols = extract_business_unit(asset_cols)
+                if "last_seen" not in asset_cols.columns:
+                    # Defensive — fetch_all_assets() guarantees this column,
+                    # but log if the upstream contract is ever broken.
+                    asset_cols = asset_cols.assign(last_seen=pd.NaT)
+                    logger.warning(
+                        "%s assets_df missing 'last_seen' column — falling back to NaT. "
+                        "deduplicate_assets_by_name dedup-tie behavior may be nondeterministic.",
+                        self._log_prefix(),
+                    )
+                asset_cols = (
+                    asset_cols[["asset_uuid", "hostname", "business_unit", "last_seen"]]
+                    .drop_duplicates("asset_uuid")
+                )
+                analyst_df = grouped.merge(asset_cols, on="asset_uuid", how="left")
+
+                # Apply asset-level dedup with REAL last_seen — most-recent
+                # row wins on duplicate hostnames (deterministic).
+                analyst_df = deduplicate_assets_by_name(analyst_df)
+
+                # last_seen is no longer needed in the analyst output — drop it.
+                if "last_seen" in analyst_df.columns:
+                    analyst_df = analyst_df.drop(columns=["last_seen"])
+
+                analyst_df = analyst_df.reindex(columns=[
+                    "hostname",
+                    "business_unit",
+                    "crit_high_open_count",
+                    "contributing_finding_ids",
+                ])
+                # D-11 — sort by crit_high_open_count desc
+                analyst_df = analyst_df.sort_values(
+                    "crit_high_open_count", ascending=False, na_position="last",
+                ).reset_index(drop=True)
+
+                # T-03-04-02 — CSV-formula injection guard (text columns)
+                for _col in ("hostname", "business_unit", "contributing_finding_ids"):
+                    analyst_df[_col] = analyst_df[_col].astype("string").map(
+                        lambda s: ("'" + s)
+                        if isinstance(s, str) and s[:1] in ("=", "+", "-", "@")
+                        else s
+                    )
+
+                analyst_rows_payload: list = [("High-Risk Assets Detail", analyst_df)]
+            else:
+                analyst_rows_payload = []
+
+            # ---- Step 7b: driver narrative (D-06) ----
+            # Template (locked in plan 03-04):
+            #   "{count} assets crossed the high-risk threshold (>={_HIGH_RISK_COUNT}
+            #    Crit/High open >{_AGED_DAYS_THRESHOLD}d); worst BU: {worst_bu_name}
+            #    with {worst_bu_count} assets."
+            if high_risk_count > 0 and analyst_rows_payload:
+                bu_counts = (
+                    analyst_rows_payload[0][1]
+                    .groupby("business_unit", dropna=False, as_index=False)
+                    .size()
+                    .rename(columns={"size": "asset_count"})
+                )
+                bu_counts["business_unit"] = (
+                    bu_counts["business_unit"].fillna("Untagged").replace("", "Untagged")
+                )
+                bu_counts = bu_counts.sort_values(
+                    ["asset_count", "business_unit"], ascending=[False, True],
+                )
+                worst_bu_name  = str(bu_counts.iloc[0]["business_unit"])
+                worst_bu_count = int(bu_counts.iloc[0]["asset_count"])
+                driver = (
+                    f"{safe_int(high_risk_count)} assets crossed the high-risk threshold "
+                    f"(>={_HIGH_RISK_COUNT} Crit/High open >{_AGED_DAYS_THRESHOLD}d); "
+                    f"worst BU: {worst_bu_name} with {safe_int(worst_bu_count)} assets."
+                )
+            else:
+                driver = NO_DATA_DRIVER
+
+            # ---- Step 7c: email gauge base64 (D-04) ----
+            if high_risk_pct is not None:
+                try:
+                    email_gauge_b64 = draw_gauge(
+                        value      = high_risk_pct,
+                        thresholds = _GAUGE_THRESHOLDS,
+                        title      = self.DISPLAY_NAME,
+                        unit       = "%",
+                        figsize    = (2.4, 1.6),
+                    )
+                except Exception as exc:    # noqa: BLE001
+                    logger.warning(
+                        "%s email-gauge draw_gauge failed: %s",
+                        self._log_prefix(), exc,
+                    )
+                    email_gauge_b64 = ""
+            else:
+                email_gauge_b64 = ""
+
+            # ---- Step 7d: rag_strip dict (lower_is_better — T-03-04-03) ----
+            _status_for_strip = rag_status_from_value(
+                high_risk_pct,
+                green_threshold  = _GREEN_THRESHOLD,
+                yellow_threshold = _YELLOW_THRESHOLD,
+                direction        = _DIRECTION,    # "lower_is_better" — T-03-04-03
+            )
+            rag_strip_payload = build_rag_strip_entry(
+                display_name       = self.DISPLAY_NAME,
+                headline_value_str = safe_pct(high_risk_pct),
+                status             = _status_for_strip,
+            )
+
             return ModuleData(
                 module_id    = self.MODULE_ID,
                 display_name = self.DISPLAY_NAME,
@@ -271,8 +452,16 @@ class HighRiskAssetsModule(BaseModule):
                     "top_5":      bu_breakdown.head(5).to_dict("records"),
                 },
                 summary_text = summary_text,
-                metadata     = {**_build_metadata(report_date), "computed_at": computed_at},
-                error        = None,
+                metadata     = {
+                    **_build_metadata(report_date),
+                    "computed_at":     computed_at,
+                    "email_gauge_b64": email_gauge_b64,
+                },
+                # ── Phase 3 contract fields (D-05/D-06/D-10..D-14) ──
+                driver_narrative = driver,
+                analyst_rows     = analyst_rows_payload,
+                rag_strip        = rag_strip_payload,
+                error            = None,
             )
 
         except Exception as exc:  # noqa: BLE001
@@ -626,7 +815,7 @@ def _find_high_risk_assets(
     vulns_df:      pd.DataFrame,
     on_time_uuids: set,
     rd_ts:         pd.Timestamp,
-) -> tuple[set, pd.Series]:
+) -> tuple[set, pd.Series, pd.DataFrame]:
     """
     Identify on-time assets that qualify as "high-risk".
 
@@ -644,15 +833,22 @@ def _find_high_risk_assets(
 
     Returns
     -------
-    tuple[set, pd.Series]
-        ``(high_risk_uuids, aged_counts_per_asset)``
+    tuple[set, pd.Series, pd.DataFrame]
+        ``(high_risk_uuids, aged_counts_per_asset, aged_findings)``
         - ``high_risk_uuids``: set of asset_uuids classified as high-risk.
         - ``aged_counts_per_asset``: pd.Series indexed by asset_uuid with the
           count of aged Critical/High findings per asset (all on-time assets,
           not just high-risk ones).
+        - ``aged_findings``: DataFrame slice of ``vulns_df`` containing the
+          relevant aged Critical/High findings (the ``relevant[aged_mask]``
+          subset). Phase 3 — used by ``compute()`` to produce per-asset
+          contributing_finding_ids for the analyst tab. Empty DataFrame
+          (with vulns_df.columns) when no aged findings exist.
     """
+    empty_frame = vulns_df.iloc[0:0].copy() if not vulns_df.empty else pd.DataFrame()
+
     if vulns_df.empty:
-        return set(), pd.Series(dtype=int)
+        return set(), pd.Series(dtype=int), empty_frame
 
     required = {"asset_uuid", "severity", "first_found"}
     if not required.issubset(vulns_df.columns):
@@ -660,7 +856,7 @@ def _find_high_risk_assets(
         logger.warning(
             "_find_high_risk_assets: missing columns %s — returning empty set.", missing
         )
-        return set(), pd.Series(dtype=int)
+        return set(), pd.Series(dtype=int), empty_frame
 
     # Filter to on-time assets + Critical/High severity
     on_time_mask  = vulns_df["asset_uuid"].isin(on_time_uuids)
@@ -668,16 +864,16 @@ def _find_high_risk_assets(
     relevant      = vulns_df[on_time_mask & severity_mask].copy()
 
     if relevant.empty:
-        return set(), pd.Series(dtype=int)
+        return set(), pd.Series(dtype=int), empty_frame
 
     # Compute days_open; NaT first_found → NaN days → treated as 0 (not aged)
     days_open = (rd_ts - relevant["first_found"]).dt.days
     aged_mask = days_open > _AGED_DAYS_THRESHOLD
 
-    aged = relevant[aged_mask]
+    aged = relevant[aged_mask].copy()
 
     if aged.empty:
-        return set(), pd.Series(dtype=int)
+        return set(), pd.Series(dtype=int), empty_frame
 
     # Count aged Critical/High findings per asset
     aged_counts = aged.groupby("asset_uuid").size()
@@ -685,7 +881,7 @@ def _find_high_risk_assets(
     # Assets that meet or exceed the high-risk threshold
     high_risk_uuids = set(aged_counts[aged_counts >= _HIGH_RISK_COUNT].index)
 
-    return high_risk_uuids, aged_counts
+    return high_risk_uuids, aged_counts, aged
 
 
 def _build_metadata(report_date: Any) -> dict:
