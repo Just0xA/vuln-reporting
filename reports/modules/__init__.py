@@ -67,6 +67,9 @@ from reports.modules.rag_utils import (  # noqa: F401
     NO_DATA_HEADLINE, NO_DATA_DRIVER,
 )
 
+# Board-helpers re-export — populate_rag_strip lives in board_report_utils.py.
+from reports.modules.board_report_utils import populate_rag_strip  # noqa: F401
+
 # Composition utilities
 from reports.modules.composer import ReportComposer  # noqa: F401
 
@@ -93,4 +96,6 @@ __all__ = [
     "build_rag_strip_entry",
     "NO_DATA_HEADLINE",
     "NO_DATA_DRIVER",
+    # Board-helpers re-export
+    "populate_rag_strip",
 ]

@@ -299,6 +299,9 @@ def run_report(
         # mutate any existing key shape:
         "analyst_excel":    bundle["analyst_workbook_path"],   # Path | None
         "email_body_html":  bundle["email_body_html"],         # str (panels fragment)
+        # NEW in Phase 3 (D-04, Plan 03-01) — CID gauge entries for
+        # email_sender.py to decode into MIMEImage parts:
+        "email_inline_images": bundle.get("email_inline_images", []),
     }
 
 

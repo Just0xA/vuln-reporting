@@ -127,6 +127,7 @@ def _build_synthetic_outputs(*, stub_panels: bool) -> tuple[str, Path]:
         # a stub so the panels-on email path renders end-to-end.
         panels_html = _stub_panels_html()
 
+    # Phase 3 D-01: assemble_pdf now emits a unified RAG-strip cover on page 1
     pdf_html = composer.assemble_pdf(
         results,
         page_css="",
