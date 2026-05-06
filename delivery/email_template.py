@@ -416,3 +416,115 @@ def build_email_body(
             f"<p>Generated: {context['generated_at']}</p>"
             f"<p><em>HTML template render failed: {exc}</em></p>"
         )
+
+
+# ===========================================================================
+# Modular email body renderer (Phase 2 D-15, COMPOSER-02)
+# ===========================================================================
+
+def build_email_body_modular(
+    group_config:        dict,
+    report_outputs:      dict,
+    module_panels_html:  str,
+    *,
+    excel_omitted:       bool = False,
+    generated_at:        Optional[datetime] = None,
+) -> str:
+    """
+    Render the Jinja2 HTML email body with per-module panels injected.
+
+    Sibling to ``build_email_body()`` for module-based reports
+    (board_summary in v1; management_summary in v2). Reuses the exact
+    same Jinja2 environment, template file, and helper functions as
+    ``build_email_body()`` — only the context dict differs by adding
+    ``module_panels_html``.
+
+    The shared template ``templates/report_email.html`` carries a
+    ``{% if module_panels_html %}{% else %}<KPI tiles>{% endif %}``
+    conditional in the SECTION 3 KPI TILES position. When
+    ``module_panels_html`` is non-empty, the per-module panels render
+    in place of the KPI tiles. The scope banner, attached-reports
+    list, SLA reference table, and footer are unchanged (D-11).
+
+    The legacy KPI-tile fallback path is preserved by still passing
+    ``kpi_metrics`` in the context: if a module-based report happens
+    to call this function with an empty ``module_panels_html`` (e.g.
+    every module returned ``""``), the template falls back to the
+    legacy tiles automatically — no exceptions, no blank section.
+
+    Parameters
+    ----------
+    group_config : dict
+        Group entry from delivery_config.yaml (same shape consumed by
+        ``build_email_body()``).
+    report_outputs : dict
+        ``{report_slug: {pdf, excel, charts, metrics?}}``.
+    module_panels_html : str
+        Concatenated panels HTML produced by
+        ``ReportComposer.assemble_email_body()``. Pass ``""`` to fall
+        back to the legacy KPI-tile rendering path.
+    excel_omitted : bool, optional
+        Set ``True`` when Excel files were dropped due to attachment
+        size; renders a warning banner.
+    generated_at : datetime, optional
+        Defaults to UTC now.
+
+    Returns
+    -------
+    str
+        Fully rendered HTML string ready for use as a MIME text/html
+        part. Falls back to a minimal plain HTML body on render failure
+        (mirrors ``build_email_body()``'s exception handling).
+    """
+    if generated_at is None:
+        generated_at = datetime.now(tz=timezone.utc)
+
+    email_cfg = group_config.get("email", {})
+    filters   = group_config.get("filters", {}) or {}
+
+    tag_category = filters.get("tag_category")
+    tag_value    = filters.get("tag_value")
+    tag_label    = (
+        f"{tag_category} = {tag_value}"
+        if tag_category and tag_value
+        else "All Assets"
+    )
+
+    context = {
+        "group_name":        group_config.get("name", "Unknown Group"),
+        "report_title":      email_cfg.get("subject", "Vulnerability Management Report"),
+        "generated_at":      generated_at.strftime("%Y-%m-%d %H:%M UTC"),
+        "tag_filter_label":  tag_label,
+        # NEW context key (D-10, D-15) — when truthy the template
+        # renders this fragment in place of the KPI tiles.
+        "module_panels_html": module_panels_html,
+        # Still computed so the {% else %} fallback path renders
+        # legacy tiles when module_panels_html is empty.
+        "kpi_metrics":       build_kpi_metrics(report_outputs, group_config),
+        "charts":            build_chart_cids(report_outputs),
+        "attached_reports":  build_attached_reports(report_outputs),
+        "sla_table":         build_sla_table(),
+        "reply_to":          email_cfg.get("reply_to", ""),
+        "excel_omitted":     excel_omitted,
+    }
+
+    try:
+        template = _jinja_env.get_template("report_email.html")
+        rendered = template.render(**context)
+        logger.debug(
+            "Modular email body rendered for group '%s' (%d chars, "
+            "panels_present=%s)",
+            context["group_name"],
+            len(rendered),
+            bool(module_panels_html),
+        )
+        return rendered
+    except Exception as exc:
+        logger.error(
+            "Modular email template render failed: %s", exc, exc_info=True
+        )
+        return (
+            f"<p>Vulnerability Management Report — {context['group_name']}</p>"
+            f"<p>Generated: {context['generated_at']}</p>"
+            f"<p><em>HTML template render failed: {exc}</em></p>"
+        )
