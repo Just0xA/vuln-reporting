@@ -1114,8 +1114,13 @@ def _build_summary(
         )
 
     status_label = _STATUS_LABEL.get(status, status)
+    # WR-07 fix — use safe_pct() instead of an inline f-string format
+    # spec on a possibly-None value. The early-return guard above
+    # currently makes sla_pct non-None here, but safe_pct() makes the
+    # rule mechanical so a future refactor that breaks the guard cannot
+    # crash this line.
     return (
-        f"Critical remediation SLA compliance is {sla_pct:.1f}% — "  # safe: sla_pct guarded by None/zero-data early-returns above
+        f"Critical remediation SLA compliance is {safe_pct(sla_pct)} — "
         f"{fixed_within_sla:,} of {total_fixed:,} Critical vulnerabilities fixed "
         f"in the last 30 days were remediated within the {_CRITICAL_SLA_DAYS}-day SLA. "
         f"Status: {status_label}."

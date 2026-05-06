@@ -1076,8 +1076,13 @@ def _build_summary(
             "high-risk asset percentage cannot be computed."
         )
     status_label = _STATUS_LABEL.get(status, status)
+    # WR-07 fix — use safe_pct() instead of an inline f-string format
+    # spec on a possibly-None value. The early-return guard above
+    # currently makes high_risk_pct non-None here, but safe_pct() makes
+    # the rule mechanical so a future refactor that breaks the guard
+    # cannot crash this line.
     return (
-        f"{high_risk_pct:.1f}% of on-time-scanned assets are high-risk — "  # safe: high_risk_pct guarded by line 716 early-return on None
+        f"{safe_pct(high_risk_pct)} of on-time-scanned assets are high-risk — "
         f"{high_risk_count:,} of {total_on_time:,} assets have "
         f">={_HIGH_RISK_COUNT} Critical/High vulnerabilities open "
         f">{_AGED_DAYS_THRESHOLD} days. "
