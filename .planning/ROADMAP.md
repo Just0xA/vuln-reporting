@@ -78,7 +78,7 @@ Granularity is **coarse**; parallelization is **on**.
   4. Every Board Summary delivery emits the analyst companion workbook from `COMPOSER-03` as an additional attachment alongside the existing PDF and Excel
   5. Each render method called against a zero-row `ModuleData` returns a sensible empty/N-A representation (dash placeholder, gray RAG, "No data in scope" driver line) instead of raising
 **Plans**: 6 plans
-- [ ] 03-01-PLAN.md — Foundation: populate_rag_strip helper, unified RAG-strip PDF cover, email_inline_images bundle key, bundle-driven email_sender body+analyst routing, CLAUDE.md doc paragraph (Wave 1)
+- [x] 03-01-PLAN.md — Foundation: populate_rag_strip helper, unified RAG-strip PDF cover, email_inline_images bundle key, bundle-driven email_sender body+analyst routing, CLAUDE.md doc paragraph (Wave 1)
 - [ ] 03-02-PLAN.md — scan_coverage_sla_module migration end-to-end (higher_is_better) (Wave 2)
 - [ ] 03-03-PLAN.md — critical_remediation_sla_module migration end-to-end (higher_is_better, finding-level analyst rows) (Wave 2)
 - [ ] 03-04-PLAN.md — high_risk_assets_module migration end-to-end (lower_is_better, contributing_finding_ids join) (Wave 2)
