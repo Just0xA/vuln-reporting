@@ -64,9 +64,16 @@ _DIRECTION        = "higher_is_better"
 
 # draw_gauge threshold list: each tuple = (upper_bound, colour)
 # Zones: 0–90 red | 90–95 amber | 95–100 green
+# WR-04 fix — gauge amber band aligned with rag_utils.STATUS_COLOR['yellow']
+# (#f57c00) so the gauge dial, the inline status badge, and the cover-page
+# RAG strip cell all show the SAME orange. Previously the gauge used
+# #fbc02d (the matplotlib chart_exporter 'Medium' palette) while the
+# status badge and RAG strip used #f57c00 from the shared rag_utils
+# palette — so a yellow score showed as warm yellow on the dial but
+# orange on the chip, looking unprofessional in the PDF.
 _GAUGE_THRESHOLDS = [
     (_YELLOW_THRESHOLD, "#d32f2f"),
-    (_GREEN_THRESHOLD,  "#fbc02d"),
+    (_GREEN_THRESHOLD,  "#f57c00"),
     (100.0,             "#388e3c"),
 ]
 

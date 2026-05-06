@@ -79,9 +79,12 @@ _YELLOW_THRESHOLD = 85.0   # >= yellow; < green
 _DIRECTION        = "higher_is_better"
 
 # Gauge colour zones: 0–85 red | 85–95 amber | 95–100 green
+# WR-04 fix — see scan_coverage_sla_module.py for rationale: gauge amber
+# band aligned with rag_utils.STATUS_COLOR['yellow'] (#f57c00) so the
+# gauge, status badge, and RAG strip use the same orange.
 _GAUGE_THRESHOLDS = [
     (_YELLOW_THRESHOLD, "#d32f2f"),
-    (_GREEN_THRESHOLD,  "#fbc02d"),
+    (_GREEN_THRESHOLD,  "#f57c00"),
     (100.0,             "#388e3c"),
 ]
 

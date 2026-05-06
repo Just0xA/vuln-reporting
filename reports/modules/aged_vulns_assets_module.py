@@ -74,9 +74,11 @@ _AGED_SEVERITIES: frozenset[str] = frozenset({"critical", "high", "medium"})
 
 # draw_gauge threshold list: (upper_bound, colour)
 # 0–2 green | 2–5 amber | 5–100 red
+# WR-04 fix — gauge amber band aligned with rag_utils.STATUS_COLOR['yellow']
+# (#f57c00) so the gauge, status badge, and RAG strip use the same orange.
 _GAUGE_THRESHOLDS = [
     (_GREEN_THRESHOLD,  "#388e3c"),
-    (_YELLOW_THRESHOLD, "#fbc02d"),
+    (_YELLOW_THRESHOLD, "#f57c00"),
     (100.0,             "#d32f2f"),
 ]
 
