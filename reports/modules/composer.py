@@ -42,7 +42,9 @@ Design principles
 
 from __future__ import annotations
 
+import html
 import logging
+import re
 import traceback
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -53,6 +55,11 @@ from reports.modules.base import BaseModule, ModuleConfig, ModuleData
 from reports.modules.registry import registry
 
 logger = logging.getLogger(__name__)
+
+# Whitelist for ``slug`` arguments accepted by public-API methods that
+# interpolate the slug into a filesystem path (WR-04). Letters, digits,
+# underscore, and hyphen only — no path separators, no traversal.
+_SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 # ---------------------------------------------------------------------------
 # PDF document scaffolding
@@ -723,13 +730,20 @@ class ReportComposer:
                 "rag_label":      STATUS_LABEL["no_data"],
             }
 
-        def _icon_for(rag_color_hex: str) -> str:
+        def _icon_for(rag_color_hex: str, module_id: str = "") -> str:
             # Reverse-lookup the status key from the rag_color hex so the
             # icon palette stays loosely coupled to whatever palette the
-            # module returned. Fallback to no_data if the color is unknown.
+            # module returned. Fallback to no_data if the color is unknown,
+            # but log a warning first so module developers see the contract
+            # drift in logs immediately (WR-01).
             for key, hex_str in STATUS_COLOR.items():
                 if str(hex_str).lower() == str(rag_color_hex).lower():
                     return STATUS_ICON.get(key, STATUS_ICON["no_data"])
+            logger.warning(
+                "ReportComposer._build_rag_strip_page [%s]: rag_color %r is not in "
+                "STATUS_COLOR — falling back to no_data icon.",
+                module_id or "unknown", rag_color_hex,
+            )
             return STATUS_ICON["no_data"]
 
         cells: list[str] = []
@@ -768,11 +782,28 @@ class ReportComposer:
                 )
                 cell_dict = _gray_placeholder(data.display_name or data.module_id)
 
-            label          = str(cell_dict["label"])
-            headline_value = str(cell_dict["headline_value"])
-            rag_color      = str(cell_dict["rag_color"])
-            rag_label      = str(cell_dict["rag_label"])
-            icon           = _icon_for(rag_color)
+            # WR-01: HTML-escape every module-supplied text field before
+            # interpolating into the cover-page HTML. Three concrete failure
+            # modes this guards against — display names containing '&', '<',
+            # '>'; CSS injection via rag_color; and silent palette drift
+            # (handled by the rag_color whitelist below + _icon_for warning).
+            label          = html.escape(str(cell_dict["label"]),          quote=False)
+            headline_value = html.escape(str(cell_dict["headline_value"]), quote=False)
+            rag_label      = html.escape(str(cell_dict["rag_label"]),      quote=False)
+
+            # rag_color is a CSS color — validate strictly against the known
+            # palette to defend the style="..." attribute from injection.
+            rag_color_raw = str(cell_dict["rag_color"]).strip()
+            _palette_lc = {v.lower() for v in STATUS_COLOR.values()}
+            if rag_color_raw.lower() not in _palette_lc:
+                logger.warning(
+                    "ReportComposer._build_rag_strip_page [%s]: rag_color %r is not in "
+                    "STATUS_COLOR — substituting no_data gray.",
+                    data.module_id, rag_color_raw,
+                )
+                rag_color_raw = STATUS_COLOR["no_data"]
+            rag_color = rag_color_raw
+            icon      = _icon_for(rag_color, data.module_id)
 
             cells.append(
                 '    <div class="rag-cell">\n'
