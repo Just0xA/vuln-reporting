@@ -943,6 +943,23 @@ class HighRiskAssetsModule(BaseModule):
                     "Primary sort: affected DESC (largest absolute problem first). "
                     "Secondary sort: percentage DESC (worst % among ties)."
                 ),
+                # WR-06 — explicit audit-info entry documenting the
+                # intentional broadening of compute_bu_risk_scores(): the
+                # weighted Risk Score column counts ALL open Critical/High
+                # findings on a high-risk asset, not only the > 30-day
+                # findings that caused it to qualify. This makes the Risk
+                # Score a holistic asset-risk indicator rather than a strict
+                # > 30-day-only count. See compute_bu_risk_scores() docstring
+                # in board_report_utils.py and the runbook section
+                # 'Risk Score broadening' in docs/board_summary_calculations.md.
+                "risk_score": (
+                    "Sum of weighted (severity_weight × open_finding_count) "
+                    "across ALL open Critical/High findings on each "
+                    "high-risk-qualifying asset, then summed per BU. "
+                    "Intentionally includes <= 30-day findings on high-risk "
+                    "assets so the score reflects the asset's holistic risk "
+                    "posture, not just the findings that caused it to qualify."
+                ),
             },
         }
 
