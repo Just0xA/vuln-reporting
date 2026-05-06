@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Module Render Contract** - Extend `BaseModule` with three new render hooks and bake in the empty-data guard pattern (completed 2026-05-05)
 - [x] **Phase 2: ReportComposer Upgrades** - Assemble RAG-strip cover pages, per-module email bodies, and the paired analyst-detail workbook (completed 2026-05-06)
-- [ ] **Phase 3: Board Summary Module Migration** - Migrate the four board metric modules to the new contract and wire `board_summary.py` to the upgraded composer
+- [x] **Phase 3: Board Summary Module Migration** - Migrate the four board metric modules to the new contract and wire `board_summary.py` to the upgraded composer (completed 2026-05-06)
 - [ ] **Phase 4: YAML Config and Regression Cutover** - Wire `jsonschema` runtime validation, ship the `analyst_detail` opt-out, and confirm zero regression for existing Board Summary recipient groups
 
 ## Parallelization Notes
@@ -83,7 +83,7 @@ Granularity is **coarse**; parallelization is **on**.
 - [x] 03-03-PLAN.md — critical_remediation_sla_module migration end-to-end (higher_is_better, finding-level analyst rows) (Wave 2)
 - [x] 03-04-PLAN.md — high_risk_assets_module migration end-to-end (lower_is_better, contributing_finding_ids join) (Wave 2)
 - [x] 03-05-PLAN.md — aged_vulns_assets_module migration end-to-end (lower_is_better, single tab + worst_severity column) (Wave 2)
-- [ ] 03-06-PLAN.md — Phase 3 regression snapshot extension (QUALITY-02 zero-row coverage) + smoke script real-panel update (Wave 3)
+- [x] 03-06-PLAN.md — Phase 3 regression snapshot extension (QUALITY-02 zero-row coverage) + smoke script real-panel update (Wave 3)
 **UI hint**: no
 
 ### Phase 4: YAML Config and Regression Cutover
@@ -106,6 +106,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 (with Phases 2 and 3 parall
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Module Render Contract | 3/3 | Complete | 2026-05-05 |
-| 2. ReportComposer Upgrades | 0/TBD | Not started | - |
-| 3. Board Summary Module Migration | 5/6 | In progress | - |
+| 2. ReportComposer Upgrades | 5/5 | Complete | 2026-05-06 |
+| 3. Board Summary Module Migration | 6/6 | Complete | 2026-05-06 |
 | 4. YAML Config and Regression Cutover | 0/TBD | Not started | - |

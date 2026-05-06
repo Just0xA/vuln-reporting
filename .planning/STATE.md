@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-05-06T19:23:00.000Z"
-last_activity: 2026-05-06 -- Phase 03 plan 03-05 complete (aged_vulns_assets module migrated)
+stopped_at: Phase 3 complete — regression suite locked
+last_updated: "2026-05-06T20:55:00.000Z"
+last_activity: 2026-05-06 -- Phase 03 plan 03-06 complete (Phase 3 regression suite extension; Phase 3 closes)
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 15
-  completed_plans: 13
-  percent: 87
+  completed_plans: 14
+  percent: 93
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-05-05)
 
 ## Current Position
 
-Phase: 03 (board-summary-module-migration) — EXECUTING
-Plan: 6 of 6 (Wave 3 — regression test extension remaining)
-Status: Wave 2 complete (all four board modules migrated); Wave 3 (Plan 03-06) is the only remaining plan in Phase 3
-Last activity: 2026-05-06 -- Plan 03-05 complete; AgedVulnsAssetsModule fully migrated to Phase 3 four-channel contract
+Phase: 03 (board-summary-module-migration) — COMPLETE
+Plan: 6 of 6 (Wave 3 — regression test extension committed)
+Status: Phase 3 closed; ready for Phase 4 (YAML Config and Regression Cutover)
+Last activity: 2026-05-06 -- Plan 03-06 complete; Phase 3 regression suite extension shipped (10/10 checks pass) + smoke script driving real render_email_panel output off-network
 
-Progress: [████████░░] 87% (5 of 6 Phase 3 plans complete)
+Progress: [█████████░] 93% (6 of 6 Phase 3 plans complete; Phase 4 not yet planned)
 
 **Phase 1 plans (all complete):**
 
@@ -88,6 +88,10 @@ Recent decisions affecting current work:
 - Plan 03-05: Single-tab worst_severity column over per-severity sub-tabs (D-12) — keeps workbook tab count down; analysts filter inside Excel
 - Plan 03-05: Alphabetical sort for contributing_plugins joined cell — plugin names are free-text without intrinsic numeric ordering; descending-VPR alternative rejected because joined-cell shape doesn't carry per-plugin VPR
 - Plan 03-05: lower_is_better direction explicitly passed via rag_status_from_value(direction=_DIRECTION) — T-03-05-03 mitigation; identical pattern to Plan 03-04
+- Plan 03-06: W7 fixture pattern locked — both check_9 and _build_smoke_module_data use safe_pct(pct) for headline_value_str (never an inline percent-precision f-string spec); fixture code is what new contributors copy when adding tests for new modules
+- Plan 03-06: Real-class regression coverage over stub-class (T-03-06-01) — check_8 instantiates the FOUR REAL migrated module classes against an empty ModuleData fixture; stubs would mask real-module empty-data crashes
+- Plan 03-06: W3 deprecated aliases (_PDF_RAG_STRIP_TEMPLATE, _build_rag_strip_page) NOT removed — Phase 2 cover-hash rebaseline was not required because the alias preservation strategy worked; alias removal carried forward as Phase 4 cleanup item
+- Plan 03-06: Phase 3 closes — 14/15 total plans complete (Phase 4 not yet planned)
 
 ### Pending Todos
 
@@ -107,7 +111,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-06T19:23:00.000Z
-Stopped at: Plan 03-05 complete — AgedVulnsAssetsModule migrated; Wave 2 of Phase 3 complete
-Resume file: .planning/phases/03-board-summary-module-migration/03-06-PLAN.md
-Next command: /gsd-execute-phase 3 (resume — Plan 03-06 regression-test extension is the only remaining plan)
+Last session: 2026-05-06T20:55:00.000Z
+Stopped at: Phase 3 complete — Plan 03-06 regression suite extension shipped (10/10 checks pass); ready for Phase 4 planning
+Resume file: .planning/ROADMAP.md (Phase 4: YAML Config and Regression Cutover — not yet planned)
+Next command: /gsd-plan-phase 4 (begin Phase 4 planning) OR /gsd-context-phase 4 (gather Phase 4 context first)
