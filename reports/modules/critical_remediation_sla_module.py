@@ -38,6 +38,7 @@ When ``fixed_vulns_df`` is absent or empty the metric returns ``"no_data"``.
 
 from __future__ import annotations
 
+import html
 import logging
 from typing import Any
 
@@ -56,6 +57,16 @@ from reports.modules.board_report_utils import (
     ON_TIME_WINDOW_DAYS,
 )
 from reports.modules.chart_utils import draw_gauge
+from reports.modules.format_utils import safe_int, safe_pct
+from reports.modules.rag_utils import (
+    STATUS_COLOR,
+    STATUS_LABEL,
+    STATUS_ICON,
+    NO_DATA_HEADLINE,
+    NO_DATA_DRIVER,
+    build_rag_strip_entry,
+    rag_status_from_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +184,28 @@ class CriticalRemediationSLAModule(BaseModule):
                 "fixed_vulns_df", pd.DataFrame()
             )
 
+            # Phase 3 — explicit empty-input guard. When assets_df has no
+            # rows or lacks required columns we cannot derive an on-time
+            # set; bail out with the contract-fields populated.
+            if assets_df.empty or "asset_uuid" not in assets_df.columns:
+                return ModuleData(
+                    module_id    = self.MODULE_ID,
+                    display_name = self.DISPLAY_NAME,
+                    metrics      = {},
+                    table_data   = [],
+                    chart_data   = {},
+                    summary_text = "",
+                    metadata     = {"email_gauge_b64": ""},
+                    error            = None,
+                    driver_narrative = NO_DATA_DRIVER,
+                    analyst_rows     = [],
+                    rag_strip        = build_rag_strip_entry(
+                        display_name       = self.DISPLAY_NAME,
+                        headline_value_str = safe_pct(None),
+                        status             = "no_data",
+                    ),
+                )
+
             # ---- Step 1: derive on-time asset set ----
             on_time, _ = identify_on_time_assets(assets_df, report_date)
             on_time_uuids = set(on_time["asset_uuid"].dropna())
@@ -256,6 +289,124 @@ class CriticalRemediationSLAModule(BaseModule):
                 else str(report_date)
             )
 
+            # ===== Phase 3 contract fields =====
+
+            # Phase 3 D-10/D-11 — analyst rows for Critical Remediation SLA
+            # Source: fixed_in_window where days_to_fix > _CRITICAL_SLA_DAYS
+            # (the findings that missed the 15-day Critical SLA).
+            # D-13 — finding-level rows; NO dedup (each finding row is distinct).
+            if not fixed_in_window.empty and "days_to_fix" in fixed_in_window.columns:
+                missed = fixed_in_window[
+                    fixed_in_window["days_to_fix"] > _CRITICAL_SLA_DAYS
+                ].copy()
+                if not missed.empty:
+                    missed = missed.assign(
+                        plugin = missed.apply(
+                            lambda r: f"{r.get('plugin_name', '')} ({r.get('plugin_id', '')})",
+                            axis=1,
+                        ),
+                        **{
+                            "days overdue": (
+                                missed["days_to_fix"] - _CRITICAL_SLA_DAYS
+                            ).clip(lower=0).round().astype("Int64"),
+                            "remediation due_date": (
+                                pd.to_datetime(
+                                    missed["first_found"], utc=True, errors="coerce"
+                                )
+                                + pd.Timedelta(days=_CRITICAL_SLA_DAYS)
+                            ),
+                            "owner_tag": (
+                                missed.get("tags", pd.Series([""] * len(missed)))
+                                .map(_extract_owner_tag)
+                            ),
+                        },
+                    )
+                    analyst_df = missed.reindex(columns=[
+                        "hostname",
+                        "plugin",
+                        "days overdue",
+                        "first_found",
+                        "owner_tag",
+                        "remediation due_date",
+                    ]).rename(columns={"hostname": "asset"})
+                    # D-11 — sort by days overdue desc
+                    analyst_df = analyst_df.sort_values(
+                        "days overdue", ascending=False, na_position="last",
+                    ).reset_index(drop=True)
+                    # T-03-03-02 — CSV-formula injection guard (text columns only)
+                    for _col in ("asset", "plugin", "owner_tag"):
+                        analyst_df[_col] = analyst_df[_col].astype("string").map(
+                            lambda s: ("'" + s)
+                            if isinstance(s, str) and s[:1] in ("=", "+", "-", "@")
+                            else s
+                        )
+                    analyst_rows_payload: list = [
+                        ("Critical Remediation Detail", analyst_df)
+                    ]
+                else:
+                    analyst_rows_payload = []
+            else:
+                analyst_rows_payload = []
+
+            # Phase 3 D-06 — Critical Remediation SLA driver narrative
+            # Template (locked in plan 03-03):
+            #   "{fixed_within_sla} of {total_fixed_last_month} fixed within
+            #    {_CRITICAL_SLA_DAYS}-day window; {missed_count} critical findings
+            #    missed SLA."
+            # W5 — these are the actual local-variable names in compute() scope.
+            total_fixed_val      = (
+                int(total_fixed_last_month) if total_fixed_last_month is not None else 0
+            )
+            fixed_within_sla_val = (
+                int(fixed_within_sla) if fixed_within_sla is not None else 0
+            )
+            if total_fixed_val > 0 or fixed_within_sla_val > 0 or analyst_rows_payload:
+                missed_count = (
+                    len(analyst_rows_payload[0][1])
+                    if analyst_rows_payload
+                    else 0
+                )
+                driver = (
+                    f"{safe_int(fixed_within_sla_val)} of {safe_int(total_fixed_val)} "
+                    f"fixed within {_CRITICAL_SLA_DAYS}-day window; "
+                    f"{safe_int(missed_count)} critical findings missed SLA."
+                )
+            else:
+                driver = NO_DATA_DRIVER
+
+            # Phase 3 D-04 — email gauge base64
+            # W5 — `remediation_sla_pct` is the verified local in compute() scope.
+            if remediation_sla_pct is not None:
+                try:
+                    email_gauge_b64 = draw_gauge(
+                        value      = remediation_sla_pct,
+                        thresholds = _GAUGE_THRESHOLDS,
+                        title      = self.DISPLAY_NAME,
+                        unit       = "%",
+                        figsize    = (2.4, 1.6),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "%s email gauge render failed: %s",
+                        self._log_prefix(), exc,
+                    )
+                    email_gauge_b64 = ""
+            else:
+                email_gauge_b64 = ""
+
+            # Phase 3 D-05/D-08/D-09 — RAG strip cell (option-2 pure construction)
+            _status_for_strip = rag_status_from_value(
+                remediation_sla_pct,
+                green_threshold  = _GREEN_THRESHOLD,
+                yellow_threshold = _YELLOW_THRESHOLD,
+                direction        = _DIRECTION,
+            )
+            rag_strip_payload = build_rag_strip_entry(
+                display_name       = self.DISPLAY_NAME,
+                headline_value_str = safe_pct(remediation_sla_pct),
+                status             = _status_for_strip,
+            )
+
             return ModuleData(
                 module_id    = self.MODULE_ID,
                 display_name = self.DISPLAY_NAME,
@@ -293,9 +444,13 @@ class CriticalRemediationSLAModule(BaseModule):
                         "time_taken_to_fix / 86400 when available; "
                         "fallback: (last_fixed − first_found).days"
                     ),
-                    "computed_at": computed_at,
+                    "computed_at":      computed_at,
+                    "email_gauge_b64":  email_gauge_b64,
                 },
-                error        = None,
+                error            = None,
+                driver_narrative = driver,
+                analyst_rows     = analyst_rows_payload,
+                rag_strip        = rag_strip_payload,
             )
 
         except Exception as exc:  # noqa: BLE001
@@ -303,7 +458,11 @@ class CriticalRemediationSLAModule(BaseModule):
                 "%s compute() failed: %s", self._log_prefix(), exc,
                 exc_info=True,
             )
-            return self._empty_result(str(exc), config)
+            empty = self._empty_result(str(exc), config)
+            # Phase 3 — guarantee the email_gauge_b64 metadata key is present
+            # (composer.collect_email_inline_images probes for "" vs missing).
+            empty.metadata = {**(empty.metadata or {}), "email_gauge_b64": ""}
+            return empty
 
     # ------------------------------------------------------------------
     # render_pdf_section()
@@ -655,6 +814,24 @@ class CriticalRemediationSLAModule(BaseModule):
 # ===========================================================================
 # Module-private helpers
 # ===========================================================================
+
+def _extract_owner_tag(tags_str: Any) -> str:
+    """
+    Parse the Owner tag value from a Tenable-style tags string.
+
+    Tenable serializes tags as ``"Category=Value;Category=Value"``. When no
+    Owner category is present, returns ``""`` (empty string).
+    """
+    if not isinstance(tags_str, str) or not tags_str.strip():
+        return ""
+    for piece in tags_str.split(";"):
+        if "=" not in piece:
+            continue
+        cat, _, val = piece.partition("=")
+        if cat.strip().lower() == "owner":
+            return val.strip()
+    return ""
+
 
 def _filter_critical(
     df: pd.DataFrame,
