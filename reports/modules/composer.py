@@ -1106,10 +1106,12 @@ class ReportComposer:
                 if df is None or not isinstance(df, pd.DataFrame) or df.empty:
                     continue   # D-20 contributing rule — empty df contributes no tab
 
-                # WR-03: _unique_sheet_name raises after 99 collision
+                # WR-03: _unique_sheet_name raises after 98 collision
                 # attempts; the prior call site let that propagate out and
                 # break D-28 fail-soft. Catch + record into failures so the
                 # batch keeps running and the audit lands in _Metadata.
+                # WR-05: _unique_sheet_name now mutates ``used_names``
+                # itself; no manual add() needed at the call site.
                 try:
                     unique = _unique_sheet_name(sheet_name, used_names)
                 except ValueError as exc:
@@ -1123,7 +1125,6 @@ class ReportComposer:
                         (data.module_id, f"sheet-name allocation failed: {exc}")
                     )
                     continue
-                used_names.add(unique)
                 collected.append((unique, df))
 
         # D-20: all-empty workbook → no file written
@@ -1735,6 +1736,12 @@ def _unique_sheet_name(name: str, used: set[str]) -> str:
     truncating the base name to leave room for the suffix
     (Phase 2 D-18).
 
+    WR-05 fix — this helper now mutates ``used`` itself, adding the
+    returned name to the set before returning. Previously the caller
+    was responsible for ``used.add(name)``, which was fragile: a future
+    contributor could forget the call or interleave it with other
+    state changes. The mutation is now atomic with the lookup.
+
     Collision semantics note (acknowledged for v1):
     When two long sheet names share their first 31 characters but
     differ later, only the auto-suffix counter (``_2``, ``_3``, ...)
@@ -1750,33 +1757,34 @@ def _unique_sheet_name(name: str, used: set[str]) -> str:
         worksheet name limit.
     used : set[str]
         Set of sheet names already taken in the target workbook.
-        The returned name will not be in this set.
+        Mutated in-place: the returned name is added before return.
 
     Returns
     -------
     str
-        A unique sheet name <= 31 characters. The caller is expected
-        to add the returned name to ``used`` before requesting another
-        unique name.
+        A unique sheet name <= 31 characters. Already added to ``used``.
 
     Raises
     ------
     ValueError
-        If a unique name cannot be generated within 100 suffix
-        attempts (defensive guard against pathological inputs).
+        If a unique name cannot be generated within 98 suffix attempts
+        (suffixes _2 through _99 inclusive — defensive guard against
+        pathological inputs).
     """
     base = name[:31]
     if base not in used:
+        used.add(base)
         return base
     for i in range(2, 100):
         suffix    = f"_{i}"
         max_base  = 31 - len(suffix)
         candidate = name[:max_base] + suffix
         if candidate not in used:
+            used.add(candidate)
             return candidate
     raise ValueError(
         f"_unique_sheet_name: could not generate unique sheet name "
-        f"from {name!r} after 99 attempts."
+        f"from {name!r} after 98 attempts (suffixes _2 through _99)."
     )
 
 
