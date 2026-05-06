@@ -939,6 +939,24 @@ class AgedVulnsAssetsModule(BaseModule):
                     "Primary sort: affected DESC (largest absolute problem first). "
                     "Secondary sort: percentage DESC (worst % among ties)."
                 ),
+                # WR-06 — explicit audit-info entry documenting the
+                # intentional broadening of compute_bu_risk_scores(): the
+                # weighted Risk Score column counts ALL open findings on
+                # an aged asset (Critical/High/Medium), not only the
+                # findings whose age > 90 days that triggered the asset's
+                # "aged" qualification. This makes the Risk Score a
+                # holistic asset-risk indicator rather than a strict
+                # aged-only count. See compute_bu_risk_scores() docstring
+                # in board_report_utils.py and the runbook section
+                # 'Risk Score broadening' in docs/board_summary_calculations.md.
+                "risk_score": (
+                    "Sum of weighted (severity_weight × open_finding_count) "
+                    "across ALL open Critical/High/Medium findings on each "
+                    "aged-qualifying asset, then summed per BU. Intentionally "
+                    "includes non-aged findings on aged assets so the score "
+                    "reflects the asset's holistic risk posture, not just the "
+                    "findings that caused it to qualify."
+                ),
             },
         }
 

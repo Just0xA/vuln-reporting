@@ -205,6 +205,32 @@ This ensures a large environment with many real problems ranks above a small env
 
 **Implementation:** `board_report_utils.extract_business_unit()`, `board_report_utils.compute_per_bu_breakdown(higher_is_better=True|False)`
 
+### Risk Score broadening (Metrics 3 & 4)
+
+The Risk Score column in the High-Risk Assets and Aged Vulnerability Assets BU tables is
+deliberately broader than the qualifying-finding subset:
+
+- **High-Risk Assets:** the score sums weighted (severity weight × open finding count)
+  across **all open Critical/High findings** on the asset, not only the > 30-day findings
+  that caused the asset to qualify as high-risk.
+- **Aged Vulnerability Assets:** the score sums weighted (severity weight × open finding
+  count) across **all open Critical/High/Medium findings** on the asset, not only the
+  > 90-day findings that caused the asset to qualify as aged.
+
+This broadening is intentional. The Risk Score is meant to be a **holistic asset-risk
+indicator** — once an asset qualifies as high-risk or aged, the score communicates the
+total severity-weighted exposure on that asset so the board can see "BU Finance has 47
+high-risk assets totalling 932 risk-score points" rather than "BU Finance has 47 high-risk
+assets totalling N points-from-only-the-> 30-day-findings". The Aged% / High-Risk% gauges
+themselves remain narrow (qualifying-only), so the headline metric is unaffected.
+
+**Severity weights:** `RISK_WEIGHTS` from `config.py` (Critical=10, High=5, Medium=2, Low=1).
+
+**Implementation:** `board_report_utils.compute_bu_risk_scores(vulns_df, qualifying_uuids,
+enriched, severities, weights)`. Both modules pass the unfiltered `vulns_df` (open findings)
+as the first argument and rely on the helper to slice by `qualifying_uuids` and `severities`
+internally.
+
 ---
 
 ## 8. RAG Status Logic
