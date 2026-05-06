@@ -269,23 +269,33 @@ _PDF_CSS = """
   }
 
   .rag-cell-row {
-    display: table;
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 4mm 4mm;
-    table-layout: fixed;
+    /* Flexbox: centers the row on the page (justify-content:center),
+       gives every cell the same height regardless of label wrapping
+       (align-items:stretch), and supports D-03's "1–12 modules,
+       wrapping past 4 per row" via flex-wrap. */
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: stretch;
+    gap: 4mm;
   }
 
   .rag-cell {
-    display: table-cell;
-    width: 25%;                  /* 4 cells per row max; auto-wraps */
+    /* 4 cells per row max with 4mm gap (3 gaps in a 4-cell row).
+       basis = (100% - 3 × 4mm) / 4 = 25% - 3mm.
+       max-width pinned so partial trailing rows (e.g. 5–7 modules)
+       keep cells the same width as a full row instead of stretching. */
+    flex: 0 0 calc(25% - 3mm);
+    max-width: calc(25% - 3mm);
+    min-height: 50mm;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
     background: #ffffff;
     border: 0.5pt solid #c5cfe8;
     border-radius: 3pt;
     text-align: center;
-    vertical-align: middle;
     padding: 6mm 4mm 0 4mm;
-    height: 38mm;
   }
 
   .rag-cell-label {
@@ -293,6 +303,7 @@ _PDF_CSS = """
     color: #555;
     margin: 0 0 2mm 0;
     line-height: 1.2;
+    min-height: 22pt;            /* reserve 2-line space — uniform top */
   }
 
   .rag-cell-value {
@@ -301,10 +312,14 @@ _PDF_CSS = """
     color: #1a1a1a;
     margin: 0 0 4mm 0;
     line-height: 1.0;
+    flex: 1 1 auto;              /* fills middle; pushes band to bottom */
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .rag-cell-band {
-    margin: 4mm -4mm 0 -4mm;     /* extend band to cell edges */
+    margin: 0 -4mm 0 -4mm;       /* extend band to cell edges */
     padding: 3mm 2mm;
     color: #ffffff;
     font-size: 10pt;
