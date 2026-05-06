@@ -507,6 +507,10 @@ def send_report_email(
     import re as _re                         # noqa: PLC0415
     _CID_RE = _re.compile(r"^[A-Za-z0-9_-]+$")    # T-03-04: safe header value
     _INLINE_BUDGET_BYTES = 5 * 1024 * 1024         # T-03-06: 5MB cumulative cap
+    # WR-02 fix — per-image upper bound. A single pathologically large
+    # gauge PNG (e.g. a future high-DPI Plotly export) shouldn't be able
+    # to consume the whole cumulative budget on its own.
+    _INLINE_PER_IMAGE_BYTES = 2 * 1024 * 1024      # 2MB per-image cap
 
     _inline_total = 0
     _budget_exceeded = False                       # W2: sentinel flag for budget propagation
@@ -539,15 +543,32 @@ def send_report_email(
                     group_name, _cid, _exc,
                 )
                 continue
-            _inline_total += len(_img_data)
-            if _inline_total > _INLINE_BUDGET_BYTES:
+            # WR-02 fix — check budgets BEFORE accumulating and BEFORE
+            # attaching, so a single oversize image cannot be attached
+            # in violation of the cumulative cap. Previously the code
+            # incremented _inline_total then checked the cumulative cap;
+            # if the very first image was already > 5MB, it was correctly
+            # rejected — but if image #1 was 1MB and image #2 was 6MB,
+            # image #2 was rejected while image #1 had already been
+            # attached (good). The new ordering also rejects images that
+            # individually exceed the per-image cap.
+            _candidate_size = len(_img_data)
+            if _candidate_size > _INLINE_PER_IMAGE_BYTES:
                 logger.warning(
-                    "[%s] Inline-image cumulative size exceeded %d bytes — "
-                    "dropping remaining inline images.",
-                    group_name, _INLINE_BUDGET_BYTES,
+                    "[%s] Skipping oversize inline image cid=%s "
+                    "(%d bytes > per-image cap %d).",
+                    group_name, _cid, _candidate_size, _INLINE_PER_IMAGE_BYTES,
+                )
+                continue
+            if _inline_total + _candidate_size > _INLINE_BUDGET_BYTES:
+                logger.warning(
+                    "[%s] Inline-image cumulative size would exceed %d bytes — "
+                    "dropping cid=%s and remaining inline images.",
+                    group_name, _INLINE_BUDGET_BYTES, _cid,
                 )
                 _budget_exceeded = True            # W2: signal outer loop to stop
                 break                              # W2: stop the inner loop now
+            _inline_total += _candidate_size
             _img = MIMEImage(_img_data, _subtype="png")
             _img.add_header("Content-ID", f"<{_cid}>")
             _img.add_header("Content-Disposition", "inline", filename=f"{_cid}.png")
