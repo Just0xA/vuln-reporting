@@ -59,7 +59,12 @@ Granularity is **coarse**; parallelization is **on**.
   2. `ReportComposer.assemble_email_body()` returns an HTML body composed of per-module panels in registration order, suitable as the Jinja2 template body for module-based reports, and renders correctly in Outlook / Gmail / Apple Mail with inline CSS only
   3. `ReportComposer.assemble_analyst_workbook()` writes a separate `.xlsx` with one tab per module (sourced from `render_analyst_tabs()`) plus a `_Metadata` tab containing scope, generated timestamp, and source module IDs
   4. `ReportComposer.run_all()` returns a dict with keys `pdf`, `excel`, `charts`, `metrics`, AND `analyst_excel`; existing keys are byte-for-byte unchanged on a regression baseline
-**Plans**: TBD
+**Plans**: 5 plans
+- [ ] 02-01-PLAN.md — Page-2 RAG strip insertion in assemble_pdf() + STATUS_ICON palette (COMPOSER-01) (Wave 1)
+- [ ] 02-02-PLAN.md — assemble_email_body() + build_email_body_modular() + template conditional (COMPOSER-02) (Wave 1)
+- [ ] 02-03-PLAN.md — assemble_analyst_workbook() with sheet-collision suffix and D-25 opt-out (COMPOSER-03) (Wave 1)
+- [ ] 02-04-PLAN.md — run_full_pipeline() orchestrator + board_summary/management_summary run_report() return-dict extension (COMPOSER-04) (Wave 2)
+- [ ] 02-05-PLAN.md — Phase 2 regression-snapshot + per-module exception-isolation test (D-28, D-29) (Wave 3)
 **UI hint**: no
 
 ### Phase 3: Board Summary Module Migration
