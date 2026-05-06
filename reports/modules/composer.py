@@ -1040,7 +1040,23 @@ class ReportComposer:
                 if df is None or not isinstance(df, pd.DataFrame) or df.empty:
                     continue   # D-20 contributing rule — empty df contributes no tab
 
-                unique = _unique_sheet_name(sheet_name, used_names)
+                # WR-03: _unique_sheet_name raises after 99 collision
+                # attempts; the prior call site let that propagate out and
+                # break D-28 fail-soft. Catch + record into failures so the
+                # batch keeps running and the audit lands in _Metadata.
+                try:
+                    unique = _unique_sheet_name(sheet_name, used_names)
+                except ValueError as exc:
+                    logger.error(
+                        "ReportComposer.assemble_analyst_workbook [%s]: "
+                        "could not allocate unique sheet name for %r — "
+                        "recording failure.",
+                        data.module_id, sheet_name,
+                    )
+                    failures.append(
+                        (data.module_id, f"sheet-name allocation failed: {exc}")
+                    )
+                    continue
                 used_names.add(unique)
                 collected.append((unique, df))
 
