@@ -60,6 +60,21 @@ from reports.modules import (  # noqa: E402
     register_module,
 )
 
+# ── Phase 3 (Plan 03-06) — real migrated module classes ──
+from reports.modules.scan_coverage_sla_module       import ScanCoverageSLAModule  # noqa: E402
+from reports.modules.critical_remediation_sla_module import CriticalRemediationSLAModule  # noqa: E402
+from reports.modules.high_risk_assets_module        import HighRiskAssetsModule  # noqa: E402
+from reports.modules.aged_vulns_assets_module       import AgedVulnsAssetsModule  # noqa: E402
+from reports.modules.rag_utils                      import (  # noqa: E402
+    NO_DATA_HEADLINE,
+    NO_DATA_DRIVER,
+    STATUS_COLOR,
+)
+# W7 — fixture code uses safe_pct for headline_value_str (CLAUDE.md Empty-data
+# guard pattern rule 1: never use inline f-string format specs like the
+# percent-precision spec on a possibly-None value, even in tests).
+from reports.modules.format_utils                   import safe_pct  # noqa: E402
+
 
 # ===========================================================================
 # Stub modules — registered fresh per script run; namespaced with
@@ -439,6 +454,175 @@ def check_6_analyst_tabs_isolation() -> None:
 
 
 # ===========================================================================
+# Phase 3 (Plan 03-06) — QUALITY-02 zero-row integration coverage
+# ===========================================================================
+
+def check_8_phase3_zero_row_render_methods() -> None:
+    """
+    QUALITY-02: every migrated module's render methods MUST handle a
+    zero-row ModuleData without raising and MUST return the contracted
+    empty/N-A representations.
+
+    For each of the four migrated module classes, build an empty
+    ModuleData fixture (empty metrics + empty table_data + empty
+    analyst_rows + driver=NO_DATA_DRIVER + rag_strip with status=no_data
+    + metadata['email_gauge_b64']="") and assert:
+      - render_email_panel returns a string containing 'No data' AND
+        the NO_DATA_HEADLINE em-dash AND no 'cid:' reference
+      - render_analyst_tabs returns []
+      - render_rag_strip_entry returns a dict whose 'rag_color' is the
+        gray STATUS_COLOR['no_data'] (the BaseModule default honors
+        data.rag_strip when populated)
+      - No exception raised by any of the three calls
+    """
+    from reports.modules.base import ModuleData, ModuleConfig  # noqa: PLC0415
+    from reports.modules.rag_utils import build_rag_strip_entry  # noqa: PLC0415
+
+    module_classes = [
+        ScanCoverageSLAModule,
+        CriticalRemediationSLAModule,
+        HighRiskAssetsModule,
+        AgedVulnsAssetsModule,
+    ]
+
+    for cls in module_classes:
+        instance = cls()
+        cfg      = ModuleConfig(module_id=instance.MODULE_ID)
+        empty_md = ModuleData(
+            module_id        = instance.MODULE_ID,
+            display_name     = instance.DISPLAY_NAME,
+            metrics          = {},
+            table_data       = [],
+            chart_data       = {},
+            summary_text     = "",
+            metadata         = {"email_gauge_b64": ""},
+            error            = None,
+            driver_narrative = NO_DATA_DRIVER,
+            analyst_rows     = [],
+            rag_strip        = build_rag_strip_entry(
+                display_name       = instance.DISPLAY_NAME,
+                headline_value_str = NO_DATA_HEADLINE,
+                status             = "no_data",
+            ),
+        )
+
+        # render_email_panel
+        panel = instance.render_email_panel(empty_md, cfg)
+        assert isinstance(panel, str), f"{cls.__name__}: render_email_panel must return str"
+        assert "No data" in panel, f"{cls.__name__}: empty panel missing 'No data' text"
+        assert NO_DATA_HEADLINE in panel, f"{cls.__name__}: empty panel missing em-dash"
+        assert "cid:" not in panel, f"{cls.__name__}: empty panel must NOT reference cid (no gauge for empty)"
+
+        # render_analyst_tabs
+        tabs = instance.render_analyst_tabs(empty_md, cfg)
+        assert tabs == [], f"{cls.__name__}: render_analyst_tabs on empty must return []"
+
+        # render_rag_strip_entry — inherited default honors data.rag_strip
+        cell = instance.render_rag_strip_entry(empty_md, cfg)
+        assert isinstance(cell, dict), f"{cls.__name__}: render_rag_strip_entry must return dict"
+        assert cell.get("rag_color") == STATUS_COLOR["no_data"], (
+            f"{cls.__name__}: empty rag cell color must be {STATUS_COLOR['no_data']!r}, "
+            f"got {cell.get('rag_color')!r}"
+        )
+
+
+def check_9_phase3_populated_render_methods() -> None:
+    """
+    Phase 3 happy-path: each migrated module produces a non-empty
+    panel + at-least-one analyst tab + a non-gray rag cell when given a
+    populated ModuleData fixture mirroring its compute() shape.
+
+    W7 — headline_value_str is built via ``safe_pct(pct)`` (the
+    CLAUDE.md Empty-data guard pattern rule 1). Even though `pct` is a
+    known float in this test, the fixture code is what new contributors
+    will copy when adding tests for new modules; modeling the wrong
+    pattern (an inline percent-precision f-string spec) would propagate
+    the bug.
+    """
+    import pandas as pd  # noqa: PLC0415
+    from reports.modules.base import ModuleData, ModuleConfig  # noqa: PLC0415
+    from reports.modules.rag_utils import build_rag_strip_entry  # noqa: PLC0415
+
+    cases = [
+        # (cls, metrics_key, headline_pct, status, sample_b64, sheet_name)
+        (ScanCoverageSLAModule,        "scan_coverage_pct",   97.3, "green",  "iVBORw0KGgo=", "Scan Coverage Detail"),
+        (CriticalRemediationSLAModule, "remediation_sla_pct", 92.4, "yellow", "iVBORw0KGgo=", "Critical Remediation Detail"),
+        (HighRiskAssetsModule,         "high_risk_pct",       0.4,  "green",  "iVBORw0KGgo=", "High-Risk Assets Detail"),
+        (AgedVulnsAssetsModule,        "aged_assets_pct",     2.7,  "yellow", "iVBORw0KGgo=", "Aged Vulns Detail"),
+    ]
+
+    for cls, metric_key, pct, status, b64, sheet_name in cases:
+        instance = cls()
+        cfg      = ModuleConfig(module_id=instance.MODULE_ID)
+        sample_df = pd.DataFrame({"col": [1, 2]})
+        populated_md = ModuleData(
+            module_id        = instance.MODULE_ID,
+            display_name     = instance.DISPLAY_NAME,
+            metrics          = {metric_key: pct, "status": status},
+            table_data       = [],
+            chart_data       = {},
+            summary_text     = "",
+            metadata         = {"email_gauge_b64": b64},
+            error            = None,
+            driver_narrative = f"Test driver line for {instance.MODULE_ID}.",
+            analyst_rows     = [(sheet_name, sample_df)],
+            rag_strip        = build_rag_strip_entry(
+                display_name       = instance.DISPLAY_NAME,
+                # W7 — None/NaN-safe formatter (NOT an inline
+                # percent-precision spec). See CLAUDE.md Empty-data
+                # guard pattern rule 1. safe_pct returns
+                # NO_DATA_HEADLINE for None/NaN; for a float it
+                # produces an equivalent "{:.1f}%" output but it is
+                # the correct pattern for fixture code.
+                headline_value_str = safe_pct(pct),
+                status             = status,
+            ),
+        )
+
+        # Panel
+        panel = instance.render_email_panel(populated_md, cfg)
+        expected_cid = f"cid:{instance.MODULE_ID}_gauge"
+        assert expected_cid in panel, f"{cls.__name__}: populated panel must reference {expected_cid!r}"
+        assert "width:620px" in panel, f"{cls.__name__}: panel missing 620px width"
+        assert "Test driver line" in panel, f"{cls.__name__}: driver narrative not interpolated"
+        assert "<style" not in panel.lower(), f"{cls.__name__}: panel must use inline CSS only — no <style> blocks"
+
+        # Analyst tabs
+        tabs = instance.render_analyst_tabs(populated_md, cfg)
+        assert len(tabs) == 1, f"{cls.__name__}: expected 1 analyst tab, got {len(tabs)}"
+        got_name, got_df = tabs[0]
+        assert got_name == sheet_name, f"{cls.__name__}: tab name {got_name!r} != {sheet_name!r}"
+        assert got_df is sample_df or got_df.equals(sample_df), f"{cls.__name__}: tab DataFrame round-trip"
+
+        # RAG cell
+        cell = instance.render_rag_strip_entry(populated_md, cfg)
+        assert cell.get("rag_color") != STATUS_COLOR["no_data"], (
+            f"{cls.__name__}: populated cell must NOT be gray; got {cell}"
+        )
+
+
+def check_10_phase3_bundle_email_inline_images_key() -> None:
+    """
+    Plan 03-01 contract: ReportComposer.run_full_pipeline returns a
+    bundle dict that includes the new ``email_inline_images`` key
+    alongside the Phase 2 seven keys.
+    """
+    import inspect  # noqa: PLC0415
+    from reports.modules.composer import ReportComposer  # noqa: PLC0415
+
+    src = inspect.getsource(ReportComposer.run_full_pipeline)
+    assert "email_inline_images" in src, (
+        "run_full_pipeline must populate bundle['email_inline_images'] "
+        "(Plan 03-01 contract)"
+    )
+
+    # Best-effort runtime check via collect_email_inline_images accessor
+    rc = _make_composer()  # empty module_configs; same constructor used by checks 1-7
+    entries = rc.collect_email_inline_images([])
+    assert entries == [], f"empty results -> empty entries; got {entries!r}"
+
+
+# ===========================================================================
 # Driver
 # ===========================================================================
 
@@ -450,6 +634,9 @@ CHECKS = [
     ("D-29 main-Excel mtime-normalized byte stability", check_4b_excel_byte_hash_stability_mtime_normalized),
     ("D-28 email panel exception isolation",           check_5_email_panel_isolation),
     ("D-28 analyst tabs exception isolation",          check_6_analyst_tabs_isolation),
+    ("Phase3 QUALITY-02 zero-row render methods",      check_8_phase3_zero_row_render_methods),
+    ("Phase3 populated render methods",                check_9_phase3_populated_render_methods),
+    ("Phase3 bundle email_inline_images key",          check_10_phase3_bundle_email_inline_images_key),
 ]
 
 
