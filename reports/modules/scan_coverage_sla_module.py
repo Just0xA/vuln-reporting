@@ -330,8 +330,13 @@ class ScanCoverageSLAModule(BaseModule):
                     "no licensed assets were found in the asset inventory."
                 )
             else:
+                # WR-07 fix — use safe_pct() instead of an inline f-string
+                # format spec on a possibly-None value. The early-return
+                # guard above currently makes scan_coverage_pct non-None
+                # here, but safe_pct() makes the rule mechanical: future
+                # refactors that break the guard cannot crash this line.
                 summary_text = (
-                    f"Scan coverage is {scan_coverage_pct:.1f}% — "  # safe: scan_coverage_pct guarded by `if is None` above (line 224)
+                    f"Scan coverage is {safe_pct(scan_coverage_pct)} — "
                     f"{scanned_on_time:,} of {total_licensed:,} licensed assets "
                     f"were scanned within the last {ON_TIME_WINDOW_DAYS} days "
                     f"({unlicensed_count:,} unlicensed assets excluded). "

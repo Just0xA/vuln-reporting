@@ -1096,8 +1096,13 @@ def _build_summary(
             "aged vulnerability asset percentage cannot be computed."
         )
     status_label = _STATUS_LABEL.get(status, status)
+    # WR-07 fix — use safe_pct() instead of an inline f-string format
+    # spec on a possibly-None value. The early-return guard above
+    # currently makes aged_assets_pct non-None here, but safe_pct()
+    # makes the rule mechanical so a future refactor that breaks the
+    # guard cannot crash this line.
     return (
-        f"{aged_assets_pct:.1f}% of on-time-scanned assets have aged vulnerabilities — "  # safe: aged_assets_pct guarded by line 695 early-return on None
+        f"{safe_pct(aged_assets_pct)} of on-time-scanned assets have aged vulnerabilities — "
         f"{aged_assets_count:,} of {total_on_time:,} assets carry at least one "
         f"Medium/High/Critical finding open >{_AGED_DAYS_THRESHOLD} days. "
         f"Status: {status_label}."
