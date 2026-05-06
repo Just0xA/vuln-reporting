@@ -850,6 +850,189 @@ class ReportComposer:
         return all_tab_names
 
     # ------------------------------------------------------------------
+    # Analyst workbook assembly (Phase 2 D-16..D-21, D-25, D-28, COMPOSER-03)
+    # ------------------------------------------------------------------
+
+    def assemble_analyst_workbook(
+        self,
+        results:     list[ModuleData],
+        output_path: Any,
+        *,
+        slug:        str  = "",
+        scope_label: str  = "",
+        generate:    bool = True,
+    ) -> Optional[Any]:
+        """
+        Write a separate analyst-detail ``.xlsx`` workbook.
+
+        Iterates ``results`` in ``_module_configs`` order, calls each
+        module's ``render_analyst_tabs()`` (Phase 1 contract), and
+        writes one tab per ``(sheet_name, DataFrame)`` tuple. Empty
+        DataFrames are silently skipped (D-20 contributing rule).
+        Sheet-name collisions are auto-suffixed ``_2``/``_3`` with
+        Excel's 31-char limit respected (D-18).
+
+        After all module tabs are written, a ``_Metadata`` tab is
+        appended carrying Report (slug), Generated (UTC), Scope, and
+        Modules per D-19. Per-module failures (raised from
+        ``render_analyst_tabs`` per D-28) are recorded in the
+        ``_Metadata`` tab's Failures subsection.
+
+        All-empty workbook handling (D-20): if every module returns
+        ``[]`` or only empty DataFrames, no file is written and the
+        method returns ``None``. The caller's ``run_full_pipeline()``
+        sets ``analyst_excel: None`` in its bundle and
+        ``email_sender.py`` only attaches non-None paths.
+
+        Phase 4 opt-out hook (D-25): when ``generate=False``, the
+        method returns ``None`` immediately without iterating modules
+        or importing openpyxl. Phase 4 wires
+        ``generate = group_config.get('analyst_detail', True)`` at
+        the report-script level.
+
+        Parameters
+        ----------
+        results : list[ModuleData]
+            Output of ``run_all()``.
+        output_path : Path
+            Destination ``.xlsx`` path. The caller computes the
+            filename per D-16 (``{slug}_{date}_analyst.xlsx``);
+            this method writes the bytes to that path.
+        slug : str, keyword-only
+            Report slug for the ``_Metadata`` Report row.
+        scope_label : str, keyword-only
+            Pre-formatted scope string for the ``_Metadata`` Scope
+            row (e.g. ``"Application = UC Engineering"`` or
+            ``"All Assets"``). Empty string → Scope row reads
+            ``"All Assets"``.
+        generate : bool, keyword-only
+            Phase 4 opt-out hook (D-25). Always ``True`` in Phase 2.
+
+        Returns
+        -------
+        pathlib.Path or None
+            ``output_path`` on success.
+            ``None`` when ``generate=False`` OR when every module
+            returned ``[]`` / empty DataFrames (D-20).
+        """
+        if not generate:
+            logger.info(
+                "ReportComposer.assemble_analyst_workbook: generate=False — "
+                "skipping analyst workbook (D-25 opt-out)."
+            )
+            return None
+
+        # Defer openpyxl import to keep module-level imports lean (CONVENTIONS.md)
+        import openpyxl  # noqa: PLC0415
+
+        # Collect all (sheet_name, df) tuples first so we can decide whether
+        # to write a file at all (D-20 all-empty fallback).
+        collected:  list[tuple[str, pd.DataFrame]] = []
+        used_names: set[str] = set()
+        failures:   list[tuple[str, str]] = []
+
+        for data in results:
+            mod_class = registry.get(data.module_id)
+            if mod_class is None:
+                logger.warning(
+                    "ReportComposer.assemble_analyst_workbook: module '%s' "
+                    "not in registry — recording failure and skipping.",
+                    data.module_id,
+                )
+                failures.append((data.module_id, "module not registered"))
+                continue
+
+            try:
+                config   = self._config_for(data.module_id)
+                instance = mod_class()
+                tabs     = instance.render_analyst_tabs(data, config)
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "ReportComposer.assemble_analyst_workbook [%s]: "
+                    "render_analyst_tabs() raised: %s\n%s",
+                    data.module_id, exc, traceback.format_exc(),
+                )
+                failures.append((data.module_id, f"{type(exc).__name__}: {exc}"))
+                continue
+
+            # Defensive: a buggy module returning a non-list collapses to a
+            # recorded failure rather than crashing the iteration.
+            if not isinstance(tabs, list):
+                logger.warning(
+                    "ReportComposer.assemble_analyst_workbook [%s]: "
+                    "render_analyst_tabs() returned %r (not a list) — "
+                    "recording failure and skipping.",
+                    data.module_id, type(tabs).__name__,
+                )
+                failures.append((data.module_id, f"render_analyst_tabs returned non-list ({type(tabs).__name__})"))
+                continue
+
+            for entry in tabs:
+                # Each entry must be (sheet_name, df). Defensive shape check.
+                if (
+                    not isinstance(entry, tuple)
+                    or len(entry) != 2
+                    or not isinstance(entry[0], str)
+                ):
+                    logger.warning(
+                        "ReportComposer.assemble_analyst_workbook [%s]: "
+                        "skipping malformed analyst-tab entry %r.",
+                        data.module_id, entry,
+                    )
+                    continue
+
+                sheet_name, df = entry
+                if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+                    continue   # D-20 contributing rule — empty df contributes no tab
+
+                unique = _unique_sheet_name(sheet_name, used_names)
+                used_names.add(unique)
+                collected.append((unique, df))
+
+        # D-20: all-empty workbook → no file written
+        if not collected:
+            logger.info(
+                "ReportComposer.assemble_analyst_workbook: every module "
+                "returned [] or empty DataFrames — skipping analyst "
+                "workbook (failures=%d).",
+                len(failures),
+            )
+            return None
+
+        # ── Open workbook, write tabs, append _Metadata, save ────────────
+        wb = openpyxl.Workbook()
+        if wb.worksheets:
+            wb.remove(wb.worksheets[0])   # mirrors board_summary.py:248-250
+
+        for sheet_name, df in collected:
+            ws = wb.create_sheet(sheet_name)
+            # Header row
+            for col_idx, col in enumerate(df.columns, start=1):
+                ws.cell(row=1, column=col_idx, value=str(col))
+            # Data rows
+            for row_idx, row in enumerate(df.itertuples(index=False), start=2):
+                for col_idx, val in enumerate(row, start=1):
+                    ws.cell(row=row_idx, column=col_idx, value=val)
+
+        # _Metadata tab last (D-19)
+        _write_analyst_metadata_tab(
+            wb,
+            slug         = slug,
+            generated_at = self._report_date,
+            scope_label  = scope_label,
+            module_ids   = [c.module_id for c in self._module_configs],
+            failures     = failures,
+        )
+
+        wb.save(str(output_path))
+        logger.info(
+            "ReportComposer.assemble_analyst_workbook: wrote %d analyst tab(s) "
+            "+ _Metadata to %s (failures=%d).",
+            len(collected), output_path, len(failures),
+        )
+        return output_path
+
+    # ------------------------------------------------------------------
     # Email KPI collection
     # ------------------------------------------------------------------
 
