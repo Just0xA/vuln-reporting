@@ -6,7 +6,7 @@ their 15-day SLA during the last 30 days, scoped to assets that have been
 scanned on time.
 
 Module ID:    critical_remediation_sla
-Display Name: Critical Vulnerability Remediation SLA (30-day window)
+Display Name: Critical Vulnerability Remediation SLA
 
 SLA thresholds (board-defined):
     Green:  remediation_sla_pct >= 95%
@@ -117,7 +117,7 @@ class CriticalRemediationSLAModule(BaseModule):
     """
 
     MODULE_ID         = "critical_remediation_sla"
-    DISPLAY_NAME      = "Critical Vulnerability Remediation SLA (30-day window)"
+    DISPLAY_NAME      = "Critical Vulnerability Remediation SLA"
     DESCRIPTION       = (
         "Percentage of Critical vulnerabilities fixed within their 15-day SLA "
         "during the last 30 days, scoped to assets scanned on time."
