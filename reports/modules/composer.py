@@ -253,6 +253,77 @@ _PDF_CSS = """
     color: #666;
     line-height: 2.2;
   }
+
+  /* ── Page-2 RAG strip (D-02..D-08) ─────────────────────────────── */
+  .rag-strip {
+    page-break-after: always;
+    padding: 18mm 6mm 0 6mm;
+  }
+
+  .rag-strip-header {
+    font-size: 18pt;
+    font-weight: bold;
+    color: #1F3864;
+    text-align: center;
+    margin: 0 0 12mm 0;
+  }
+
+  .rag-cell-row {
+    display: table;
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 4mm 4mm;
+    table-layout: fixed;
+  }
+
+  .rag-cell {
+    display: table-cell;
+    width: 25%;                  /* 4 cells per row max; auto-wraps */
+    background: #ffffff;
+    border: 0.5pt solid #c5cfe8;
+    border-radius: 3pt;
+    text-align: center;
+    vertical-align: middle;
+    padding: 6mm 4mm 0 4mm;
+    height: 38mm;
+  }
+
+  .rag-cell-label {
+    font-size: 9pt;
+    color: #555;
+    margin: 0 0 2mm 0;
+    line-height: 1.2;
+  }
+
+  .rag-cell-value {
+    font-size: 22pt;
+    font-weight: bold;
+    color: #1a1a1a;
+    margin: 0 0 4mm 0;
+    line-height: 1.0;
+  }
+
+  .rag-cell-band {
+    margin: 4mm -4mm 0 -4mm;     /* extend band to cell edges */
+    padding: 3mm 2mm;
+    color: #ffffff;
+    font-size: 10pt;
+    font-weight: bold;
+    text-align: center;
+    border-radius: 0 0 3pt 3pt;
+  }
+
+  .rag-cell-icon {
+    display: inline-block;
+    margin-right: 2mm;
+    font-size: 11pt;
+    line-height: 1.0;
+  }
+
+  .rag-cell-rag-label {
+    display: inline-block;
+    vertical-align: middle;
+  }
 </style>
 """
 
@@ -264,6 +335,15 @@ _PDF_COVER_TEMPLATE = """
   <div class="cover-meta">
     <p style="margin:0 0 2mm 0;">Generated: {generated_at}</p>
     <p style="margin:0;">Sections: {module_list}</p>
+  </div>
+</div>
+"""
+
+_PDF_RAG_STRIP_TEMPLATE = """
+<div class="rag-strip">
+  <h2 class="rag-strip-header">{header}</h2>
+  <div class="rag-cell-row">
+{cells_html}
   </div>
 </div>
 """
