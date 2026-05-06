@@ -21,6 +21,7 @@ Numerator:   subset with >= 1 Medium/High/Critical finding open > 90 days.
 
 from __future__ import annotations
 
+import html
 import logging
 from typing import Any
 
@@ -34,12 +35,23 @@ from config import RISK_WEIGHTS
 from reports.modules.board_report_utils import (
     compute_bu_risk_scores,
     compute_per_bu_breakdown,
+    deduplicate_assets_by_name,
     extract_business_unit,
     identify_on_time_assets,
     sla_status_from_thresholds,
     ON_TIME_WINDOW_DAYS,
 )
 from reports.modules.chart_utils import draw_gauge
+from reports.modules.format_utils import safe_int, safe_pct
+from reports.modules.rag_utils import (
+    NO_DATA_DRIVER,
+    NO_DATA_HEADLINE,
+    STATUS_COLOR as _RAG_STATUS_COLOR,
+    STATUS_ICON,
+    STATUS_LABEL as _RAG_STATUS_LABEL,
+    build_rag_strip_entry,
+    rag_status_from_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +171,16 @@ class AgedVulnsAssetsModule(BaseModule):
         try:
             # ---- Step 1: derive on-time asset set ----
             on_time, _ = identify_on_time_assets(assets_df, report_date)
-            on_time_uuids = set(on_time["asset_uuid"].dropna())
+            # [Rule 1] Defensive — when assets_df is empty (or has no
+            # asset_uuid column at all), identify_on_time_assets returns an
+            # empty frame whose columns may not include asset_uuid; using
+            # `on_time["asset_uuid"]` would KeyError and skip the no_data
+            # early-return below. Probe via `in on_time.columns` instead so
+            # the no_data early-return path always wins on empty input.
+            if "asset_uuid" in on_time.columns:
+                on_time_uuids = set(on_time["asset_uuid"].dropna())
+            else:
+                on_time_uuids = set()
             total_on_time = len(on_time)
 
             if total_on_time == 0:
@@ -182,7 +203,15 @@ class AgedVulnsAssetsModule(BaseModule):
                         "No on-time-scanned assets were found — "
                         "aged vulnerability asset percentage cannot be computed."
                     ),
-                    metadata     = _build_metadata(report_date),
+                    metadata     = {**_build_metadata(report_date), "email_gauge_b64": ""},
+                    # ── Phase 3 contract fields (D-07/D-15) ──
+                    driver_narrative = NO_DATA_DRIVER,
+                    analyst_rows     = [],
+                    rag_strip        = build_rag_strip_entry(
+                        display_name       = self.DISPLAY_NAME,
+                        headline_value_str = NO_DATA_HEADLINE,
+                        status             = "no_data",
+                    ),
                     error        = None,
                 )
 
@@ -193,7 +222,7 @@ class AgedVulnsAssetsModule(BaseModule):
                 rd_ts = pd.Timestamp(report_date, tz="UTC")
 
             # ---- Step 3: identify assets with aged Med/High/Crit findings ----
-            aged_uuids = _find_aged_assets(vulns_df, on_time_uuids, rd_ts)
+            aged_uuids, aged_findings = _find_aged_assets(vulns_df, on_time_uuids, rd_ts)
             aged_assets_count = len(aged_uuids)
 
             # ---- Step 4: overall metric ----
@@ -245,6 +274,160 @@ class AgedVulnsAssetsModule(BaseModule):
                 else str(report_date)
             )
 
+            # ============================================================
+            # Phase 3 — populate the three new ModuleData fields
+            # (D-05/D-06/D-07/D-10/D-11/D-12/D-13/D-14/T-03-05-01..03)
+            # ============================================================
+
+            # ---- Step 7a: analyst rows DataFrame (D-10/D-11/D-12/D-13) ----
+            # Source: aged_findings (the filtered frame where
+            # days_open > _AGED_DAYS_THRESHOLD).
+            # D-12 — single tab with worst_severity column (no per-severity sub-tabs).
+            # D-13 — apply asset-level dedup via deduplicate_assets_by_name.
+            if aged_uuids and not aged_findings.empty:
+                aged_subset = aged_findings[
+                    aged_findings["asset_uuid"].isin(aged_uuids)
+                ].copy()
+
+                # Per-asset aggregation
+                def _join_plugins(s):  # noqa: PLC0415
+                    # contributing_plugins: alphabetical-sorted unique plugin
+                    # names per D-12 caveat. Deterministic via sorted(set(...)).
+                    return ", ".join(
+                        sorted({str(v) for v in s.dropna().tolist() if str(v).strip()})
+                    )
+
+                grouped = (
+                    aged_subset
+                    .groupby("asset_uuid", as_index=False)
+                    .agg(
+                        oldest_finding_age_days = ("days_open", "max"),
+                        count_of_aged_findings  = ("plugin_id", "count"),
+                        contributing_plugins    = ("plugin_name", _join_plugins),
+                        worst_severity          = ("severity", lambda s: _worst_severity(set(s))),
+                    )
+                )
+
+                # W6 — JOIN real (hostname, business_unit, last_seen) from
+                # assets_df. `deduplicate_assets_by_name` REQUIRES the
+                # `last_seen` column AND uses it to break duplicate-hostname
+                # ties (board_report_utils.py:94, 102-107). We project the
+                # REAL last_seen from assets_df rather than injecting a
+                # pd.NaT placeholder — placeholders make dedup
+                # nondeterministic when multiple rows share a hostname.
+                asset_cols = assets_df.copy()
+                if "business_unit" not in asset_cols.columns:
+                    asset_cols = extract_business_unit(asset_cols)
+                if "last_seen" not in asset_cols.columns:
+                    # Defensive — fetch_all_assets() guarantees this column,
+                    # but log if the upstream contract is ever broken.
+                    asset_cols = asset_cols.assign(last_seen=pd.NaT)
+                    logger.warning(
+                        "%s assets_df missing 'last_seen' column — falling back to NaT. "
+                        "deduplicate_assets_by_name dedup-tie behavior may be nondeterministic.",
+                        self._log_prefix(),
+                    )
+                asset_cols = (
+                    asset_cols[["asset_uuid", "hostname", "business_unit", "last_seen"]]
+                    .drop_duplicates("asset_uuid")
+                )
+                analyst_df = grouped.merge(asset_cols, on="asset_uuid", how="left")
+
+                # Apply asset-level dedup with REAL last_seen — most-recent
+                # row wins on duplicate hostnames (deterministic).
+                analyst_df = deduplicate_assets_by_name(analyst_df)
+
+                # last_seen is no longer needed in the analyst output — drop it.
+                if "last_seen" in analyst_df.columns:
+                    analyst_df = analyst_df.drop(columns=["last_seen"])
+
+                analyst_df = analyst_df.reindex(columns=[
+                    "hostname",
+                    "business_unit",
+                    "oldest_finding_age_days",
+                    "count_of_aged_findings",
+                    "contributing_plugins",
+                    "worst_severity",
+                ])
+                # D-11 — sort by oldest_finding_age_days desc
+                analyst_df = analyst_df.sort_values(
+                    "oldest_finding_age_days", ascending=False, na_position="last",
+                ).reset_index(drop=True)
+
+                # T-03-05-02 — CSV-formula injection guard (text columns)
+                for _col in ("hostname", "business_unit", "contributing_plugins", "worst_severity"):
+                    analyst_df[_col] = analyst_df[_col].astype("string").map(
+                        lambda s: ("'" + s)
+                        if isinstance(s, str) and s[:1] in ("=", "+", "-", "@")
+                        else s
+                    )
+
+                analyst_rows_payload: list = [("Aged Vulns Detail", analyst_df)]
+            else:
+                analyst_rows_payload = []
+
+            # ---- Step 7b: driver narrative (D-06) ----
+            # Template (locked in plan 03-05):
+            #   "{count} assets carry at least one Med+ vuln open
+            #    >{_AGED_DAYS_THRESHOLD} days; oldest finding: {oldest_age}
+            #    days; worst BU: {worst_bu_name} with {worst_bu_count} assets."
+            if aged_assets_count > 0 and analyst_rows_payload:
+                df_for_driver = analyst_rows_payload[0][1]
+                oldest_age = int(df_for_driver["oldest_finding_age_days"].max())
+                bu_counts = (
+                    df_for_driver
+                    .groupby("business_unit", dropna=False, as_index=False)
+                    .size()
+                    .rename(columns={"size": "asset_count"})
+                )
+                bu_counts["business_unit"] = (
+                    bu_counts["business_unit"].fillna("Untagged").replace("", "Untagged")
+                )
+                bu_counts = bu_counts.sort_values(
+                    ["asset_count", "business_unit"], ascending=[False, True],
+                )
+                worst_bu_name  = str(bu_counts.iloc[0]["business_unit"])
+                worst_bu_count = int(bu_counts.iloc[0]["asset_count"])
+                driver = (
+                    f"{safe_int(aged_assets_count)} assets carry at least one Med+ vuln open "
+                    f">{_AGED_DAYS_THRESHOLD} days; oldest finding: {safe_int(oldest_age)} days; "
+                    f"worst BU: {worst_bu_name} with {safe_int(worst_bu_count)} assets."
+                )
+            else:
+                driver = NO_DATA_DRIVER
+
+            # ---- Step 7c: email gauge base64 (D-04) ----
+            if aged_assets_pct is not None:
+                try:
+                    email_gauge_b64 = draw_gauge(
+                        value      = aged_assets_pct,
+                        thresholds = _GAUGE_THRESHOLDS,
+                        title      = self.DISPLAY_NAME,
+                        unit       = "%",
+                        figsize    = (2.4, 1.6),
+                    )
+                except Exception as exc:    # noqa: BLE001
+                    logger.warning(
+                        "%s email-gauge draw_gauge failed: %s",
+                        self._log_prefix(), exc,
+                    )
+                    email_gauge_b64 = ""
+            else:
+                email_gauge_b64 = ""
+
+            # ---- Step 7d: rag_strip dict (lower_is_better — T-03-05-03) ----
+            _status_for_strip = rag_status_from_value(
+                aged_assets_pct,
+                green_threshold  = _GREEN_THRESHOLD,
+                yellow_threshold = _YELLOW_THRESHOLD,
+                direction        = _DIRECTION,    # "lower_is_better" — T-03-05-03
+            )
+            rag_strip_payload = build_rag_strip_entry(
+                display_name       = self.DISPLAY_NAME,
+                headline_value_str = safe_pct(aged_assets_pct),
+                status             = _status_for_strip,
+            )
+
             return ModuleData(
                 module_id    = self.MODULE_ID,
                 display_name = self.DISPLAY_NAME,
@@ -265,8 +448,16 @@ class AgedVulnsAssetsModule(BaseModule):
                     "top_5":      bu_breakdown.head(5).to_dict("records"),
                 },
                 summary_text = summary_text,
-                metadata     = {**_build_metadata(report_date), "computed_at": computed_at},
-                error        = None,
+                metadata     = {
+                    **_build_metadata(report_date),
+                    "computed_at":     computed_at,
+                    "email_gauge_b64": email_gauge_b64,
+                },
+                # ── Phase 3 contract fields (D-05/D-06/D-10..D-14) ──
+                driver_narrative = driver,
+                analyst_rows     = analyst_rows_payload,
+                rag_strip        = rag_strip_payload,
+                error            = None,
             )
 
         except Exception as exc:  # noqa: BLE001
@@ -616,13 +807,39 @@ class AgedVulnsAssetsModule(BaseModule):
 # Module-private helpers
 # ===========================================================================
 
+def _worst_severity(severities: set[str]) -> str:
+    """
+    Return the worst severity from a set, ordered: critical > high > medium.
+
+    Severities not in {"critical", "high", "medium"} are ignored. An empty
+    or all-unknown set yields ``""``.
+
+    Parameters
+    ----------
+    severities : set[str]
+        A set of severity strings (case-insensitive). Non-string values and
+        severities outside the Med/High/Crit triad are ignored.
+
+    Returns
+    -------
+    str
+        ``"critical"``, ``"high"``, ``"medium"``, or ``""``.
+    """
+    sevs = {str(s).strip().lower() for s in severities if isinstance(s, str)}
+    for tier in ("critical", "high", "medium"):
+        if tier in sevs:
+            return tier
+    return ""
+
+
 def _find_aged_assets(
     vulns_df:      pd.DataFrame,
     on_time_uuids: set,
     rd_ts:         pd.Timestamp,
-) -> set:
+) -> tuple[set, pd.DataFrame]:
     """
-    Return the set of on-time asset UUIDs with >= 1 aged Med/High/Crit finding.
+    Return the set of on-time asset UUIDs with >= 1 aged Med/High/Crit finding,
+    along with the filtered aged-findings DataFrame.
 
     A finding is aged when (report_date − first_found).days > _AGED_DAYS_THRESHOLD.
     Findings with null first_found are treated as 0 days old (not aged).
@@ -638,11 +855,20 @@ def _find_aged_assets(
 
     Returns
     -------
-    set
-        UUIDs of on-time assets with at least one qualifying aged finding.
+    tuple[set, pd.DataFrame]
+        ``(aged_uuids, aged_findings)``
+        - ``aged_uuids``: UUIDs of on-time assets with at least one qualifying
+          aged finding.
+        - ``aged_findings``: DataFrame slice of ``vulns_df`` (the
+          ``relevant[aged_mask]`` subset) with a precomputed ``days_open``
+          column. Phase 3 — used by ``compute()`` to build the per-asset
+          analyst tab without re-deriving the filter. Empty DataFrame when
+          no aged findings exist.
     """
+    empty_frame = vulns_df.iloc[0:0].copy() if not vulns_df.empty else pd.DataFrame()
+
     if vulns_df.empty:
-        return set()
+        return set(), empty_frame
 
     required = {"asset_uuid", "severity", "first_found"}
     if not required.issubset(vulns_df.columns):
@@ -650,21 +876,31 @@ def _find_aged_assets(
         logger.warning(
             "_find_aged_assets: missing columns %s — returning empty set.", missing
         )
-        return set()
+        return set(), empty_frame
 
     # Filter to on-time assets + qualifying severities
     on_time_mask  = vulns_df["asset_uuid"].isin(on_time_uuids)
     severity_mask = vulns_df["severity"].str.lower().isin(_AGED_SEVERITIES)
-    relevant      = vulns_df[on_time_mask & severity_mask]
+    relevant      = vulns_df[on_time_mask & severity_mask].copy()
 
     if relevant.empty:
-        return set()
+        return set(), empty_frame
 
     # Compute days_open; NaT → NaN → aged_mask = False (not aged)
     days_open = (rd_ts - relevant["first_found"]).dt.days
     aged_mask = days_open > _AGED_DAYS_THRESHOLD
 
-    return set(relevant.loc[aged_mask, "asset_uuid"].dropna().unique())
+    aged = relevant[aged_mask].copy()
+
+    if aged.empty:
+        return set(), empty_frame
+
+    # Attach days_open onto the aged frame so compute() can use it directly
+    # for the oldest_finding_age_days aggregation in the analyst tab.
+    aged.loc[:, "days_open"] = days_open[aged_mask].astype("Int64")
+
+    aged_uuids = set(aged["asset_uuid"].dropna().unique())
+    return aged_uuids, aged
 
 
 def _build_metadata(report_date: Any) -> dict:
