@@ -23,6 +23,9 @@
     sla_table          (list[{severity: str, days: int, vpr_range: str, color: str, bg_color: str}])
     reply_to           (str)
     excel_omitted      (bool)  — True if Excel was dropped due to attachment size
+    module_panels_html (str)  — concatenated per-module panel fragment;
+                                when truthy, replaces the KPI tiles section
+                                (Phase 2 D-10 / D-15).
 -->
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
@@ -92,6 +95,16 @@
         <!-- =====================================================
              SECTION 3 — KPI TILES
              ===================================================== -->
+        {% if module_panels_html %}
+        <!-- Phase 2 D-10 — module panels fragment replaces KPI tiles when present -->
+        <tr>
+          <td style="padding: 20px 20px 10px 20px; background-color: #FFFFFF;">
+            {{ module_panels_html | safe }}
+          </td>
+        </tr>
+        {% else %}
+        <!-- existing KPI tiles block (unchanged) — renders for legacy reports
+             (ops_remediation, vuln_export) where module_panels_html is absent -->
         <tr>
           <td style="padding: 20px 20px 10px 20px; background-color: #FFFFFF;">
             <p style="margin: 0 0 12px 0; font-family: Arial, Helvetica, sans-serif;
@@ -139,6 +152,7 @@
             </table>
           </td>
         </tr>
+        {% endif %}
 
         <!-- =====================================================
              SECTION 4 — INLINE CHARTS
