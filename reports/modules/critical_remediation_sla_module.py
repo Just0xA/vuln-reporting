@@ -38,6 +38,7 @@ When ``fixed_vulns_df`` is absent or empty the metric returns ``"no_data"``.
 
 from __future__ import annotations
 
+import html
 import logging
 from typing import Any
 
@@ -56,6 +57,16 @@ from reports.modules.board_report_utils import (
     ON_TIME_WINDOW_DAYS,
 )
 from reports.modules.chart_utils import draw_gauge
+from reports.modules.format_utils import safe_int, safe_pct
+from reports.modules.rag_utils import (
+    STATUS_COLOR,
+    STATUS_LABEL,
+    STATUS_ICON,
+    NO_DATA_HEADLINE,
+    NO_DATA_DRIVER,
+    build_rag_strip_entry,
+    rag_status_from_value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +184,28 @@ class CriticalRemediationSLAModule(BaseModule):
                 "fixed_vulns_df", pd.DataFrame()
             )
 
+            # Phase 3 — explicit empty-input guard. When assets_df has no
+            # rows or lacks required columns we cannot derive an on-time
+            # set; bail out with the contract-fields populated.
+            if assets_df.empty or "asset_uuid" not in assets_df.columns:
+                return ModuleData(
+                    module_id    = self.MODULE_ID,
+                    display_name = self.DISPLAY_NAME,
+                    metrics      = {},
+                    table_data   = [],
+                    chart_data   = {},
+                    summary_text = "",
+                    metadata     = {"email_gauge_b64": ""},
+                    error            = None,
+                    driver_narrative = NO_DATA_DRIVER,
+                    analyst_rows     = [],
+                    rag_strip        = build_rag_strip_entry(
+                        display_name       = self.DISPLAY_NAME,
+                        headline_value_str = safe_pct(None),
+                        status             = "no_data",
+                    ),
+                )
+
             # ---- Step 1: derive on-time asset set ----
             on_time, _ = identify_on_time_assets(assets_df, report_date)
             on_time_uuids = set(on_time["asset_uuid"].dropna())
@@ -256,6 +289,126 @@ class CriticalRemediationSLAModule(BaseModule):
                 else str(report_date)
             )
 
+            # ===== Phase 3 contract fields =====
+
+            # Phase 3 D-10/D-11 — analyst rows for Critical Remediation SLA
+            # Source: fixed_in_window where days_to_fix > _CRITICAL_SLA_DAYS
+            # (the findings that missed the 15-day Critical SLA).
+            # D-13 — finding-level rows; NO dedup (each finding row is distinct).
+            if not fixed_in_window.empty and "days_to_fix" in fixed_in_window.columns:
+                missed = fixed_in_window[
+                    fixed_in_window["days_to_fix"] > _CRITICAL_SLA_DAYS
+                ].copy()
+                if not missed.empty:
+                    missed = missed.assign(
+                        plugin = missed.apply(
+                            lambda r: f"{r.get('plugin_name', '')} ({r.get('plugin_id', '')})",
+                            axis=1,
+                        ),
+                        **{
+                            "days overdue": (
+                                missed["days_to_fix"] - _CRITICAL_SLA_DAYS
+                            ).clip(lower=0).round().astype("Int64"),
+                            "remediation due_date": (
+                                pd.to_datetime(
+                                    missed["first_found"], utc=True, errors="coerce"
+                                )
+                                + pd.Timedelta(days=_CRITICAL_SLA_DAYS)
+                            ),
+                            "owner_tag": (
+                                missed.get("tags", pd.Series([""] * len(missed)))
+                                .map(_extract_owner_tag)
+                            ),
+                        },
+                    )
+                    analyst_df = missed.reindex(columns=[
+                        "hostname",
+                        "plugin",
+                        "days overdue",
+                        "first_found",
+                        "owner_tag",
+                        "remediation due_date",
+                    ]).rename(columns={"hostname": "asset"})
+                    # D-11 — sort by days overdue desc
+                    analyst_df = analyst_df.sort_values(
+                        "days overdue", ascending=False, na_position="last",
+                    ).reset_index(drop=True)
+                    # T-03-03-02 — CSV-formula injection guard (text columns only)
+                    for _col in ("asset", "plugin", "owner_tag"):
+                        analyst_df.loc[:, _col] = (
+                            analyst_df[_col].astype("string").map(
+                                lambda s: ("'" + s)
+                                if isinstance(s, str) and s[:1] in ("=", "+", "-", "@")
+                                else s
+                            )
+                        )
+                    analyst_rows_payload: list = [
+                        ("Critical Remediation Detail", analyst_df)
+                    ]
+                else:
+                    analyst_rows_payload = []
+            else:
+                analyst_rows_payload = []
+
+            # Phase 3 D-06 — Critical Remediation SLA driver narrative
+            # Template (locked in plan 03-03):
+            #   "{fixed_within_sla} of {total_fixed_last_month} fixed within
+            #    {_CRITICAL_SLA_DAYS}-day window; {missed_count} critical findings
+            #    missed SLA."
+            # W5 — these are the actual local-variable names in compute() scope.
+            total_fixed_val      = (
+                int(total_fixed_last_month) if total_fixed_last_month is not None else 0
+            )
+            fixed_within_sla_val = (
+                int(fixed_within_sla) if fixed_within_sla is not None else 0
+            )
+            if total_fixed_val > 0 or fixed_within_sla_val > 0 or analyst_rows_payload:
+                missed_count = (
+                    len(analyst_rows_payload[0][1])
+                    if analyst_rows_payload
+                    else 0
+                )
+                driver = (
+                    f"{safe_int(fixed_within_sla_val)} of {safe_int(total_fixed_val)} "
+                    f"fixed within {_CRITICAL_SLA_DAYS}-day window; "
+                    f"{safe_int(missed_count)} critical findings missed SLA."
+                )
+            else:
+                driver = NO_DATA_DRIVER
+
+            # Phase 3 D-04 — email gauge base64
+            # W5 — `remediation_sla_pct` is the verified local in compute() scope.
+            if remediation_sla_pct is not None:
+                try:
+                    email_gauge_b64 = draw_gauge(
+                        value      = remediation_sla_pct,
+                        thresholds = _GAUGE_THRESHOLDS,
+                        title      = self.DISPLAY_NAME,
+                        unit       = "%",
+                        figsize    = (2.4, 1.6),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "%s email gauge render failed: %s",
+                        self._log_prefix(), exc,
+                    )
+                    email_gauge_b64 = ""
+            else:
+                email_gauge_b64 = ""
+
+            # Phase 3 D-05/D-08/D-09 — RAG strip cell (option-2 pure construction)
+            _status_for_strip = rag_status_from_value(
+                remediation_sla_pct,
+                green_threshold  = _GREEN_THRESHOLD,
+                yellow_threshold = _YELLOW_THRESHOLD,
+                direction        = _DIRECTION,
+            )
+            rag_strip_payload = build_rag_strip_entry(
+                display_name       = self.DISPLAY_NAME,
+                headline_value_str = safe_pct(remediation_sla_pct),
+                status             = _status_for_strip,
+            )
+
             return ModuleData(
                 module_id    = self.MODULE_ID,
                 display_name = self.DISPLAY_NAME,
@@ -293,9 +446,13 @@ class CriticalRemediationSLAModule(BaseModule):
                         "time_taken_to_fix / 86400 when available; "
                         "fallback: (last_fixed − first_found).days"
                     ),
-                    "computed_at": computed_at,
+                    "computed_at":      computed_at,
+                    "email_gauge_b64":  email_gauge_b64,
                 },
-                error        = None,
+                error            = None,
+                driver_narrative = driver,
+                analyst_rows     = analyst_rows_payload,
+                rag_strip        = rag_strip_payload,
             )
 
         except Exception as exc:  # noqa: BLE001
@@ -303,7 +460,11 @@ class CriticalRemediationSLAModule(BaseModule):
                 "%s compute() failed: %s", self._log_prefix(), exc,
                 exc_info=True,
             )
-            return self._empty_result(str(exc), config)
+            empty = self._empty_result(str(exc), config)
+            # Phase 3 — guarantee the email_gauge_b64 metadata key is present
+            # (composer.collect_email_inline_images probes for "" vs missing).
+            empty.metadata = {**(empty.metadata or {}), "email_gauge_b64": ""}
+            return empty
 
     # ------------------------------------------------------------------
     # render_pdf_section()
@@ -490,6 +651,21 @@ class CriticalRemediationSLAModule(BaseModule):
         """
         tab_name = "Critical Remediation SLA"
         try:
+            # D-16 — Phase 3 zero-row standardisation. If both metrics and
+            # table_data are empty AND there is no error, emit a single
+            # standard placeholder cell at A1 instead of a fully-empty sheet.
+            # This is a behavior change from pre-Phase-3 — surface in the SUMMARY.
+            empty_metrics = not (
+                data.metrics
+                and any(v is not None for v in data.metrics.values())
+            )
+            empty_tables = not data.table_data
+            if empty_metrics and empty_tables and not data.error:
+                ws = workbook.create_sheet(tab_name)
+                ws["A1"] = "No data in scope"
+                ws["A1"].font = Font(bold=True, color="666666")
+                return [tab_name]
+
             ws = workbook.create_sheet(tab_name)
 
             if data.error:
@@ -580,6 +756,133 @@ class CriticalRemediationSLAModule(BaseModule):
             return []
 
     # ------------------------------------------------------------------
+    # render_email_panel() — Phase 3 D-02 horizontal-split panel
+    # ------------------------------------------------------------------
+
+    def render_email_panel(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> str:
+        """
+        Build the per-module email panel — horizontal split layout (D-02).
+
+        Layout: 620px-wide table, 150px gauge cell on the left + 430px text
+        cell on the right. Inline CSS only. Outlook-safe ``<table>`` shell
+        with explicit ``width=""`` attributes per project email conventions.
+
+        Empty-data behavior (D-15): when ``data.error`` or no
+        ``email_gauge_b64`` is available, returns the same 620px shell with
+        a gray "No data" placeholder block where the gauge would be.
+
+        Returns
+        -------
+        str
+            Inline-CSS HTML fragment. Returns ``""`` only on a render
+            exception (caught locally — never raised out).
+        """
+        try:
+            # Empty-data placeholder per D-15
+            b64 = (data.metadata or {}).get("email_gauge_b64", "")
+            if data.error or not isinstance(b64, str) or not b64.strip():
+                return self._render_empty_email_panel()
+
+            pct       = (
+                data.metrics.get("remediation_sla_pct")
+                if data.metrics else None
+            )
+            headline  = safe_pct(pct)
+            status    = (data.metrics or {}).get("status", "no_data")
+            rag_color = STATUS_COLOR.get(status, STATUS_COLOR["no_data"])
+            rag_label = STATUS_LABEL.get(status, STATUS_LABEL["no_data"])
+            icon      = STATUS_ICON.get(status,  STATUS_ICON["no_data"])
+
+            cid       = f"{self.MODULE_ID}_gauge"
+            # T-03-03-01 — html-escape every module-supplied string
+            label_esc  = html.escape(str(self.DISPLAY_NAME), quote=True)
+            driver_esc = html.escape(str(data.driver_narrative or ""), quote=True)
+
+            return (
+                '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+                'style="width:620px; max-width:620px; margin:8px 0; '
+                'border:1px solid #e0e0e0; border-collapse:separate; background:#ffffff;">'
+                '<tr>'
+                '  <td width="150" style="padding:12px; vertical-align:middle; '
+                '      text-align:center;">'
+                f'    <img src="cid:{cid}" alt="" width="120" height="120" '
+                '         style="display:block; margin:0 auto;" />'
+                '  </td>'
+                '  <td width="430" style="padding:12px; vertical-align:middle;">'
+                f'    <div style="font-size:11pt; color:#666;">{label_esc}</div>'
+                f'    <div style="font-size:24pt; font-weight:bold; color:#1a1a1a;">{headline}</div>'
+                f'    <div style="font-size:10pt; color:{rag_color}; font-weight:bold;">'
+                f'{icon} {html.escape(rag_label)}</div>'
+                f'    <div style="font-size:10pt; color:#444; margin-top:6px;">'
+                f'{driver_esc}</div>'
+                '  </td>'
+                '</tr>'
+                '</table>'
+            )
+        except Exception as exc:    # noqa: BLE001
+            logger.error(
+                "%s render_email_panel raised: %s",
+                self._log_prefix() if hasattr(self, "_log_prefix") else self.MODULE_ID,
+                exc,
+            )
+            return ""
+
+    def _render_empty_email_panel(self) -> str:
+        """Return the D-15 gray 'No Data' placeholder panel (620px wide)."""
+        label_esc  = html.escape(str(self.DISPLAY_NAME), quote=True)
+        driver_esc = html.escape(NO_DATA_DRIVER, quote=True)
+        rag_color  = STATUS_COLOR["no_data"]
+        rag_label  = STATUS_LABEL["no_data"]
+        icon       = STATUS_ICON["no_data"]
+        return (
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+            'style="width:620px; max-width:620px; margin:8px 0; '
+            'border:1px solid #e0e0e0; border-collapse:separate; background:#ffffff;">'
+            '<tr>'
+            '  <td width="150" style="padding:12px; vertical-align:middle; '
+            '      text-align:center; background:#f5f5f5; color:#999;">'
+            '    <div style="font-size:10pt;">No data</div>'
+            '  </td>'
+            '  <td width="430" style="padding:12px; vertical-align:middle;">'
+            f'    <div style="font-size:11pt; color:#666;">{label_esc}</div>'
+            f'    <div style="font-size:24pt; font-weight:bold; color:#1a1a1a;">{NO_DATA_HEADLINE}</div>'
+            f'    <div style="font-size:10pt; color:{rag_color}; font-weight:bold;">'
+            f'{icon} {html.escape(rag_label)}</div>'
+            f'    <div style="font-size:10pt; color:#444; margin-top:6px;">'
+            f'{driver_esc}</div>'
+            '  </td>'
+            '</tr>'
+            '</table>'
+        )
+
+    # ------------------------------------------------------------------
+    # render_analyst_tabs() — Phase 3 D-14 single-tab list
+    # ------------------------------------------------------------------
+
+    def render_analyst_tabs(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> list[tuple[str, "pd.DataFrame"]]:
+        """
+        Return the module's pre-built analyst rows (D-14 single-tab list).
+
+        Source: ``data.analyst_rows`` populated inside ``compute()``.
+        Empty-data: returns ``[]`` (no tab written for this module).
+        """
+        try:
+            if data.error or not data.analyst_rows:
+                return []
+            return list(data.analyst_rows)
+        except Exception as exc:   # noqa: BLE001
+            logger.error("[%s] render_analyst_tabs raised: %s", self.MODULE_ID, exc)
+            return []
+
+    # ------------------------------------------------------------------
     # render_email_kpis()
     # ------------------------------------------------------------------
 
@@ -655,6 +958,24 @@ class CriticalRemediationSLAModule(BaseModule):
 # ===========================================================================
 # Module-private helpers
 # ===========================================================================
+
+def _extract_owner_tag(tags_str: Any) -> str:
+    """
+    Parse the Owner tag value from a Tenable-style tags string.
+
+    Tenable serializes tags as ``"Category=Value;Category=Value"``. When no
+    Owner category is present, returns ``""`` (empty string).
+    """
+    if not isinstance(tags_str, str) or not tags_str.strip():
+        return ""
+    for piece in tags_str.split(";"):
+        if "=" not in piece:
+            continue
+        cat, _, val = piece.partition("=")
+        if cat.strip().lower() == "owner":
+            return val.strip()
+    return ""
+
 
 def _filter_critical(
     df: pd.DataFrame,
