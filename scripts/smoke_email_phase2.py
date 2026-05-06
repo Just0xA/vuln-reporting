@@ -54,6 +54,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 
 from dotenv import load_dotenv  # noqa: E402
 
+# Phase 3 D-01 + Plan 03-06 — drive real render_email_panel output
+# from the four migrated board modules instead of stub HTML, so the
+# smoke script verifies actual Phase 3 panel rendering off-network.
+from reports.modules.scan_coverage_sla_module       import ScanCoverageSLAModule  # noqa: E402
+from reports.modules.critical_remediation_sla_module import CriticalRemediationSLAModule  # noqa: E402
+from reports.modules.high_risk_assets_module        import HighRiskAssetsModule  # noqa: E402
+from reports.modules.aged_vulns_assets_module       import AgedVulnsAssetsModule  # noqa: E402
+from reports.modules.base                           import ModuleData, ModuleConfig  # noqa: E402
+from reports.modules.rag_utils                      import build_rag_strip_entry  # noqa: E402
+# W7 — None/NaN-safe formatter (CLAUDE.md Empty-data guard pattern rule 1).
+# Even though `pct` is a known float in this fixture, smoke-script code is
+# what new contributors copy when wiring a new module; modeling the wrong
+# pattern (an inline percent-precision f-string spec) would propagate the
+# bug.
+from reports.modules.format_utils                   import safe_pct  # noqa: E402
+
 load_dotenv()
 
 logging.basicConfig(
@@ -106,11 +122,60 @@ def _stub_panels_html() -> str:
     )
 
 
+def _build_smoke_module_data(
+    cls,
+    metric_key: str,
+    pct:        float,
+    status:     str,
+) -> ModuleData:
+    """Build a populated ModuleData fixture for smoke rendering.
+
+    Phase 3 D-04 requires ``metadata['email_gauge_b64']`` to be a
+    non-empty base64 PNG so each module's ``render_email_panel`` emits
+    a populated panel that references ``cid:{module_id}_gauge``.
+
+    W7 — headline_value_str uses ``safe_pct(pct)`` (CLAUDE.md
+    Empty-data guard pattern rule 1).
+    """
+    instance = cls()
+    return ModuleData(
+        module_id        = instance.MODULE_ID,
+        display_name     = instance.DISPLAY_NAME,
+        metrics          = {metric_key: pct, "status": status},
+        table_data       = [],
+        chart_data       = {},
+        summary_text     = "",
+        # 1×1 transparent PNG — minimal valid base64 PNG payload.
+        metadata         = {
+            "email_gauge_b64": (
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lE"
+                "QVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII="
+            ),
+        },
+        error            = None,
+        driver_narrative = f"Phase 3 smoke driver for {instance.MODULE_ID}.",
+        analyst_rows     = [],
+        rag_strip        = build_rag_strip_entry(
+            display_name       = instance.DISPLAY_NAME,
+            # W7 — safe_pct(pct), NEVER an inline percent-precision
+            # spec. See CLAUDE.md Empty-data guard pattern rule 1.
+            headline_value_str = safe_pct(pct),
+            status             = status,
+        ),
+    )
+
+
 def _build_synthetic_outputs(*, stub_panels: bool) -> tuple[str, Path]:
-    """Render the panels-only email fragment + a synthetic PDF on disk."""
-    # Re-use the regression test fixtures so the email reflects the
-    # exact ModuleData shape the production composer consumes.
-    from test_phase2_composer_pipeline import _make_composer, _make_results  # noqa: PLC0415
+    """Render the panels-only email fragment + a synthetic PDF on disk.
+
+    Phase 3 D-01 + Plan 03-06: drives the four migrated board modules
+    through their real ``render_email_panel`` paths instead of injecting
+    stub HTML, so the smoke script proves the production panel-rendering
+    code path off-network.
+    """
+    # Re-use the regression test composer factory so the smoke composer
+    # mirrors the production composer constructor shape.
+    from test_phase2_composer_pipeline import _make_composer  # noqa: PLC0415
 
     module_ids = (
         "scan_coverage_sla",
@@ -119,17 +184,38 @@ def _build_synthetic_outputs(*, stub_panels: bool) -> tuple[str, Path]:
         "aged_vulns_assets",
     )
     composer = _make_composer(*module_ids)
-    results  = _make_results(*module_ids)
 
-    panels_html = composer.assemble_email_body(results)
+    # Phase 3 D-04 / Plan 03-06 — drive real render_email_panel output
+    # from populated ModuleData fixtures (replaces stub-panel injection
+    # per CONTEXT risks line 208).
+    smoke_results = [
+        _build_smoke_module_data(ScanCoverageSLAModule,        "scan_coverage_pct",   97.3, "green"),
+        _build_smoke_module_data(CriticalRemediationSLAModule, "remediation_sla_pct", 92.4, "yellow"),
+        _build_smoke_module_data(HighRiskAssetsModule,         "high_risk_pct",       0.4,  "green"),
+        _build_smoke_module_data(AgedVulnsAssetsModule,        "aged_assets_pct",     2.7,  "yellow"),
+    ]
+
+    # Drive the composer's email body assembly with real panels.
+    panels_html         = composer.assemble_email_body(smoke_results)
+    email_inline_images = composer.collect_email_inline_images(smoke_results)
+    logger.info(
+        "Collected %d real CID inline-gauge entries from migrated modules",
+        len(email_inline_images),
+    )
+
     if not panels_html.strip() and stub_panels:
-        # Phase 1 modules don't override render_email_panel() yet; inject
-        # a stub so the panels-on email path renders end-to-end.
+        # Defensive fallback only — should not trigger now that the four
+        # migrated modules implement render_email_panel.
+        logger.warning(
+            "Real-render panels_html was empty; falling back to stub panels"
+        )
         panels_html = _stub_panels_html()
 
-    # Phase 3 D-01: assemble_pdf now emits a unified RAG-strip cover on page 1
+    # Phase 3 D-01: assemble_pdf now emits a unified RAG-strip cover on page 1.
+    # The smoke script renders this PDF for visual confirmation of the
+    # unified cover composition.
     pdf_html = composer.assemble_pdf(
-        results,
+        smoke_results,
         page_css="",
         title="Phase 2 Smoke",
         subtitle="Email body smoke test",
