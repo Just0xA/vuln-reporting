@@ -1,7 +1,7 @@
 ---
 phase: 02-reportcomposer-upgrades
 reviewed: 2026-05-06T07:58:00Z
-status: issues_found
+status: clean
 depth: standard
 total_findings: 7
 critical_count: 0
@@ -361,6 +361,24 @@ For the record, the following adversarial concerns were checked and found clean:
 - **Bundle-dict mutable-default avoidance** — `run_full_pipeline` constructs the bundle as a fresh `{}` literal per call (composer.py:1378-1386); no `def f(bundle: dict = {})` anti-pattern.
 - **Module ordering across all four channels** — every channel iterates `for data in results:` where `results` was built by `run_all()` iterating `self._module_configs`; D-07/D-27 invariant holds.
 - **SMTP credentials in smoke script** — pulled from `.env` via `python-dotenv`; never logged (the `logger.info` lines log host/port/use_ssl only); never written to disk; `smtp.login()` is the only call site.
+
+---
+
+## Fixes Applied
+
+All four warnings were fixed in `reports/modules/composer.py` on 2026-05-06.
+Regression suite (`tests/test_phase2_composer_pipeline.py`) stayed 7/7 passing
+after every commit. Info findings (IN-01 through IN-03) remain open per the
+`--fix` (non-`--all`) scope.
+
+| ID | Commit | Summary |
+|----|--------|---------|
+| WR-01 | `6eb15b3` | `_build_rag_strip_page` now `html.escape`s `label` / `headline_value` / `rag_label`, validates `rag_color` against `STATUS_COLOR.values()` (gray fallback + warning on miss), and `_icon_for` warns before degrading to the no_data icon. |
+| WR-02 | `3f7d4f8` | Both the email-panel error placeholder (composer.py ~1180) and the legacy PDF error placeholder (composer.py ~628) now `html.escape(..., quote=True)` `data.display_name` and `str(exc)` so exception args carrying markup cannot break out of the placeholder div. Local var `html` renamed to `panel_html` / `html_section` to avoid shadowing the module-level `html` import. |
+| WR-03 | `5f86c3e` | `assemble_analyst_workbook` now wraps the `_unique_sheet_name(...)` call in `try/except ValueError`, records into the existing `failures` list, and `continue`s to the next entry — preserving D-28 fail-soft semantics if a module ever produces 99 sheet-name collisions. |
+| WR-04 | `09ab27d` | New module-level `_SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_\-]+$")` is enforced at the top of `run_full_pipeline()` (raises `ValueError` on path-traversal-shaped slugs) and at `assemble_analyst_workbook(slug=...)` (only when the slug is non-empty, since the default is `""`). |
+
+Status updated `issues_found` → `clean`.
 
 ---
 
