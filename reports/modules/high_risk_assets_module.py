@@ -655,6 +655,20 @@ class HighRiskAssetsModule(BaseModule):
         """
         tab_name = "High-Risk Assets"
         try:
+            # D-16 — Phase 3 zero-row standardisation. If both metrics and
+            # table_data are empty AND there is no error, emit a single
+            # placeholder cell at A1 instead of a fully-empty sheet.
+            # This is a behavior change from pre-Phase-3 — surface in SUMMARY.
+            empty_metrics = not (
+                data.metrics and any(v is not None for v in data.metrics.values())
+            )
+            empty_tables = not data.table_data
+            if empty_metrics and empty_tables and not data.error:
+                ws = workbook.create_sheet(tab_name)
+                ws["A1"]      = "No data in scope"
+                ws["A1"].font = Font(bold=True, color="666666")
+                return [tab_name]
+
             ws = workbook.create_sheet(tab_name)
 
             if data.error:
@@ -764,6 +778,130 @@ class HighRiskAssetsModule(BaseModule):
             "High-Risk Assets":   f"{m.get('high_risk_count', 0):,}",
             "On-Time Assets":     f"{m.get('total_on_time', 0):,}",
         }
+
+    # ------------------------------------------------------------------
+    # render_email_panel() — Phase 3 D-02 horizontal-split panel
+    # ------------------------------------------------------------------
+
+    def render_email_panel(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> str:
+        """
+        Build the per-module email panel — horizontal split layout (D-02).
+
+        Layout: 620px-wide table, 150px gauge cell on the left + 430px text
+        cell on the right. Inline CSS only. Outlook-safe ``<table>`` shell
+        with explicit ``width=""`` attributes per project email conventions.
+
+        Empty-data behavior (D-15): when ``data.error`` or no
+        ``email_gauge_b64`` is available, returns the same 620px shell with
+        a gray "No data" placeholder block where the gauge would be.
+
+        Returns
+        -------
+        str
+            Inline-CSS HTML fragment. Returns ``""`` only on a render
+            exception (caught by the composer's per-module exception
+            isolation pattern).
+        """
+        try:
+            # Empty-data placeholder per D-15
+            b64 = (data.metadata or {}).get("email_gauge_b64", "")
+            if data.error or not isinstance(b64, str) or not b64.strip():
+                return self._render_empty_email_panel()
+
+            pct       = data.metrics.get("high_risk_pct") if data.metrics else None
+            headline  = safe_pct(pct)
+            status    = (data.metrics or {}).get("status", "no_data")
+            rag_color = _RAG_STATUS_COLOR.get(status, _RAG_STATUS_COLOR["no_data"])
+            rag_label = _RAG_STATUS_LABEL.get(status, _RAG_STATUS_LABEL["no_data"])
+            icon      = STATUS_ICON.get(status,        STATUS_ICON["no_data"])
+
+            cid       = f"{self.MODULE_ID}_gauge"
+            # T-03-04-01 — html-escape every module-supplied string
+            label_esc  = html.escape(str(self.DISPLAY_NAME), quote=True)
+            driver_esc = html.escape(str(data.driver_narrative or ""), quote=True)
+
+            return (
+                '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+                'style="width:620px; max-width:620px; margin:8px 0; '
+                'border:1px solid #e0e0e0; border-collapse:separate; background:#ffffff;">'
+                '<tr>'
+                '  <td width="150" style="padding:12px; vertical-align:middle; '
+                '      text-align:center;">'
+                f'    <img src="cid:{cid}" alt="" width="120" height="120" '
+                '         style="display:block; margin:0 auto;" />'
+                '  </td>'
+                '  <td width="430" style="padding:12px; vertical-align:middle;">'
+                f'    <div style="font-size:11pt; color:#666;">{label_esc}</div>'
+                f'    <div style="font-size:24pt; font-weight:bold; color:#1a1a1a;">{headline}</div>'
+                f'    <div style="font-size:10pt; color:{rag_color}; font-weight:bold;">'
+                f'{icon} {html.escape(rag_label)}</div>'
+                f'    <div style="font-size:10pt; color:#444; margin-top:6px;">'
+                f'{driver_esc}</div>'
+                '  </td>'
+                '</tr>'
+                '</table>'
+            )
+        except Exception as exc:    # noqa: BLE001
+            logger.error(
+                "%s render_email_panel raised: %s",
+                self._log_prefix(), exc,
+            )
+            return ""
+
+    def _render_empty_email_panel(self) -> str:
+        """Return the D-15 gray 'No Data' placeholder panel."""
+        label_esc  = html.escape(str(self.DISPLAY_NAME), quote=True)
+        driver_esc = html.escape(NO_DATA_DRIVER, quote=True)
+        rag_color  = _RAG_STATUS_COLOR["no_data"]
+        rag_label  = _RAG_STATUS_LABEL["no_data"]
+        icon       = STATUS_ICON["no_data"]
+        return (
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+            'style="width:620px; max-width:620px; margin:8px 0; '
+            'border:1px solid #e0e0e0; border-collapse:separate; background:#ffffff;">'
+            '<tr>'
+            '  <td width="150" style="padding:12px; vertical-align:middle; '
+            '      text-align:center; background:#f5f5f5; color:#999;">'
+            '    <div style="font-size:10pt;">No data</div>'
+            '  </td>'
+            '  <td width="430" style="padding:12px; vertical-align:middle;">'
+            f'    <div style="font-size:11pt; color:#666;">{label_esc}</div>'
+            f'    <div style="font-size:24pt; font-weight:bold; color:#1a1a1a;">{NO_DATA_HEADLINE}</div>'
+            f'    <div style="font-size:10pt; color:{rag_color}; font-weight:bold;">'
+            f'{icon} {html.escape(rag_label)}</div>'
+            f'    <div style="font-size:10pt; color:#444; margin-top:6px;">'
+            f'{driver_esc}</div>'
+            '  </td>'
+            '</tr>'
+            '</table>'
+        )
+
+    # ------------------------------------------------------------------
+    # render_analyst_tabs() — Phase 3 D-14 single-tab list
+    # ------------------------------------------------------------------
+
+    def render_analyst_tabs(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> list[tuple[str, "pd.DataFrame"]]:
+        """
+        Return the module's pre-built analyst rows (D-14 single-tab list).
+
+        Source: ``data.analyst_rows`` populated inside ``compute()``.
+        Empty-data: returns ``[]`` (no tab written for this module).
+        """
+        try:
+            if data.error or not data.analyst_rows:
+                return []
+            return list(data.analyst_rows)
+        except Exception as exc:    # noqa: BLE001
+            logger.error("[%s] render_analyst_tabs raised: %s", self.MODULE_ID, exc)
+            return []
 
     # ------------------------------------------------------------------
     # get_audit_info()
