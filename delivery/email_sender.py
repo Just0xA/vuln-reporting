@@ -143,6 +143,12 @@ def _collect_attachments(report_outputs: dict) -> tuple[list[Path], list[Path], 
             excels.append(Path(xlsx))
         if csv and Path(csv).exists():
             csvs.append(Path(csv))
+        # D-19: bundle-driven analyst workbook attachment.
+        # No slug allowlist — any report whose bundle returns a real Path
+        # under ``analyst_excel`` ships its analyst companion alongside.
+        analyst_excel = output.get("analyst_excel")
+        if analyst_excel and Path(analyst_excel).exists():
+            excels.append(Path(analyst_excel))
 
     return pdfs, excels, csvs
 
@@ -413,12 +419,34 @@ def send_report_email(
             )
             break  # first pre-built body wins; only one expected per group
 
+    # D-18: bundle-driven email body selector. If ANY report's
+    # ``email_body_html`` bundle key carries a non-empty string, route
+    # through ``build_email_body_modular``. No slug allowlists.
+    modular_panels = next(
+        (
+            outputs.get("email_body_html", "")
+            for outputs in report_outputs.values()
+            if isinstance(outputs, dict)
+            and isinstance(outputs.get("email_body_html"), str)
+            and outputs["email_body_html"].strip()
+        ),
+        "",
+    )
+
     try:
         if prebuilt_html is not None:
             # Substitute the reply_to placeholder that build_email_body() would
             # normally fill via the Jinja2 template.
             reply_to_addr = (group_config.get("email") or {}).get("reply_to", "")
             html_body = prebuilt_html.replace("{reply_to}", reply_to_addr)
+        elif modular_panels:
+            from delivery.email_template import build_email_body_modular  # noqa: PLC0415
+            html_body = build_email_body_modular(
+                group_config       = group_config,
+                report_outputs     = report_outputs,
+                module_panels_html = modular_panels,
+                excel_omitted      = excel_omitted,
+            )
         else:
             html_body = build_email_body(
                 group_config=group_config,
@@ -471,6 +499,60 @@ def send_report_email(
                 "[%s] Failed to embed pre-built chart '%s': %s",
                 group_name, cid_name, exc,
             )
+
+    # D-04: CID inline gauge images from modular bundles. Each report's
+    # ``email_inline_images`` is a list of ``{"cid": str, "b64_png": str}``.
+    # Mirrors the prebuilt_charts decode pattern above but iterates ALL
+    # reports rather than the single pre-built source.
+    import re as _re                         # noqa: PLC0415
+    _CID_RE = _re.compile(r"^[A-Za-z0-9_-]+$")    # T-03-04: safe header value
+    _INLINE_BUDGET_BYTES = 5 * 1024 * 1024         # T-03-06: 5MB cumulative cap
+
+    _inline_total = 0
+    _budget_exceeded = False                       # W2: sentinel flag for budget propagation
+    for _slug, _output in report_outputs.items():
+        if _budget_exceeded:
+            break
+        if not isinstance(_output, dict):
+            continue
+        _entries = _output.get("email_inline_images") or []
+        if not isinstance(_entries, list):
+            continue
+        for _entry in _entries:
+            if not isinstance(_entry, dict):
+                continue
+            _cid = _entry.get("cid", "")
+            _b64 = _entry.get("b64_png", "")
+            if not (isinstance(_cid, str) and _CID_RE.match(_cid)):
+                logger.warning(
+                    "[%s] Skipping inline image with unsafe cid=%r",
+                    group_name, _cid,
+                )
+                continue
+            if not (isinstance(_b64, str) and _b64.strip()):
+                continue
+            try:
+                _img_data = _base64.b64decode(_b64)
+            except Exception as _exc:        # noqa: BLE001
+                logger.warning(
+                    "[%s] Skipping inline image cid=%s — base64 decode failed: %s",
+                    group_name, _cid, _exc,
+                )
+                continue
+            _inline_total += len(_img_data)
+            if _inline_total > _INLINE_BUDGET_BYTES:
+                logger.warning(
+                    "[%s] Inline-image cumulative size exceeded %d bytes — "
+                    "dropping remaining inline images.",
+                    group_name, _INLINE_BUDGET_BYTES,
+                )
+                _budget_exceeded = True            # W2: signal outer loop to stop
+                break                              # W2: stop the inner loop now
+            _img = MIMEImage(_img_data, _subtype="png")
+            _img.add_header("Content-ID", f"<{_cid}>")
+            _img.add_header("Content-Disposition", "inline", filename=f"{_cid}.png")
+            related.attach(_img)
+            logger.debug("[%s] Embedded inline gauge: %s", group_name, _cid)
 
     # Attach file-based chart PNGs from standard reports
     for i, chart_path in enumerate(chart_paths, start=1):

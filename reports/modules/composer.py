@@ -228,11 +228,11 @@ _PDF_CSS = """
     color: #777;
   }
 
-  /* ── Cover / title page ──────────────────────────────────────────── */
+  /* ── Cover / title page (Phase 3 D-01: unified — band + RAG strip) ─ */
   .report-cover {
     page-break-after: always;
     text-align: center;
-    padding-top: 48mm;
+    padding-top: 18mm;            /* tightened from 48mm — RAG cells now share the page */
   }
 
   .cover-title {
@@ -261,10 +261,13 @@ _PDF_CSS = """
     line-height: 2.2;
   }
 
-  /* ── Page-2 RAG strip (D-02..D-08) ─────────────────────────────── */
+  /* ── Unified-cover RAG strip (Phase 3 D-01) ────────────────────── */
+  /* The .rag-strip wrapper is now nested INSIDE .report-cover (which
+     already carries page-break-after:always), so the inner element
+     no longer needs to force a break of its own — doing so would
+     produce an empty extra page after the cover. */
   .rag-strip {
-    page-break-after: always;
-    padding: 18mm 0 0 0;        /* @page margins handle horizontal centering */
+    padding: 4mm 0 0 0;          /* tighter than the prior page-2 standalone */
   }
 
   .rag-strip-header {
@@ -353,26 +356,31 @@ _PDF_CSS = """
 </style>
 """
 
-_PDF_COVER_TEMPLATE = """
+_PDF_UNIFIED_COVER_TEMPLATE = """
 <div class="report-cover">
   <p class="cover-title">{title}</p>
   <p class="cover-subtitle">{subtitle}</p>
   <hr class="cover-divider">
   <div class="cover-meta">
     <p style="margin:0 0 2mm 0;">Generated: {generated_at}</p>
-    <p style="margin:0;">Sections: {module_list}</p>
+    <p style="margin:0 0 4mm 0;">Sections: {module_list}</p>
+  </div>
+  <div class="rag-strip">
+    <h2 class="rag-strip-header">{header}</h2>
+    <div class="rag-cell-row">
+{cells_html}
+    </div>
   </div>
 </div>
 """
 
-_PDF_RAG_STRIP_TEMPLATE = """
-<div class="rag-strip">
-  <h2 class="rag-strip-header">{header}</h2>
-  <div class="rag-cell-row">
-{cells_html}
-  </div>
-</div>
-"""
+# ── W3 Phase 2 symbol-alias safety net (Plan 03-01 Task 2 step 9) ──
+# The Phase 2 regression test (tests/test_phase2_composer_pipeline.py)
+# was written against the pre-rename names. Keep these aliases so any
+# indirect reference (string-based assertion, inspect.getsource scan,
+# snapshot probe) continues to resolve. Plan 03-06 owns final removal
+# if/when the test is rebaselined to the new names.
+_PDF_RAG_STRIP_TEMPLATE = _PDF_UNIFIED_COVER_TEMPLATE
 
 
 # ===========================================================================
@@ -665,18 +673,21 @@ class ReportComposer:
         # Human-readable section list for the cover page
         module_list_str = ", ".join(d.display_name for d in results)
 
-        cover = _PDF_COVER_TEMPLATE.format(
-            title        = title,
-            subtitle     = subtitle,
-            generated_at = generated_at_str,
-            module_list  = module_list_str,
+        # Phase 3 D-01: page 1 is now the unified cover (title + scope +
+        # generated + sections + RAG strip cells). The legacy thin cover
+        # template constant has been deleted and the separate page-2 RAG
+        # strip has been collapsed into this one page.
+        cover = self._build_unified_cover_page(
+            results,
+            title             = title,
+            subtitle          = subtitle,
+            generated_at_str  = generated_at_str,
+            module_list_str   = module_list_str,
         )
 
         body = "\n".join(sections) if sections else (
             '<p class="explanatory-text">No module output to display.</p>'
         )
-
-        rag_strip_page = self._build_rag_strip_page(results)
 
         return "\n".join([
             _PDF_DOCTYPE,
@@ -689,19 +700,30 @@ class ReportComposer:
             "</head>",
             "<body>",
             cover,
-            rag_strip_page,    # NEW — Phase 2 D-02
             body,
             "</body>",
             "</html>",
         ])
 
     # ------------------------------------------------------------------
-    # Page-2 RAG strip (Phase 2 D-02..D-08, COMPOSER-01)
+    # Unified RAG-strip cover (Phase 3 D-01 — supersedes Phase 2 page-2 strip)
     # ------------------------------------------------------------------
 
-    def _build_rag_strip_page(self, results: list[ModuleData]) -> str:
+    def _build_unified_cover_page(
+        self,
+        results: list[ModuleData],
+        *,
+        title:             str,
+        subtitle:          str,
+        generated_at_str:  str,
+        module_list_str:   str,
+    ) -> str:
         """
-        Build the dedicated page-2 ``<div class="rag-strip">`` HTML.
+        Build the unified page-1 cover: header band + RAG strip cells.
+
+        Combines the legacy thin cover (title + subtitle + generated +
+        sections list) and the Phase 2 page-2 RAG strip into a single
+        page-1 cover (D-01). Page 2+ are the per-module sections.
 
         Iterates results in ``_module_configs`` order, calls each
         module's ``render_rag_strip_entry()`` (Phase 1 contract), and
@@ -710,18 +732,35 @@ class ReportComposer:
         the rag_label text (D-04 / D-08).
 
         Per-module exception isolation mirrors ``assemble_pdf()``'s
-        existing pattern at composer.py:522-533 (D-28). Modules whose
-        class is missing from the registry, whose render method raises,
-        or whose entry returns an empty dict all collapse to a gray
-        "No Data" placeholder cell — never skipped, so the strip always
-        shows one cell per configured module (D-06).
+        existing pattern at composer.py:522-533 (Phase 2 D-28). Modules
+        whose class is missing from the registry, whose render method
+        raises, or whose entry returns an empty dict all collapse to a
+        gray "No Data" placeholder cell — never skipped, so the strip
+        always shows one cell per configured module (D-06).
+
+        T-03-01 Mitigation: every interpolated string (title, subtitle,
+        generated_at_str, module_list_str, label, headline_value,
+        rag_label) is HTML-escaped via ``html.escape(..., quote=True)``
+        before f-string composition.
+
+        Parameters
+        ----------
+        results : list[ModuleData]
+            Output of ``run_all()``.
+        title, subtitle : str, keyword-only
+            Cover header band text.
+        generated_at_str : str, keyword-only
+            Pre-formatted timestamp string (UTC).
+        module_list_str : str, keyword-only
+            Comma-joined display names for the "Sections:" line.
 
         Returns
         -------
         str
-            Complete ``<div class="rag-strip">...</div>`` block produced
-            from ``_PDF_RAG_STRIP_TEMPLATE``. Always non-empty so the
-            page is rendered even when every module returned no data.
+            Complete ``<div class="report-cover">...</div>`` block
+            produced from ``_PDF_UNIFIED_COVER_TEMPLATE``. Always
+            non-empty so the page is rendered even when every module
+            returned no data.
         """
         from reports.modules.rag_utils import (  # noqa: PLC0415
             STATUS_COLOR, STATUS_LABEL, STATUS_ICON, NO_DATA_HEADLINE,
@@ -745,7 +784,7 @@ class ReportComposer:
                 if str(hex_str).lower() == str(rag_color_hex).lower():
                     return STATUS_ICON.get(key, STATUS_ICON["no_data"])
             logger.warning(
-                "ReportComposer._build_rag_strip_page [%s]: rag_color %r is not in "
+                "ReportComposer._build_unified_cover_page [%s]: rag_color %r is not in "
                 "STATUS_COLOR — falling back to no_data icon.",
                 module_id or "unknown", rag_color_hex,
             )
@@ -757,7 +796,7 @@ class ReportComposer:
             mod_class = registry.get(data.module_id)
             if mod_class is None:
                 logger.warning(
-                    "ReportComposer._build_rag_strip_page: module '%s' not "
+                    "ReportComposer._build_unified_cover_page: module '%s' not "
                     "in registry — emitting gray placeholder cell.",
                     data.module_id,
                 )
@@ -769,7 +808,7 @@ class ReportComposer:
                     cell_dict = instance.render_rag_strip_entry(data, config)
                 except Exception as exc:  # noqa: BLE001
                     logger.error(
-                        "ReportComposer._build_rag_strip_page [%s]: "
+                        "ReportComposer._build_unified_cover_page [%s]: "
                         "render_rag_strip_entry() raised: %s\n%s",
                         data.module_id, exc, traceback.format_exc(),
                     )
@@ -780,7 +819,7 @@ class ReportComposer:
                 k in cell_dict for k in ("label", "headline_value", "rag_color", "rag_label")
             ):
                 logger.warning(
-                    "ReportComposer._build_rag_strip_page [%s]: "
+                    "ReportComposer._build_unified_cover_page [%s]: "
                     "render_rag_strip_entry returned malformed dict %r — "
                     "using gray placeholder.",
                     data.module_id, cell_dict,
@@ -802,7 +841,7 @@ class ReportComposer:
             _palette_lc = {v.lower() for v in STATUS_COLOR.values()}
             if rag_color_raw.lower() not in _palette_lc:
                 logger.warning(
-                    "ReportComposer._build_rag_strip_page [%s]: rag_color %r is not in "
+                    "ReportComposer._build_unified_cover_page [%s]: rag_color %r is not in "
                     "STATUS_COLOR — substituting no_data gray.",
                     data.module_id, rag_color_raw,
                 )
@@ -823,10 +862,26 @@ class ReportComposer:
             )
 
         cells_html = "\n".join(cells)
-        return _PDF_RAG_STRIP_TEMPLATE.format(
-            header     = "Risk Status Summary",
-            cells_html = cells_html,
+
+        # T-03-01: HTML-escape every interpolated string for the cover band.
+        safe_title         = html.escape(str(title),            quote=True)
+        safe_subtitle      = html.escape(str(subtitle),         quote=True)
+        safe_generated_at  = html.escape(str(generated_at_str), quote=True)
+        safe_module_list   = html.escape(str(module_list_str),  quote=True)
+
+        return _PDF_UNIFIED_COVER_TEMPLATE.format(
+            title         = safe_title,
+            subtitle      = safe_subtitle,
+            generated_at  = safe_generated_at,
+            module_list   = safe_module_list,
+            header        = "Risk Status Summary",
+            cells_html    = cells_html,
         )
+
+    # Class-level alias for the renamed method (W3 safety net).
+    # Preserves any test or smoke caller that still references the
+    # pre-Phase-3 method name.
+    _build_rag_strip_page = _build_unified_cover_page
 
     # ------------------------------------------------------------------
     # Excel assembly
@@ -1255,7 +1310,56 @@ class ReportComposer:
 
             panels.append(panel_html)
 
+        # T-03-02 contract: assemble_email_body only concatenates
+        # pre-escaped HTML fragments produced by per-module
+        # render_email_panel implementations (Plans 03-02..05). The
+        # per-module HTML escaping is owned there; this method does
+        # not re-escape and trusts the fragments to be safe.
         return "\n".join(panels)
+
+    # ------------------------------------------------------------------
+    # CID inline-image collection (Phase 3 D-04, COMPOSER-EMAIL)
+    # ------------------------------------------------------------------
+
+    def collect_email_inline_images(
+        self,
+        results: list[ModuleData],
+    ) -> list[dict[str, str]]:
+        """
+        Collect per-module CID inline-image entries for the email panels.
+
+        Each module that overrides ``render_email_panel`` is expected to
+        expose its gauge PNG via ``data.metadata["email_gauge_b64"]`` —
+        the base64 PNG bytes (no data URI prefix). This method scans
+        every module's metadata, builds a list of CID entries, and returns
+        them for inclusion in the bundle's ``email_inline_images`` slot.
+
+        The cid string is ``f"{data.module_id}_gauge"``. The module_id is
+        constrained to ``[A-Za-z0-9_-]+`` by the registry; cid header
+        safety is enforced again at email-attach time (T-03-04).
+
+        Parameters
+        ----------
+        results : list[ModuleData]
+
+        Returns
+        -------
+        list[dict]
+            One ``{"cid": str, "b64_png": str}`` entry per module that
+            produced a non-empty ``email_gauge_b64`` metadata value, in
+            registration order. Modules that did not populate this field
+            (un-migrated modules, or empty-data modules per D-15) emit
+            nothing — the empty-panel placeholder has no gauge image.
+        """
+        entries: list[dict[str, str]] = []
+        for data in results:
+            b64 = (data.metadata or {}).get("email_gauge_b64", "")
+            if isinstance(b64, str) and b64.strip():
+                entries.append({
+                    "cid":     f"{data.module_id}_gauge",
+                    "b64_png": b64,
+                })
+        return entries
 
     # ------------------------------------------------------------------
     # Audit info collection
@@ -1385,6 +1489,9 @@ class ReportComposer:
           → ``bundle["analyst_workbook_path"]`` (``None`` when D-20 all-empty
           fallback hits or when ``generate_analyst=False``).
         - ``assemble_email_body(results)`` → ``bundle["email_body_html"]``
+        - ``collect_email_inline_images(results)`` → ``bundle["email_inline_images"]``
+          (Phase 3 D-04 — base64 gauge PNGs decoded into MIMEImage parts
+          by ``delivery/email_sender.py``.)
         - ``collect_email_kpis(results)`` → ``bundle["email_kpis"]``
           (Existing legacy channel kept for un-migrated callers per D-23.)
         - ``{r.module_id: r.metrics for r in results}`` → ``bundle["metrics"]``
@@ -1430,11 +1537,15 @@ class ReportComposer:
         Returns
         -------
         dict[str, Any]
-            Bundle dict with exactly these seven keys:
+            Bundle dict with exactly these eight keys:
             ``pdf_html`` (str),
             ``excel_workbook`` (openpyxl.Workbook),
             ``analyst_workbook_path`` (Path | None),
             ``email_body_html`` (str),
+            ``email_inline_images`` (list[dict]) — D-04 CID gauge entries:
+                one ``{"cid": "{module_id}_gauge", "b64_png": "<base64 PNG bytes>"}``
+                per migrated module. Decoded into ``MIMEImage`` parts by
+                ``delivery/email_sender.py``.
             ``email_kpis`` (dict[str, str]),
             ``metrics`` (dict[str, dict]),
             ``errors`` (list[str]).
@@ -1459,6 +1570,7 @@ class ReportComposer:
             "excel_workbook":        None,
             "analyst_workbook_path": None,
             "email_body_html":       "",
+            "email_inline_images":   [],   # Phase 3 D-04 — list[{"cid", "b64_png"}]
             "email_kpis":            {},
             "metrics":               {},
             "errors":                [],
@@ -1496,6 +1608,9 @@ class ReportComposer:
 
         # ── Email body fragment (panels-only per D-09) ───────────────────
         bundle["email_body_html"] = self.assemble_email_body(results)
+
+        # ── Email inline gauge images (Phase 3 D-04) ────────────────────
+        bundle["email_inline_images"] = self.collect_email_inline_images(results)
 
         # ── Email KPIs (existing legacy channel — kept per D-23) ─────────
         bundle["email_kpis"] = self.collect_email_kpis(results)

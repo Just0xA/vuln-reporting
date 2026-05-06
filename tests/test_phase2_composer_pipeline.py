@@ -215,7 +215,13 @@ def _normalize_xlsx_mtimes(xlsx_bytes: bytes) -> bytes:
 # ===========================================================================
 
 def check_1_bundle_shape() -> None:
-    """D-22: run_full_pipeline returns exactly seven keys."""
+    """D-22: run_full_pipeline returns exactly the documented bundle keys.
+
+    Plan 03-01 (Phase 3 D-04) adds ``email_inline_images`` to the bundle —
+    expected set is updated accordingly. Plan 03-06 owns the broader
+    regression-snapshot extension; this is the minimum required to keep
+    the bundle-shape regression bar green at Plan 03-01's commit.
+    """
     composer = _make_composer("_phase2_test_panel_a", "_phase2_test_panel_b")
     results  = _make_results("_phase2_test_panel_a", "_phase2_test_panel_b")
     with tempfile.TemporaryDirectory() as td:
@@ -227,7 +233,8 @@ def check_1_bundle_shape() -> None:
         )
     expected = {
         "pdf_html", "excel_workbook", "analyst_workbook_path",
-        "email_body_html", "email_kpis", "metrics", "errors",
+        "email_body_html", "email_inline_images",  # Plan 03-01 D-04
+        "email_kpis", "metrics", "errors",
     }
     actual = set(bundle.keys())
     assert actual == expected, (
