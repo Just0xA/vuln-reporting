@@ -35,10 +35,17 @@ from reports.modules.board_report_utils import (
     compute_per_bu_breakdown,
     deduplicate_assets_by_name,
     extract_business_unit,
+    populate_rag_strip,  # noqa: F401  # re-exported for plan 03-02 contract surface
     sla_status_from_thresholds,
     ON_TIME_WINDOW_DAYS,
 )
 from reports.modules.chart_utils import draw_gauge
+from reports.modules.format_utils import safe_int, safe_pct
+from reports.modules.rag_utils import (
+    build_rag_strip_entry,
+    rag_status_from_value,
+    NO_DATA_DRIVER,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +153,69 @@ class ScanCoverageSLAModule(BaseModule):
         )
 
         try:
+            # ---- Phase 3 D-07/D-15 — assets-empty early return path ----
+            # Hands an explicit no-data ModuleData back rather than threading
+            # an empty DataFrame through dedup / BU enrichment / breakdown
+            # (each of which has its own zero-row edge case in older callers).
+            # The Phase 3 contract fields are populated here so the cover
+            # strip shows a gray cell, the email panel shows the placeholder,
+            # and the analyst workbook contributes nothing.
+            if assets_df is None or assets_df.empty:
+                logger.warning(
+                    "%s assets_df is empty — returning no-data ModuleData.",
+                    self._log_prefix(),
+                )
+                computed_at = (
+                    report_date.isoformat()
+                    if hasattr(report_date, "isoformat")
+                    else str(report_date)
+                )
+                rag_strip_payload = build_rag_strip_entry(
+                    display_name       = self.DISPLAY_NAME,
+                    headline_value_str = safe_pct(None),   # → "—"
+                    status             = "no_data",
+                )
+                return ModuleData(
+                    module_id    = self.MODULE_ID,
+                    display_name = self.DISPLAY_NAME,
+                    metrics      = {
+                        "scan_coverage_pct":   None,
+                        "scanned_on_time":     0,
+                        "not_scanned_on_time": 0,
+                        "total_licensed":      0,
+                        "unlicensed_excluded": 0,
+                        "status":              "no_data",
+                    },
+                    table_data   = [],
+                    chart_data   = {
+                        "value":      None,
+                        "thresholds": {
+                            "green":  _GREEN_THRESHOLD,
+                            "yellow": _YELLOW_THRESHOLD,
+                        },
+                        "direction":  _DIRECTION,
+                        "top_5":      [],
+                    },
+                    summary_text = (
+                        "Scan coverage could not be computed — "
+                        "no assets were provided."
+                    ),
+                    metadata     = {
+                        "filter":              "No assets in scope",
+                        "window":              f"Last {ON_TIME_WINDOW_DAYS} days from report_date",
+                        "sla_source":          "Board-defined thresholds (Green ≥95%, Amber ≥90%, Red <90%)",
+                        "computed_at":         computed_at,
+                        "unlicensed_excluded": 0,
+                        # Phase 3 D-15 — empty-data: no gauge for empty modules
+                        "email_gauge_b64":     "",
+                    },
+                    # ── Phase 3 contract fields ──
+                    driver_narrative = NO_DATA_DRIVER,
+                    analyst_rows     = [],
+                    rag_strip        = rag_strip_payload,
+                    error            = None,
+                )
+
             # ---- Step 1: deduplicate; separate licensed vs unlicensed ----
             # Deduplication runs on ALL assets first so that a hostname whose
             # most-recent record is unlicensed does not retain an older licensed
@@ -157,7 +227,14 @@ class ScanCoverageSLAModule(BaseModule):
                     all_dedup[_lsd], utc=True, errors="coerce"
                 )
             else:
-                all_dedup.loc[:, _lsd] = pd.NaT
+                # [Rule 1 - Bug] Pre-existing crash on a zero-row DataFrame:
+                # `df.loc[:, col] = pd.NaT` raises "cannot set a frame with no
+                # defined index and a scalar" when df is empty. Building the
+                # column as an explicit Series sidesteps the empty-frame path
+                # and produces the same result on populated frames.
+                all_dedup[_lsd] = pd.Series(
+                    pd.NaT, index=all_dedup.index, dtype="datetime64[ns, UTC]"
+                )
 
             licensed_mask    = all_dedup[_lsd].notna()
             licensed         = all_dedup[licensed_mask].copy().reset_index(drop=True)
@@ -208,17 +285,31 @@ class ScanCoverageSLAModule(BaseModule):
 
             # ---- Step 4: per-BU breakdown (licensed assets only) ----
             # Unlicensed assets are excluded from the denominator entirely.
-            enriched = extract_business_unit(licensed)
+            # [Rule 1 - Bug] extract_business_unit and compute_per_bu_breakdown
+            # both call `df.loc[:, col] = scalar` patterns that crash on a
+            # zero-row DataFrame. Short-circuit the BU computation when there
+            # are no licensed assets in scope.
+            if licensed.empty:
+                enriched     = licensed.copy()
+                bu_breakdown = pd.DataFrame(
+                    columns=[
+                        "business_unit", "numerator", "denominator",
+                        "percentage",   "affected",
+                    ],
+                )
+                table_data = []
+            else:
+                enriched = extract_business_unit(licensed)
 
-            on_time_uuids   = set(on_time["asset_uuid"].dropna())
-            on_time_mask_bu = enriched["asset_uuid"].isin(on_time_uuids)
-            denom_mask      = pd.Series(True, index=enriched.index)
+                on_time_uuids   = set(on_time["asset_uuid"].dropna())
+                on_time_mask_bu = enriched["asset_uuid"].isin(on_time_uuids)
+                denom_mask      = pd.Series(True, index=enriched.index)
 
-            bu_breakdown = compute_per_bu_breakdown(
-                enriched, on_time_mask_bu, denom_mask,
-                higher_is_better=True,
-            )
-            table_data = bu_breakdown.to_dict("records")
+                bu_breakdown = compute_per_bu_breakdown(
+                    enriched, on_time_mask_bu, denom_mask,
+                    higher_is_better=True,
+                )
+                table_data = bu_breakdown.to_dict("records")
 
             # ---- Step 5: narrative summary ----
             if scan_coverage_pct is None:
@@ -239,6 +330,132 @@ class ScanCoverageSLAModule(BaseModule):
                 report_date.isoformat()
                 if hasattr(report_date, "isoformat")
                 else str(report_date)
+            )
+
+            # ---- Step 6: Phase 3 contract fields ----
+            # Phase 3 D-10/D-11/D-13 — analyst rows for Scan Coverage SLA.
+            # Source: not_on_time slice (licensed assets that did NOT meet the
+            # ON_TIME_WINDOW_DAYS scan-recency window).
+            if not not_on_time.empty:
+                analyst_df = not_on_time.copy()
+                # BU is already extracted into business_unit by extract_business_unit()
+                # earlier in compute() (step 4); fall back defensively for the
+                # not_on_time slice which is sourced from `licensed` pre-enrichment.
+                if "business_unit" not in analyst_df.columns:
+                    analyst_df = extract_business_unit(analyst_df)
+                # days_since_licensed_scan
+                analyst_df = analyst_df.assign(
+                    days_since_licensed_scan = (
+                        (rd_ts - analyst_df[_lsd])
+                        .dt.days
+                        .astype("Int64")
+                    ),
+                )
+                # D-13 — apply asset-level dedup
+                analyst_df = deduplicate_assets_by_name(analyst_df)
+                # Project + reorder to the 6 contracted columns (D-10)
+                analyst_df = analyst_df.reindex(columns=[
+                    "hostname",
+                    "ipv4",
+                    "fqdn",
+                    "last_licensed_scan_date",
+                    "days_since_licensed_scan",
+                    "business_unit",
+                ])
+                # D-11 — sort by days_since_licensed_scan desc; NaN last
+                analyst_df = analyst_df.sort_values(
+                    "days_since_licensed_scan",
+                    ascending=False,
+                    na_position="last",
+                ).reset_index(drop=True)
+                # T-03-02-02 — CSV-formula injection guard. Prepend a single
+                # quote to any cell whose first char would trigger Excel
+                # formula evaluation (=, +, -, @). Hostname/ipv4/fqdn are
+                # external-source strings; business_unit is Tenable-normalised
+                # but we apply the guard uniformly for defence-in-depth.
+                for _col in ("hostname", "ipv4", "fqdn", "business_unit"):
+                    if _col in analyst_df.columns:
+                        analyst_df[_col] = analyst_df[_col].astype("string").map(
+                            lambda s: ("'" + s)
+                            if isinstance(s, str) and len(s) > 0 and s[:1] in ("=", "+", "-", "@")
+                            else s
+                        )
+                analyst_rows_payload: list[tuple[str, pd.DataFrame]] = [
+                    ("Scan Coverage Detail", analyst_df),
+                ]
+            else:
+                analyst_rows_payload = []
+
+            # Phase 3 D-06 — Scan Coverage SLA driver narrative.
+            # Template (locked in plan 03-02):
+            #   "Best BU: {good_bu_name} at {good_bu_pct}; worst BU: {worst_bu_name}
+            #    at {worst_bu_pct} ({overdue_count} of {total_count} licensed assets
+            #    overdue)."
+            # Sources:
+            #   - good_bu_*  : bu_breakdown row with the highest percentage
+            #                  (ties broken by alphabetical business_unit name)
+            #   - worst_bu_* : bu_breakdown row with the lowest percentage
+            #                  (ties broken by alphabetical business_unit name)
+            #   - overdue_count = not_scanned_on_time
+            #   - total_count   = total_licensed
+            # W4 — `bu_breakdown` is the DataFrame produced earlier in compute()
+            # at step 4 by compute_per_bu_breakdown(...). Its columns are
+            # business_unit / numerator / denominator / percentage / affected.
+            if total_licensed > 0 and not bu_breakdown.empty:
+                sorted_bu_asc  = bu_breakdown.sort_values(
+                    ["percentage", "business_unit"], ascending=[True,  True]
+                )
+                sorted_bu_desc = bu_breakdown.sort_values(
+                    ["percentage", "business_unit"], ascending=[False, True]
+                )
+                worst_row = sorted_bu_asc.iloc[0]
+                good_row  = sorted_bu_desc.iloc[0]
+                driver = (
+                    f"Best BU: {good_row['business_unit']} at {safe_pct(good_row['percentage'])}; "
+                    f"worst BU: {worst_row['business_unit']} at {safe_pct(worst_row['percentage'])} "
+                    f"({safe_int(not_scanned_on_time)} of {safe_int(total_licensed)} "
+                    f"licensed assets overdue)."
+                )
+            else:
+                # D-07 empty-data fallback
+                driver = NO_DATA_DRIVER
+
+            # Phase 3 D-04 — email gauge base64 for CID inline image.
+            # Same draw_gauge call as the PDF section uses; we generate it ONCE
+            # in compute() and stash it on data.metadata so render_email_panel
+            # can reference cid only.
+            if total_licensed > 0 and scan_coverage_pct is not None:
+                try:
+                    email_gauge_b64 = draw_gauge(
+                        value      = scan_coverage_pct,
+                        thresholds = _GAUGE_THRESHOLDS,
+                        title      = self.DISPLAY_NAME,
+                        unit       = "%",
+                        figsize    = (2.4, 1.6),
+                    )
+                except Exception as _gauge_exc:  # noqa: BLE001
+                    logger.warning(
+                        "%s compute() draw_gauge for email failed: %s",
+                        self._log_prefix(), _gauge_exc,
+                    )
+                    email_gauge_b64 = ""
+            else:
+                # D-15 empty-data — no gauge for empty modules
+                email_gauge_b64 = ""
+
+            # Phase 3 D-05/D-08/D-09 — RAG strip payload built via
+            # pure-construction (option 2 from PATTERNS.md). Plan 03-02 locks
+            # this shape so plans 03-03..05 can copy it directly.
+            _rag_status = rag_status_from_value(
+                scan_coverage_pct,
+                green_threshold  = _GREEN_THRESHOLD,
+                yellow_threshold = _YELLOW_THRESHOLD,
+                direction        = _DIRECTION,
+            )
+            rag_strip_payload = build_rag_strip_entry(
+                display_name       = self.DISPLAY_NAME,
+                headline_value_str = safe_pct(scan_coverage_pct),
+                status             = _rag_status,
             )
 
             return ModuleData(
@@ -274,8 +491,14 @@ class ScanCoverageSLAModule(BaseModule):
                     "sla_source":           "Board-defined thresholds (Green ≥95%, Amber ≥90%, Red <90%)",
                     "computed_at":          computed_at,
                     "unlicensed_excluded":  unlicensed_count,
+                    # Phase 3 D-04 — picked up by composer.collect_email_inline_images
+                    "email_gauge_b64":      email_gauge_b64,
                 },
-                error        = None,
+                # ── Phase 3 contract fields ──
+                driver_narrative = driver,
+                analyst_rows     = analyst_rows_payload,
+                rag_strip        = rag_strip_payload,
+                error            = None,
             )
 
         except Exception as exc:  # noqa: BLE001
