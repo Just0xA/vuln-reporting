@@ -1058,9 +1058,19 @@ def _compute_bu_breakdown(
         fw["asset_uuid"].map(uuid_to_bu).fillna("Untagged")
     )
 
-    # within_sla_mask is aligned with fixed_in_window.index
+    # CR-01 fix — defensively realign the within-SLA mask onto fw.index.
+    # The mask is constructed in compute() against fixed_in_window.index;
+    # today fw.index == fixed_in_window.index because nothing in between
+    # resets the index, but a future refactor that calls .reset_index() on
+    # fixed_in_window would silently make the mask un-alignable and
+    # compute_per_bu_breakdown would replace every True with False
+    # (zero numerator, 0% per-BU SLA) without raising. Reindexing here
+    # makes the helper own its own alignment so that class of silent
+    # data-loss can never recur.
     if within_sla_mask is None:
         within_sla_mask = pd.Series(False, index=fw.index)
+    else:
+        within_sla_mask = within_sla_mask.reindex(fw.index, fill_value=False)
 
     denom_mask = pd.Series(True, index=fw.index)
 
