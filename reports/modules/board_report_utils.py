@@ -27,6 +27,7 @@ Shared utilities
 - ``compute_per_bu_breakdown``    — per-BU numerator/denominator/percentage table
 - ``compute_bu_risk_scores``      — weighted Risk Score per BU for qualifying assets
 - ``sla_status_from_thresholds``  — classify a value as green/yellow/red/no_data
+- ``populate_rag_strip``           — populate ModuleData.rag_strip via shared classifier
 """
 
 from __future__ import annotations
@@ -529,3 +530,63 @@ def sla_status_from_thresholds(
         if value <= yellow_threshold:
             return "yellow"
         return "red"
+
+
+# ===========================================================================
+# RAG strip population
+# ===========================================================================
+
+def populate_rag_strip(
+    data:             "ModuleData",  # forward-ref string — avoid circular import
+    *,
+    display_name:     str,
+    metric_value:     Optional[float],
+    threshold_green:  float,
+    threshold_yellow: float,
+    direction:        str = "higher_is_better",
+) -> None:
+    """
+    Populate ``data.rag_strip`` in place with a pre-built RAG cell dict.
+
+    Headline value is rendered via :func:`safe_pct` (so ``None`` / ``NaN``
+    becomes the ``NO_DATA_HEADLINE`` em-dash). Status is computed via
+    :func:`rag_status_from_value` honoring the supplied direction. The
+    resulting cell dict is built by :func:`build_rag_strip_entry`.
+
+    Parameters
+    ----------
+    data : ModuleData
+        The module's ModuleData — the helper mutates ``data.rag_strip`` in place.
+    display_name : str
+        Cell label (typically ``self.DISPLAY_NAME``).
+    metric_value : float or None
+        The metric's headline percentage. ``None`` / ``NaN`` -> no_data gray cell.
+    threshold_green, threshold_yellow : float
+        Classification thresholds matching the module's existing constants.
+    direction : str
+        ``"higher_is_better"`` (default) or ``"lower_is_better"``.
+
+    Returns
+    -------
+    None
+        Mutates ``data.rag_strip`` in place.
+    """
+    # Deferred imports — these modules import each other transitively, so
+    # we resolve the symbols at call time rather than at module-load time.
+    from reports.modules.rag_utils import (    # noqa: PLC0415
+        build_rag_strip_entry,
+        rag_status_from_value,
+    )
+    from reports.modules.format_utils import safe_pct   # noqa: PLC0415
+
+    status = rag_status_from_value(
+        metric_value,
+        green_threshold  = threshold_green,
+        yellow_threshold = threshold_yellow,
+        direction        = direction,
+    )
+    data.rag_strip = build_rag_strip_entry(
+        display_name       = display_name,
+        headline_value_str = safe_pct(metric_value),
+        status             = status,
+    )
