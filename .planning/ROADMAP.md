@@ -15,7 +15,7 @@ The journey: define the contract → upgrade the composer → migrate Board Summ
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Module Render Contract** - Extend `BaseModule` with three new render hooks and bake in the empty-data guard pattern (completed 2026-05-05)
-- [ ] **Phase 2: ReportComposer Upgrades** - Assemble RAG-strip cover pages, per-module email bodies, and the paired analyst-detail workbook
+- [x] **Phase 2: ReportComposer Upgrades** - Assemble RAG-strip cover pages, per-module email bodies, and the paired analyst-detail workbook (completed 2026-05-06)
 - [ ] **Phase 3: Board Summary Module Migration** - Migrate the four board metric modules to the new contract and wire `board_summary.py` to the upgraded composer
 - [ ] **Phase 4: YAML Config and Regression Cutover** - Wire `jsonschema` runtime validation, ship the `analyst_detail` opt-out, and confirm zero regression for existing Board Summary recipient groups
 
@@ -60,11 +60,11 @@ Granularity is **coarse**; parallelization is **on**.
   3. `ReportComposer.assemble_analyst_workbook()` writes a separate `.xlsx` with one tab per module (sourced from `render_analyst_tabs()`) plus a `_Metadata` tab containing scope, generated timestamp, and source module IDs
   4. `ReportComposer.run_all()` returns a dict with keys `pdf`, `excel`, `charts`, `metrics`, AND `analyst_excel`; existing keys are byte-for-byte unchanged on a regression baseline
 **Plans**: 5 plans
-- [ ] 02-01-PLAN.md — Page-2 RAG strip insertion in assemble_pdf() + STATUS_ICON palette (COMPOSER-01) (Wave 1)
-- [ ] 02-02-PLAN.md — assemble_email_body() + build_email_body_modular() + template conditional (COMPOSER-02) (Wave 1)
-- [ ] 02-03-PLAN.md — assemble_analyst_workbook() with sheet-collision suffix and D-25 opt-out (COMPOSER-03) (Wave 1)
-- [ ] 02-04-PLAN.md — run_full_pipeline() orchestrator + board_summary/management_summary run_report() return-dict extension (COMPOSER-04) (Wave 2)
-- [ ] 02-05-PLAN.md — Phase 2 regression-snapshot + per-module exception-isolation test (D-28, D-29) (Wave 3)
+- [x] 02-01-PLAN.md — Page-2 RAG strip insertion in assemble_pdf() + STATUS_ICON palette (COMPOSER-01) (Wave 1)
+- [x] 02-02-PLAN.md — assemble_email_body() + build_email_body_modular() + template conditional (COMPOSER-02) (Wave 1)
+- [x] 02-03-PLAN.md — assemble_analyst_workbook() with sheet-collision suffix and D-25 opt-out (COMPOSER-03) (Wave 1)
+- [x] 02-04-PLAN.md — run_full_pipeline() orchestrator + board_summary/management_summary run_report() return-dict extension (COMPOSER-04) (Wave 2)
+- [x] 02-05-PLAN.md — Phase 2 regression-snapshot + per-module exception-isolation test (D-28, D-29) (Wave 3)
 **UI hint**: no
 
 ### Phase 3: Board Summary Module Migration

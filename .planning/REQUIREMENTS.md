@@ -22,10 +22,10 @@ Extends `BaseModule` so every metric module can render itself to four channels.
 
 Drives all four render channels from the registered module list.
 
-- [ ] **COMPOSER-01**: `ReportComposer.assemble_pdf()` emits a cover page that includes title, scope banner, generated timestamp, and a RAG strip showing every module at a glance (one cell per module: label + headline value + RAG color)
-- [ ] **COMPOSER-02**: `ReportComposer.assemble_email_body()` (new method) builds an HTML email body composed of per-module panels in registration order, suitable for inlining as the Jinja2 template body for groups using module-based reports
-- [ ] **COMPOSER-03**: `ReportComposer.assemble_analyst_workbook()` (new method) emits a separate `.xlsx` file containing one tab per module (sourced from each module's `render_analyst_tabs()` output) plus a `_Metadata` tab with run scope, generated timestamp, and the source module IDs
-- [ ] **COMPOSER-04**: `ReportComposer.run_all()` return dict gains an `analyst_excel` path entry alongside the existing `pdf`, `excel`, `charts`, and `metrics` keys; existing keys remain unchanged for backward compatibility
+- [x] **COMPOSER-01**: `ReportComposer.assemble_pdf()` emits a cover page that includes title, scope banner, generated timestamp, and a RAG strip showing every module at a glance (one cell per module: label + headline value + RAG color)
+- [x] **COMPOSER-02**: `ReportComposer.assemble_email_body()` (new method) builds an HTML email body composed of per-module panels in registration order, suitable for inlining as the Jinja2 template body for groups using module-based reports
+- [x] **COMPOSER-03**: `ReportComposer.assemble_analyst_workbook()` (new method) emits a separate `.xlsx` file containing one tab per module (sourced from each module's `render_analyst_tabs()` output) plus a `_Metadata` tab with run scope, generated timestamp, and the source module IDs
+- [x] **COMPOSER-04**: `ReportComposer.run_all()` return dict gains an `analyst_excel` path entry alongside the existing `pdf`, `excel`, `charts`, and `metrics` keys; existing keys remain unchanged for backward compatibility
 
 ### Board Summary Module Migration (BOARD)
 
@@ -107,10 +107,10 @@ Explicitly excluded from v1. Recorded so they don't drift back in mid-milestone.
 | CONTRACT-03 | Phase 1 | Validated |
 | CONTRACT-04 | Phase 1 | Validated |
 | CONTRACT-05 | Phase 1 | Validated |
-| COMPOSER-01 | Phase 2 | Pending |
-| COMPOSER-02 | Phase 2 | Pending |
-| COMPOSER-03 | Phase 2 | Pending |
-| COMPOSER-04 | Phase 2 | Pending |
+| COMPOSER-01 | Phase 2 | Complete |
+| COMPOSER-02 | Phase 2 | Complete |
+| COMPOSER-03 | Phase 2 | Complete |
+| COMPOSER-04 | Phase 2 | Complete |
 | BOARD-01 | Phase 3 | Pending |
 | BOARD-02 | Phase 3 | Pending |
 | BOARD-03 | Phase 3 | Pending |
