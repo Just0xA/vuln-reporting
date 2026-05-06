@@ -130,6 +130,9 @@ def run_report(
                 # New in Phase 2 (COMPOSER-04, D-24):
                 "analyst_excel":   Path | None,   # analyst-detail workbook
                 "email_body_html": str,           # panels-only fragment
+                # New in Phase 3 (D-04):
+                "email_inline_images": list,      # CID gauge entries
+                "email_kpis":      list,          # legacy KPI tiles (D-23)
             }
 
         Never raises — all exceptions are caught and reflected in the return
@@ -302,6 +305,14 @@ def run_report(
         # NEW in Phase 3 (D-04, Plan 03-01) — CID gauge entries for
         # email_sender.py to decode into MIMEImage parts:
         "email_inline_images": bundle.get("email_inline_images", []),
+        # WR-01 fix — surface the legacy KPI dict at the bundle top level
+        # so the email template's generic KPI-tile fallback path
+        # (collect_email_kpis() → report_outputs[*]["email_kpis"]) can
+        # find it. Phase 2 D-23 specified that the legacy KPI channel must
+        # be preserved; without this key, board_summary's KPI tiles never
+        # show up in any consumer that doesn't explicitly look at
+        # metrics["kpis"].
+        "email_kpis":       kpis,
     }
 
 
