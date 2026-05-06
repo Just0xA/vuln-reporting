@@ -2302,8 +2302,23 @@ def run_report(
     Returns
     -------
     dict
-        ``{"pdf": Path, "excel": None, "charts": [], "metrics": dict}``
-        where ``metrics`` contains ``kpi_tiles`` (list of tile dicts consumed
+        Standard report output dict::
+
+            {
+                "pdf":             Path,
+                "excel":           None,
+                "charts":          [],
+                "metrics":         dict,
+                # New in Phase 2 (COMPOSER-04, D-24) — additive keys
+                # only. management_summary's full composer migration is
+                # v2 / GEN-01; the values are placeholder None / "" so
+                # the consumer-side dict shape is uniform across all
+                # module-based reports.
+                "analyst_excel":   None,   # Path | None
+                "email_body_html": "",     # str
+            }
+
+        ``metrics`` contains ``kpi_tiles`` (list of tile dicts consumed
         by the email template renderer) and ``raw`` (flat summary numbers),
         plus ``email_html`` and ``inline_charts`` for direct use by
         ``email_sender.py``.
@@ -2439,6 +2454,16 @@ def run_report(
         "excel":   None,   # management_summary is PDF + email only
         "charts":  [],
         "metrics": email_metrics,
+        # NEW in Phase 2 (D-24, COMPOSER-04) — additive keys only.
+        # management_summary keeps its bespoke _build_pdf / build_email_body
+        # flow in Phase 2; it is NOT migrated to the composer in v1
+        # (CONTEXT.md `<deferred>` — full composer migration is v2 / GEN-01).
+        # Phase 2 ships the symmetric return-dict shape here so consumer
+        # code (run_all.py, email_sender.py) sees the same dict shape from
+        # every module-based report. Real values land when GEN-01 wires
+        # the composer's full-pipeline orchestrator into this function.
+        "analyst_excel":    None,   # Path | None
+        "email_body_html":  "",     # str (panels fragment) — empty until v2/GEN-01
     }
 
 
