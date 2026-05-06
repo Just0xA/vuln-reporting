@@ -1310,7 +1310,56 @@ class ReportComposer:
 
             panels.append(panel_html)
 
+        # T-03-02 contract: assemble_email_body only concatenates
+        # pre-escaped HTML fragments produced by per-module
+        # render_email_panel implementations (Plans 03-02..05). The
+        # per-module HTML escaping is owned there; this method does
+        # not re-escape and trusts the fragments to be safe.
         return "\n".join(panels)
+
+    # ------------------------------------------------------------------
+    # CID inline-image collection (Phase 3 D-04, COMPOSER-EMAIL)
+    # ------------------------------------------------------------------
+
+    def collect_email_inline_images(
+        self,
+        results: list[ModuleData],
+    ) -> list[dict[str, str]]:
+        """
+        Collect per-module CID inline-image entries for the email panels.
+
+        Each module that overrides ``render_email_panel`` is expected to
+        expose its gauge PNG via ``data.metadata["email_gauge_b64"]`` —
+        the base64 PNG bytes (no data URI prefix). This method scans
+        every module's metadata, builds a list of CID entries, and returns
+        them for inclusion in the bundle's ``email_inline_images`` slot.
+
+        The cid string is ``f"{data.module_id}_gauge"``. The module_id is
+        constrained to ``[A-Za-z0-9_-]+`` by the registry; cid header
+        safety is enforced again at email-attach time (T-03-04).
+
+        Parameters
+        ----------
+        results : list[ModuleData]
+
+        Returns
+        -------
+        list[dict]
+            One ``{"cid": str, "b64_png": str}`` entry per module that
+            produced a non-empty ``email_gauge_b64`` metadata value, in
+            registration order. Modules that did not populate this field
+            (un-migrated modules, or empty-data modules per D-15) emit
+            nothing — the empty-panel placeholder has no gauge image.
+        """
+        entries: list[dict[str, str]] = []
+        for data in results:
+            b64 = (data.metadata or {}).get("email_gauge_b64", "")
+            if isinstance(b64, str) and b64.strip():
+                entries.append({
+                    "cid":     f"{data.module_id}_gauge",
+                    "b64_png": b64,
+                })
+        return entries
 
     # ------------------------------------------------------------------
     # Audit info collection
@@ -1440,6 +1489,9 @@ class ReportComposer:
           → ``bundle["analyst_workbook_path"]`` (``None`` when D-20 all-empty
           fallback hits or when ``generate_analyst=False``).
         - ``assemble_email_body(results)`` → ``bundle["email_body_html"]``
+        - ``collect_email_inline_images(results)`` → ``bundle["email_inline_images"]``
+          (Phase 3 D-04 — base64 gauge PNGs decoded into MIMEImage parts
+          by ``delivery/email_sender.py``.)
         - ``collect_email_kpis(results)`` → ``bundle["email_kpis"]``
           (Existing legacy channel kept for un-migrated callers per D-23.)
         - ``{r.module_id: r.metrics for r in results}`` → ``bundle["metrics"]``
@@ -1485,11 +1537,15 @@ class ReportComposer:
         Returns
         -------
         dict[str, Any]
-            Bundle dict with exactly these seven keys:
+            Bundle dict with exactly these eight keys:
             ``pdf_html`` (str),
             ``excel_workbook`` (openpyxl.Workbook),
             ``analyst_workbook_path`` (Path | None),
             ``email_body_html`` (str),
+            ``email_inline_images`` (list[dict]) — D-04 CID gauge entries:
+                one ``{"cid": "{module_id}_gauge", "b64_png": "<base64 PNG bytes>"}``
+                per migrated module. Decoded into ``MIMEImage`` parts by
+                ``delivery/email_sender.py``.
             ``email_kpis`` (dict[str, str]),
             ``metrics`` (dict[str, dict]),
             ``errors`` (list[str]).
@@ -1514,6 +1570,7 @@ class ReportComposer:
             "excel_workbook":        None,
             "analyst_workbook_path": None,
             "email_body_html":       "",
+            "email_inline_images":   [],   # Phase 3 D-04 — list[{"cid", "b64_png"}]
             "email_kpis":            {},
             "metrics":               {},
             "errors":                [],
@@ -1551,6 +1608,9 @@ class ReportComposer:
 
         # ── Email body fragment (panels-only per D-09) ───────────────────
         bundle["email_body_html"] = self.assemble_email_body(results)
+
+        # ── Email inline gauge images (Phase 3 D-04) ────────────────────
+        bundle["email_inline_images"] = self.collect_email_inline_images(results)
 
         # ── Email KPIs (existing legacy channel — kept per D-23) ─────────
         bundle["email_kpis"] = self.collect_email_kpis(results)

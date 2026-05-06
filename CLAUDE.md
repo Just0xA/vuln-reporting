@@ -582,6 +582,30 @@ Each report's `run_report()` must return a dict with at minimum these keys:
 ```
 CSV-only reports also include `"csv": path_or_none`. All other keys (e.g. `"metrics"`) are optional.
 
+### Modular reports — bundle-driven routing (Phase 3, D-22)
+
+Reports built on the `reports/modules/` infrastructure can opt into the
+upgraded email body and analyst workbook by populating two bundle keys
+in their `run_report()` return dict:
+
+- `email_body_html: str` — when non-empty, `delivery/email_sender.py`
+  routes through `build_email_body_modular()` instead of the legacy
+  `build_email_body()` KPI-tile shell. Selection is made by a single
+  predicate: "any report's `email_body_html` non-empty?". No slug
+  allowlist, no `MODULAR_REPORTS = {...}` registry.
+- `analyst_excel: Path | None` — when a real Path, the file is
+  automatically attached alongside the standard PDF and Excel.
+- `email_inline_images: list[{"cid": str, "b64_png": str}]` — base64
+  gauge PNG entries, decoded into MIMEImage parts with
+  Content-ID = `<{cid}>` so panels can reference them as
+  `<img src="cid:{module_id}_gauge">`.
+
+This pattern is intentional: v2's planned YAML-driven module
+composition (`groups[].modules: [m1, m2]`) needs zero changes to
+`delivery/email_sender.py` or `reports/modules/composer.py` because
+both layers self-describe their behavior from the bundle, not from
+the named-report slug.
+
 ---
 
 ## Report Scripts
