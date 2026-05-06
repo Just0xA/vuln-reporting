@@ -14,6 +14,7 @@ Public exports
 --------------
 - ``STATUS_COLOR``         — dict[str, str] of green/yellow/red/no_data hex colors
 - ``STATUS_LABEL``         — dict[str, str] of "On Target"/"At Risk"/"Off Target"/"No Data"
+- ``STATUS_ICON``         — dict[str, str] of ▲ / ● / ▼ / ○ Unicode shape icons (greyscale-print fallback)
 - ``rag_status_from_value`` — wrapper around board_report_utils.sla_status_from_thresholds
 - ``build_rag_strip_entry`` — convenience constructor for the strip cell dict
 - ``NO_DATA_HEADLINE``     — sentinel "—" string for missing values
@@ -51,6 +52,20 @@ STATUS_LABEL: dict[str, str] = {
     "yellow":  "At Risk",
     "red":     "Off Target",
     "no_data": "No Data",
+}
+
+#: Unicode shape icons for RAG status keys. Provides greyscale-print
+#: fallback (the shape carries the signal independent of color) AND
+#: helps color-blind readers. Used inside the cover-page RAG strip
+#: cell band by composer._build_rag_strip_page (Phase 2 D-08).
+#: Triangle direction encodes direction of concern:
+#:   ▲ = on target / good        ● = at risk / steady
+#:   ▼ = off target / bad        ○ = no data
+STATUS_ICON: dict[str, str] = {
+    "green":   "▲",   # U+25B2 BLACK UP-POINTING TRIANGLE
+    "yellow":  "●",   # U+25CF BLACK CIRCLE
+    "red":     "▼",   # U+25BC BLACK DOWN-POINTING TRIANGLE
+    "no_data": "○",   # U+25CB WHITE CIRCLE
 }
 
 #: Sentinel headline value used when a metric has no data in scope.
