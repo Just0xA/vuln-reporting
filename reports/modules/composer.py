@@ -624,27 +624,32 @@ class ReportComposer:
             try:
                 config   = self._config_for(data.module_id)
                 instance = mod_class()
-                html     = instance.render_pdf_section(data, config)
+                html_section = instance.render_pdf_section(data, config)
             except Exception as exc:  # noqa: BLE001
                 logger.error(
                     "ReportComposer.assemble_pdf [%s]: render_pdf_section() "
                     "raised: %s\n%s",
                     data.module_id, exc, traceback.format_exc(),
                 )
-                html = (
+                # WR-02: HTML-escape display name + exception message so they
+                # cannot break out of the placeholder div even when the
+                # exception args carry markup-bearing content.
+                safe_name = html.escape(str(data.display_name), quote=True)
+                safe_exc  = html.escape(str(exc),               quote=True)
+                html_section = (
                     f'<div class="error-box">'
-                    f"<strong>{data.display_name}</strong>: "
-                    f"PDF render failed — {exc}"
-                    f"</div>"
+                    f'<strong>{safe_name}</strong>: '
+                    f'PDF render failed — {safe_exc}'
+                    f'</div>'
                 )
 
-            if not html or not html.strip():
+            if not html_section or not html_section.strip():
                 continue  # Module doesn't support PDF output
 
             # Insert page break before all sections except the first
             if sections:
                 sections.append('<div class="page-break"></div>')
-            sections.append(html)
+            sections.append(html_section)
 
         # Build generated_at string
         generated_at_str = (
@@ -1196,27 +1201,32 @@ class ReportComposer:
             try:
                 config   = self._config_for(data.module_id)
                 instance = mod_class()
-                html     = instance.render_email_panel(data, config)
+                panel_html = instance.render_email_panel(data, config)
             except Exception as exc:  # noqa: BLE001
                 logger.error(
                     "ReportComposer.assemble_email_body [%s]: "
                     "render_email_panel() raised: %s\n%s",
                     data.module_id, exc, traceback.format_exc(),
                 )
-                html = (
+                # WR-02: HTML-escape display name + exception message so they
+                # cannot break out of the placeholder div in Outlook / Gmail /
+                # Apple Mail when exception args carry markup-bearing content.
+                safe_name = html.escape(str(data.display_name), quote=True)
+                safe_exc  = html.escape(str(exc),               quote=True)
+                panel_html = (
                     '<div style="border:1px solid #d32f2f; '
                     'background:#FFF3CD; color:#5D4037; '
                     'padding:8px 12px; margin:6px 0; '
                     'font-family:Arial,Helvetica,sans-serif; font-size:10pt;">'
-                    f'<strong>{data.display_name}</strong>: '
-                    f'email panel render failed — {exc}'
+                    f'<strong>{safe_name}</strong>: '
+                    f'email panel render failed — {safe_exc}'
                     '</div>'
                 )
 
-            if not html or not html.strip():
+            if not panel_html or not panel_html.strip():
                 continue   # D-14 — skip empty / whitespace-only panels
 
-            panels.append(html)
+            panels.append(panel_html)
 
         return "\n".join(panels)
 
