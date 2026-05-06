@@ -119,9 +119,19 @@ def run_report(
     Returns
     -------
     dict
-        Standard report output dict:
-        ``{"pdf": path_or_none, "excel": path_or_none, "charts": [],
-           "metrics": {"kpis": dict, "errors": list, "module_results": dict}}``.
+        Standard report output dict::
+
+            {
+                "pdf":             path_or_none,
+                "excel":           path_or_none,
+                "charts":          [],
+                "metrics":         {"kpis": dict, "errors": list,
+                                    "module_results": dict},
+                # New in Phase 2 (COMPOSER-04, D-24):
+                "analyst_excel":   Path | None,   # analyst-detail workbook
+                "email_body_html": str,           # panels-only fragment
+            }
+
         Never raises — all exceptions are caught and reflected in the return
         dict and application log.
     """
@@ -202,8 +212,43 @@ def run_report(
     )
 
     results = composer.run_all()
-    errors  = composer.get_error_summary(results)
-    kpis    = composer.collect_email_kpis(results)
+
+    # ------------------------------------------------------------------
+    # Build PDF subtitle (computed first so it can be passed into the
+    # bundle pipeline below)
+    # ------------------------------------------------------------------
+    scope_str = (
+        f"Scope: {tag_category} = {tag_value}"
+        if tag_category and tag_value
+        else "Scope: All Assets"
+    )
+    subtitle    = scope_str
+    scope_label = (
+        f"{tag_category} = {tag_value}"
+        if tag_category and tag_value
+        else "All Assets"
+    )   # used for analyst workbook _Metadata Scope row (D-19)
+
+    # ------------------------------------------------------------------
+    # Drive all four render channels through the bundle orchestrator
+    # (Phase 2 D-22, D-26, COMPOSER-04). assemble_pdf inserts the new
+    # page-2 RAG strip internally (Plan 02-01); assemble_analyst_workbook
+    # writes the analyst .xlsx to output_dir and returns its path or
+    # None when no module produced rows (D-20).
+    # ------------------------------------------------------------------
+    bundle = composer.run_full_pipeline(
+        results,
+        output_dir,
+        slug             = "board_summary",
+        report_date      = generated_at,
+        generate_analyst = True,             # Phase 4 (CONFIG-03) wires the YAML opt-out (D-25)
+        pdf_title        = _REPORT_TITLE,
+        pdf_subtitle     = subtitle,
+        scope_label      = scope_label,
+    )
+
+    errors = bundle["errors"]
+    kpis   = bundle["email_kpis"]
 
     if errors:
         logger.warning(
@@ -211,27 +256,13 @@ def run_report(
         )
 
     # ------------------------------------------------------------------
-    # Build PDF subtitle
-    # ------------------------------------------------------------------
-    scope_str = (
-        f"Scope: {tag_category} = {tag_value}"
-        if tag_category and tag_value
-        else "Scope: All Assets"
-    )
-    subtitle = scope_str
-
-    # ------------------------------------------------------------------
-    # PDF — assembled by composer, rendered by WeasyPrint
+    # PDF — bytes come from bundle["pdf_html"]; WeasyPrint render path
+    # unchanged
     # ------------------------------------------------------------------
     pdf_path: Optional[Path] = None
     try:
-        pdf_html = composer.assemble_pdf(
-            results,
-            title    = _REPORT_TITLE,
-            subtitle = subtitle,
-        )
         pdf_file = output_dir / _PDF_FILENAME
-        _render_pdf(pdf_html, pdf_file)
+        _render_pdf(bundle["pdf_html"], pdf_file)
         pdf_path = pdf_file
         logger.info("board_summary: PDF written → %s", pdf_file)
     except Exception as exc:
@@ -240,17 +271,12 @@ def run_report(
         )
 
     # ------------------------------------------------------------------
-    # Excel — assembled by composer, saved via openpyxl
+    # Excel — workbook comes from bundle["excel_workbook"]; openpyxl
+    # save path unchanged
     # ------------------------------------------------------------------
     excel_path: Optional[Path] = None
     try:
-        wb = openpyxl.Workbook()
-        # Remove the default blank sheet openpyxl creates on Workbook()
-        if wb.worksheets:
-            wb.remove(wb.worksheets[0])
-
-        composer.assemble_excel(results, wb)
-
+        wb         = bundle["excel_workbook"]
         excel_file = output_dir / _EXCEL_FILENAME
         wb.save(str(excel_file))
         excel_path = excel_file
@@ -269,6 +295,10 @@ def run_report(
             "errors":         errors,
             "module_results": {r.module_id: r.metrics for r in results},
         },
+        # NEW in Phase 2 (D-24, COMPOSER-04) — additive keys, do not
+        # mutate any existing key shape:
+        "analyst_excel":    bundle["analyst_workbook_path"],   # Path | None
+        "email_body_html":  bundle["email_body_html"],         # str (panels fragment)
     }
 
 
