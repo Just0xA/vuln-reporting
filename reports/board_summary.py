@@ -337,8 +337,17 @@ def _filter_assets_by_tag(
     Each token is compared exactly after stripping whitespace, so
     ``"Application=Finance"`` will not match ``"Application=FinancePlus"``.
 
-    Returns the full (unfiltered) DataFrame if ``col`` is absent, with a
-    warning logged so callers can detect unexpected schema drift.
+    WR-08 fix — when the tags column is absent from the assets DataFrame,
+    return an EMPTY DataFrame rather than the full (unfiltered) frame.
+    The previous behavior (returning the unfiltered frame with a warning)
+    silently widened scope: a board scoped to ``Environment=Production``
+    that hit a fixture with no tags column would render the entire fleet
+    as if it were Production. This is incompatible with CLAUDE.md's
+    fail-soft semantics, which is about not crashing the batch — NOT
+    about silently mis-scoping a single report. The empty frame causes
+    each module to render a coherent "no data in scope" panel
+    (driver_narrative = "No data in scope.", RAG strip = "—", etc.) so
+    consumers see the correct signal instead of a misleading total.
 
     Parameters
     ----------
@@ -351,15 +360,17 @@ def _filter_assets_by_tag(
     Returns
     -------
     pd.DataFrame
-        Filtered copy, reset-indexed.
+        Filtered copy, reset-indexed. Empty if ``col`` is absent.
     """
     if col not in assets_df.columns:
-        logger.warning(
-            "_filter_assets_by_tag: column %r absent from assets_df — "
-            "returning unfiltered DataFrame.",
-            col,
+        logger.error(
+            "_filter_assets_by_tag: tags column %r absent from assets_df — "
+            "returning EMPTY DataFrame so the report renders 'no data in "
+            "scope' rather than silently widening to all assets. (Tag scope "
+            "requested: %s=%s)",
+            col, tag_category, tag_value,
         )
-        return assets_df
+        return assets_df.iloc[0:0].copy().reset_index(drop=True)
 
     target = f"{tag_category}={tag_value}"
 
