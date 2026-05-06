@@ -82,7 +82,7 @@ Granularity is **coarse**; parallelization is **on**.
 - [x] 03-02-PLAN.md — scan_coverage_sla_module migration end-to-end (higher_is_better) (Wave 2)
 - [x] 03-03-PLAN.md — critical_remediation_sla_module migration end-to-end (higher_is_better, finding-level analyst rows) (Wave 2)
 - [x] 03-04-PLAN.md — high_risk_assets_module migration end-to-end (lower_is_better, contributing_finding_ids join) (Wave 2)
-- [ ] 03-05-PLAN.md — aged_vulns_assets_module migration end-to-end (lower_is_better, single tab + worst_severity column) (Wave 2)
+- [x] 03-05-PLAN.md — aged_vulns_assets_module migration end-to-end (lower_is_better, single tab + worst_severity column) (Wave 2)
 - [ ] 03-06-PLAN.md — Phase 3 regression snapshot extension (QUALITY-02 zero-row coverage) + smoke script real-panel update (Wave 3)
 **UI hint**: no
 
@@ -107,5 +107,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 (with Phases 2 and 3 parall
 |-------|----------------|--------|-----------|
 | 1. Module Render Contract | 3/3 | Complete | 2026-05-05 |
 | 2. ReportComposer Upgrades | 0/TBD | Not started | - |
-| 3. Board Summary Module Migration | 0/6 | Not started | - |
+| 3. Board Summary Module Migration | 5/6 | In progress | - |
 | 4. YAML Config and Regression Cutover | 0/TBD | Not started | - |
