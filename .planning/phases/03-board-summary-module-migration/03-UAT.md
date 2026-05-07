@@ -1,14 +1,14 @@
 ---
-status: diagnosed
+status: complete
 phase: 03-board-summary-module-migration
-source: [03-01-SUMMARY.md, 03-02-SUMMARY.md, 03-03-SUMMARY.md, 03-04-SUMMARY.md, 03-05-SUMMARY.md, 03-06-SUMMARY.md]
+source: [03-01-SUMMARY.md, 03-02-SUMMARY.md, 03-03-SUMMARY.md, 03-04-SUMMARY.md, 03-05-SUMMARY.md, 03-06-SUMMARY.md, 03-07-SUMMARY.md]
 started: 2026-05-06T21:55:00Z
-updated: 2026-05-06T22:15:00Z
+updated: 2026-05-07T05:23:00Z
 ---
 
 ## Current Test
 
-[testing paused — 4 blocked items, 1 issue, all gated on test 2 crash]
+[testing complete — 5 passed, 1 issue (Test 3 RAG-strip layout)]
 
 ## Tests
 
@@ -32,60 +32,103 @@ notes: |
 expected: |
   Run `python run_all.py --group "<your board group>" --no-email` produces a
   PDF, standard Excel, analyst Excel, and reports success in the CLI summary.
-result: issue
-reported: |
-  ValueError: Cannot convert <NA> to Excel at composer.py:1153 in
-  assemble_analyst_workbook → ws.cell(value=val). Status: failed,
-  Reports Generated: none, 1 group(s) failed. Plus 16 pre-existing pandas 3.0
-  ChainedAssignmentError FutureWarnings across 6 files (scan_coverage_sla_module.py:395,
-  board_report_utils.py:449/454/469, high_risk_assets_module.py:267/366/388,
-  aged_vulns_assets_module.py:262/361/385).
-severity: blocker
+result: pass
+notes: |
+  Verified 2026-05-07T05:23Z (post Plan 03-07). Status: success. PDF +
+  standard Excel + analyst Excel all written; zero ValueError; zero
+  ChainedAssignmentError / FutureWarning on stderr.
+prior_run:
+  result: issue
+  severity: blocker
+  reported: |
+    ValueError: Cannot convert <NA> to Excel at composer.py:1153 in
+    assemble_analyst_workbook → ws.cell(value=val). Status: failed,
+    Reports Generated: none, 1 group(s) failed. Plus 16 pre-existing pandas 3.0
+    ChainedAssignmentError FutureWarnings across 6 files (scan_coverage_sla_module.py:395,
+    board_report_utils.py:449/454/469, high_risk_assets_module.py:267/366/388,
+    aged_vulns_assets_module.py:262/361/385).
+  closed_by: |
+    Plan 03-07 (commits 07357ec / 561647a / d17f2a6). pd.isna chokepoint +
+    tzinfo strip in composer.py; .assign() at 3 risk_score sites; .loc[:,]
+    at 7 text-column sites. Regression suite: 11/11 GREEN.
 
 ### 3. PDF page 1: unified RAG-strip cover
 expected: |
   Page 1 unified cover with title + scope + generated + sections + 4 RAG cells.
-result: blocked
-blocked_by: prior-phase
-reason: Test 2 crash prevents PDF generation — no artifact to inspect.
+result: issue
+reported: |
+  The RAG strip is still on a separate page. Also the RAG strip has 4 boxes
+  which is expected, but it currently has 3 on 1 row and then a second row
+  with 1 box. The boxes could be a little smaller to fit into a single row.
+severity: major
+prior_run:
+  result: blocked
+  blocked_by: prior-phase
+  reason: Test 2 crash prevented PDF generation — unblocked by Plan 03-07.
 
 ### 4. Email body: four per-module panels with inline gauges
 expected: |
   Email body has 4 per-module panels with CID-referenced inline gauges + driver
   narratives.
-result: blocked
-blocked_by: prior-phase
-reason: Test 2 crash prevents email body assembly — no artifact to inspect.
+result: pass
+notes: |
+  Verified 2026-05-07T05:23Z. 4 per-module panels render with module display
+  names, inline gauge CIDs, headline values, and driver narratives — the
+  modular bundle path (D-22) is active.
+prior_run:
+  result: blocked
+  blocked_by: prior-phase
+  reason: Test 2 crash prevented email body assembly — unblocked by Plan 03-07.
 
 ### 5. Analyst workbook attachment with four named tabs
 expected: |
   Analyst Excel companion has 4 named tabs with populated drill-down rows;
   accepted/recasted findings excluded from Critical Remediation Detail.
-result: blocked
-blocked_by: prior-phase
-reason: Test 2 crash IS this artifact's assembly path — assemble_analyst_workbook
-  raised ValueError before producing the file. Crash root cause is in this code path.
+result: pass
+notes: |
+  Verified 2026-05-07T05:23Z. 4 named tabs populated with drill-down rows;
+  empty cells (not literal NA/NaT strings) at previously-null positions —
+  pd.isna chokepoint working as designed. BOARD-07 acceptance closed at high
+  confidence (real Tenable data, not synthetic fixtures).
+prior_run:
+  result: blocked
+  blocked_by: prior-phase
+  reason: Test 2 crash WAS this artifact's assembly path — fix landed in 03-07.
 
 ### 6. Empty-data resilience: zero-row scenario produces graceful placeholders
 expected: |
   Empty-tag-filter scenario produces gray no-data cells, em-dash headlines, and
   "No data in scope" placeholders. No crash.
-result: blocked
-blocked_by: prior-phase
-reason: User re-ran the populated "Test Pull" group rather than a no-match filter;
-  reproduced the same Cannot-convert-NA-to-Excel crash. Empty-data branch not
-  exercised separately. Will re-test after blocker fix.
+result: pass
+notes: |
+  Verified 2026-05-07T05:23Z. Zero-row tag filter produced gray "No Data"
+  cells, em-dash headlines, "No data in scope." placeholders. Status:
+  success. QUALITY-02 empty-data hardening confirmed against real Tenable.
+prior_run:
+  result: blocked
+  blocked_by: prior-phase
+  reason: User re-ran the populated "Test Pull" group rather than a no-match filter
+    in the prior pass — empty-data branch was never exercised. Now re-runnable.
 
 ## Summary
 
 total: 6
-passed: 1
+passed: 5
 issues: 1
 pending: 0
 skipped: 0
-blocked: 4
+blocked: 0
 
 ## Gaps
+
+- truth: "Board Summary PDF page 1 is a unified RAG-strip cover with all 4 cells in a single row"
+  status: failed
+  reason: "User reported: The RAG strip is still on a separate page. Also the RAG strip has 4 boxes which is expected, but it currently has 3 on 1 row and then a second row with 1 box. The boxes could be a little smaller to fit into a single row."
+  severity: major
+  test: 3
+  artifacts: []
+  missing: []
+  debug_session: ""
 
 - truth: "Board Summary delivery produces a populated analyst Excel without raising"
   status: failed
