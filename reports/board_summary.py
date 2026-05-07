@@ -300,7 +300,7 @@ def run_report(
             "board_summary: Excel generation failed: %s", exc, exc_info=True
         )
 
-    return {
+    result_dict: dict = {
         "pdf":    pdf_path,
         "excel":  excel_path,
         "charts": [],
@@ -325,6 +325,17 @@ def run_report(
         # metrics["kpis"].
         "email_kpis":       kpis,
     }
+    # _bundle: private key for tests/baseline_utils + smoke_board_summary_cutover.py (Plan 04-04). NOT part of the public contract.
+    # Carries the in-memory composer pipeline output (pdf_html string,
+    # openpyxl Workbook, analyst_workbook_path, email_body_html,
+    # email_inline_images, errors, module_results) so the smoke script
+    # can compute the structural snapshot without re-invoking the
+    # composer or parsing on-disk PDF/Excel back. Leading underscore
+    # signals "internal/diagnostic only"; downstream consumers
+    # (run_all.py, scheduler.py, delivery/email_sender.py) ignore
+    # unknown keys per CLAUDE.md's bundle-driven D-22 routing pattern.
+    result_dict["_bundle"] = bundle
+    return result_dict
 
 
 # ===========================================================================
