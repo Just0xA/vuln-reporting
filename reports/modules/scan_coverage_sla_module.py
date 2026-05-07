@@ -392,7 +392,7 @@ class ScanCoverageSLAModule(BaseModule):
                 # but we apply the guard uniformly for defence-in-depth.
                 for _col in ("hostname", "ipv4", "fqdn", "business_unit"):
                     if _col in analyst_df.columns:
-                        analyst_df[_col] = analyst_df[_col].astype("string").map(
+                        analyst_df.loc[:, _col] = analyst_df[_col].astype("string").map(
                             lambda s: ("'" + s)
                             if isinstance(s, str) and len(s) > 0 and s[:1] in ("=", "+", "-", "@")
                             else s

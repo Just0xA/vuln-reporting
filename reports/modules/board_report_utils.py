@@ -446,12 +446,12 @@ def compute_bu_risk_scores(
         & vulns_df["severity"].str.lower().isin(severities)
     )
     risk_vulns = vulns_df.loc[mask, ["asset_uuid", "severity"]].copy()
-    risk_vulns["severity"] = risk_vulns["severity"].str.lower()
+    risk_vulns.loc[:, "severity"] = risk_vulns["severity"].str.lower()
 
     if risk_vulns.empty:
         return pd.Series(dtype=int)
 
-    risk_vulns["weighted"] = risk_vulns["severity"].map(weights).fillna(0)
+    risk_vulns.loc[:, "weighted"] = risk_vulns["severity"].map(weights).fillna(0)
     asset_scores = risk_vulns.groupby("asset_uuid")["weighted"].sum().astype(int)
 
     bu_map = (
@@ -466,7 +466,15 @@ def compute_bu_risk_scores(
         on="asset_uuid",
         how="left",
     )
-    bu_asset["risk_score"] = bu_asset["risk_score"].fillna(0).astype(int)
+    # F-DTYPE (Plan 03-07 Task 3): use .assign() rather than chained
+    # df[col]= or .loc[:, col]= setters — both alternatives either drop
+    # int dtype (.loc[:, col]= preserves the merge's float64) or fire
+    # ChainedAssignmentError FutureWarning under pandas 3.0 CoW
+    # (df[col]= chains through the merge's tracked parent frame).
+    # .assign() replaces the column on a fresh frame and bypasses both.
+    bu_asset = bu_asset.assign(
+        risk_score=bu_asset["risk_score"].fillna(0).astype(int),
+    )
 
     return bu_asset.groupby("business_unit")["risk_score"].sum()
 

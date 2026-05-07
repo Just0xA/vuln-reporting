@@ -264,7 +264,14 @@ class HighRiskAssetsModule(BaseModule):
                 on="business_unit",
                 how="left",
             )
-            bu_breakdown["risk_score"] = bu_breakdown["risk_score"].fillna(0).astype(int)
+            # F-DTYPE (Plan 03-07 Task 3): use .assign() rather than
+            # df[col]= or .loc[:, col]= setters — see board_report_utils
+            # F-DTYPE comment for rationale. .assign() replaces the
+            # column on a fresh frame; preserves int64 dtype AND avoids
+            # the pandas 3.0 ChainedAssignmentError FutureWarning.
+            bu_breakdown = bu_breakdown.assign(
+                risk_score=bu_breakdown["risk_score"].fillna(0).astype(int),
+            )
             bu_breakdown = bu_breakdown.sort_values(
                 "risk_score", ascending=False,
             ).reset_index(drop=True)
@@ -363,7 +370,7 @@ class HighRiskAssetsModule(BaseModule):
 
                 # T-03-04-02 — CSV-formula injection guard (text columns)
                 for _col in ("hostname", "business_unit", "contributing_finding_ids"):
-                    analyst_df[_col] = analyst_df[_col].astype("string").map(
+                    analyst_df.loc[:, _col] = analyst_df[_col].astype("string").map(
                         lambda s: ("'" + s)
                         if isinstance(s, str) and s[:1] in ("=", "+", "-", "@")
                         else s
@@ -385,7 +392,7 @@ class HighRiskAssetsModule(BaseModule):
                     .size()
                     .rename(columns={"size": "asset_count"})
                 )
-                bu_counts["business_unit"] = (
+                bu_counts.loc[:, "business_unit"] = (
                     bu_counts["business_unit"].fillna("Untagged").replace("", "Untagged")
                 )
                 bu_counts = bu_counts.sort_values(
