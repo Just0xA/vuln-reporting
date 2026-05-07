@@ -8,7 +8,7 @@ updated: 2026-05-07T05:23:00Z
 
 ## Current Test
 
-[testing complete — 5 passed, 1 issue (Test 3 RAG-strip layout)]
+[testing complete — 6/6 passed]
 
 ## Tests
 
@@ -55,16 +55,23 @@ prior_run:
 ### 3. PDF page 1: unified RAG-strip cover
 expected: |
   Page 1 unified cover with title + scope + generated + sections + 4 RAG cells.
-result: issue
-reported: |
-  The RAG strip is still on a separate page. Also the RAG strip has 4 boxes
-  which is expected, but it currently has 3 on 1 row and then a second row
-  with 1 box. The boxes could be a little smaller to fit into a single row.
-severity: major
+result: pass
+notes: |
+  Verified 2026-05-07T06:15Z (post quick-task rag-cell-width-shrink iter-2).
+  All 4 RAG cells in a single row on page 1; strip stays unified with cover.
+  User flagged forward-looking observation: front page is crowded; future
+  cover-page redesign should be template-based on Report Title with
+  "Generated" + "Data Protection Label" relocated to a page footer.
+  Captured as a deferred item (see STATE.md Deferred Items).
 prior_run:
   result: blocked
   blocked_by: prior-phase
   reason: Test 2 crash prevented PDF generation — unblocked by Plan 03-07.
+  iter_1_attempt: |
+    Quick task iter-1 (commit 9b47419) shrunk cells 62mm → 58mm based on
+    theoretical geometry; user UAT confirmed layout unchanged. Iter-2
+    (commit d7ea6d5) used empirical bisect, found 56mm = wrap threshold,
+    pinned 55mm with 1mm safety margin.
 
 ### 4. Email body: four per-module panels with inline gauges
 expected: |
@@ -113,8 +120,8 @@ prior_run:
 ## Summary
 
 total: 6
-passed: 5
-issues: 1
+passed: 6
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -122,7 +129,8 @@ blocked: 0
 ## Gaps
 
 - truth: "Board Summary PDF page 1 is a unified RAG-strip cover with all 4 cells in a single row"
-  status: failed
+  status: closed
+  closed_by: "Quick task `rag-cell-width-shrink` iter-2 (commit d7ea6d5). Empirical bisect found WeasyPrint 65.1 wrap threshold at 56mm; pinned 55mm with 1mm safety margin. UAT Test 3 re-confirmed 2026-05-07T06:15Z."
   reason: "User reported: The RAG strip is still on a separate page. Also the RAG strip has 4 boxes which is expected, but it currently has 3 on 1 row and then a second row with 1 box. The boxes could be a little smaller to fit into a single row."
   severity: major
   test: 3
