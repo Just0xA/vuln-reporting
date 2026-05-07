@@ -110,7 +110,7 @@ None yet. Notable parallelization opportunity: Phases 2 and 3 are independently 
 
 | Date | Slug | Subject | Commits |
 |------|------|---------|---------|
-| 2026-05-07 | rag-cell-width-shrink | Shrink Board Summary RAG cell width 62mm→58mm to defeat WeasyPrint flex rounding (UAT Test 3) | a1584b2, 9b47419 |
+| 2026-05-07 | rag-cell-width-shrink | Shrink Board Summary RAG cell width 62mm→55mm (empirical bisect after iter-1's 58mm proved insufficient) — closes UAT Test 3 | a1584b2, 9b47419, d7ea6d5 |
 
 ## Deferred Items
 
