@@ -1148,9 +1148,36 @@ class ReportComposer:
             for col_idx, col in enumerate(df.columns, start=1):
                 ws.cell(row=1, column=col_idx, value=str(col))
             # Data rows
+            # Gap 03-UAT.md #1 — openpyxl's _bind_value accepts None and
+            # np.nan but raises on pd.NA (StringDtype null) and pd.NaT
+            # (datetime null). All four Phase 3 board modules coerce text
+            # columns through .astype("string") (StringDtype produces
+            # pd.NA, not np.nan) and have nullable Int64 / datetime64
+            # columns. Coerce every pandas-null sentinel to None at this
+            # chokepoint so the analyst workbook renders empty cells
+            # rather than crashing the batch.
+            #
+            # Additionally: openpyxl rejects tz-aware datetimes with
+            # ``TypeError: Excel does not support timezones in datetimes``.
+            # The Phase 3 modules emit ``last_licensed_scan_date`` and
+            # ``last_seen`` as ``datetime64[ns, UTC]`` straight into the
+            # analyst_df. Strip tzinfo at this same chokepoint so openpyxl
+            # writes a naive datetime (Excel has no concept of timezone
+            # so the UTC instant is the only meaningful representation).
+            #
+            # Locked by check_11 in tests/test_phase2_composer_pipeline.py
+            # — committed RED in the prior commit, GREEN at this commit.
             for row_idx, row in enumerate(df.itertuples(index=False), start=2):
                 for col_idx, val in enumerate(row, start=1):
-                    ws.cell(row=row_idx, column=col_idx, value=val)
+                    if pd.isna(val):
+                        cell_value = None
+                    elif isinstance(val, pd.Timestamp) and val.tzinfo is not None:
+                        cell_value = val.tz_convert("UTC").tz_localize(None).to_pydatetime()
+                    elif hasattr(val, "tzinfo") and val.tzinfo is not None:
+                        cell_value = val.replace(tzinfo=None)
+                    else:
+                        cell_value = val
+                    ws.cell(row=row_idx, column=col_idx, value=cell_value)
 
         # _Metadata tab last (D-19)
         _write_analyst_metadata_tab(

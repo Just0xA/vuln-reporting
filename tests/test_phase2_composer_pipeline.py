@@ -696,8 +696,13 @@ def check_11_phase3_analyst_workbook_nullable_dtypes() -> None:
     # values — the same pattern checks 1-6 use.
     composer = _make_composer("scan_coverage_sla")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        out_path = Path(tmp) / "analyst_test_check11.xlsx"
+    # Use a manually-managed temp dir + best-effort cleanup so a Windows
+    # openpyxl-shutdown file-handle race during TemporaryDirectory.__exit__
+    # cannot mask the assertion outcome (check_6 doesn't hit this because
+    # it never re-reads the workbook off disk).
+    tmp = Path(tempfile.mkdtemp(prefix="check11_"))
+    try:
+        out_path = tmp / "analyst_test_check11.xlsx"
         # Mirror the check_6 call shape (line 429-432): results +
         # positional output_path, then keyword-only slug + scope_label.
         result_path = composer.assemble_analyst_workbook(
@@ -713,8 +718,11 @@ def check_11_phase3_analyst_workbook_nullable_dtypes() -> None:
         assert result_path == out_path, f"path mismatch: {result_path} != {out_path}"
         assert result_path.exists(), f"workbook file not written: {result_path}"
 
-        # Assertion 2-6: re-open and inspect.
-        wb = openpyxl.load_workbook(str(result_path))
+        # Assertion 2-6: re-open and inspect via in-memory bytes so
+        # Windows doesn't hold a file lock during cleanup (mirrors
+        # check_4a/4b's BytesIO load pattern).
+        wb_bytes = result_path.read_bytes()
+        wb = openpyxl.load_workbook(io.BytesIO(wb_bytes))
         assert "Scan Coverage Detail" in wb.sheetnames, (
             f"expected sheet 'Scan Coverage Detail' in {wb.sheetnames}"
         )
@@ -754,6 +762,12 @@ def check_11_phase3_analyst_workbook_nullable_dtypes() -> None:
         assert row3[5] is None,       f"row3[5] (business_unit=pd.NA) must be None, got {row3[5]!r}"
 
         wb.close()
+    finally:
+        # Best-effort cleanup. On Windows openpyxl's atexit shutdown
+        # may still hold a transient handle; ignore that — the file is
+        # in the user temp dir and Windows' tempfile sweep collects it.
+        import shutil  # noqa: PLC0415
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ===========================================================================
