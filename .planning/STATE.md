@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 4 Plan 04-01 complete — schema enforcement live; 6/6 regression PASS; Plans 04-02/04-03 unblocked
-stopped_at: "Completed 04-01-PLAN.md"
-last_updated: "2026-05-07T16:45:00.000Z"
-last_activity: 2026-05-07
+status: Phase 4 Plan 04-02 complete — analyst_detail kwarg plumbing + _bundle private key forward; Plan 04-04 unblocked
+stopped_at: "Completed 04-02-PLAN.md"
+last_updated: "2026-05-06T00:00:00.000Z"
+last_activity: 2026-05-06
 progress:
   total_phases: 4
   completed_phases: 3
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-05)
 ## Current Position
 
 Phase: 04 (in progress)
-Plan: 04-01 complete (schema validation + enum reconcile + analyst_detail field); next Wave 2: 04-02 + 04-03 in parallel
-Status: Phase 4 Plan 04-01 complete — schema enforcement live; 6/6 regression PASS; Plans 04-02/04-03 unblocked
-Last activity: 2026-05-07
+Plan: 04-02 complete (analyst_detail kwarg + run_group dispatch + composer-level smoke + _bundle forward); Wave 2 partial — 04-03 still pending
+Status: Phase 4 Plan 04-02 complete — analyst_detail kwarg plumbing + _bundle private key forward; Plan 04-04 unblocked
+Last activity: 2026-05-06
 
 Progress: [█████████░] 96% (Phase 3 fully closed; Phase 4 Plan 04-01 complete; 3 of 4 Phase 4 plans remaining)
 
@@ -102,6 +102,9 @@ Recent decisions affecting current work:
 - Plan 04-01 (D-04-03): analyst_detail default-true semantics live in Python via dict.get('analyst_detail', True); schema's `default: true` is informational only — jsonschema 4.x does NOT auto-inject defaults
 - Plan 04-01: _dry_run() extended to surface whole-config schema errors directly so dry-run exits non-zero AND prints the field path even when _load_config() returns []
 - Plan 04-01: ASCII 'x' bullet substituted for ✗ in schema-error block — Windows cp1252 console UnicodeEncodeError fix; pre-existing per-group ✗ left as-is until exercised under cp1252
+- Plan 04-02: Slug-specific kwarg dispatch in run_all.py:run_group() chosen over generic option-pass-through (mirrors existing vuln_export / unscanned_assets one-line pattern); future module-composed reports (e.g. management_summary per D-25) reuse the same shape
+- Plan 04-02: `_bundle` as a leading-underscore PRIVATE return-dict key (NOT promotion to public contract); public keys (pdf, excel, charts, metrics, analyst_excel, email_body_html, email_inline_images, email_kpis) unchanged in shape and value; downstream consumers ignore unknown keys per CLAUDE.md D-22 routing pattern
+- Plan 04-02: Composer-level smoke test (using actual Phase 2 _make_composer / _make_results helpers) over end-to-end run_report test — empty fixtures suffice because the analyst_detail toggle's effect is binary regardless of data volume
 
 ### Pending Todos
 
@@ -127,7 +130,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-07T06:15:00.000Z
-Stopped at: Phase 03 UAT closed at 6/6 — board-summary-module-migration ships clean. Cover-page redesign captured as a deferred item for a future milestone. Phase 4 (YAML Config and Regression Cutover) is the next planning target.
-Resume file: .planning/ROADMAP.md (Phase 4 not yet planned)
-Next command: /gsd-plan-phase 4 (begin Phase 4 planning) OR /gsd-context-phase 4 (gather context first)
+Last session: 2026-05-06T00:00:00.000Z
+Stopped at: Phase 4 Plan 04-02 complete — analyst_detail kwarg plumbing landed in 4 atomic commits (fdd3b25, 9d947ca, c16e4c3, 0a4fe8c); composer-level binary contract test green; _bundle private key forward unblocks Plan 04-04 structural-snapshot extractor.
+Resume file: .planning/phases/04-yaml-config-and-regression-cutover/04-03-PLAN.md (Wave 2 partner — independent of 04-02; can ship next)
+Next command: /gsd-execute-phase 4 (execute 04-03, then 04-04)
