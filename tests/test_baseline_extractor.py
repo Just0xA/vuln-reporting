@@ -82,7 +82,14 @@ def _build_pdf_html_n_pages(n_pages: int, *, all_no_data: bool = False) -> str:
     has the "Risk Status Summary" header and 4 RAG cells (matching the
     production board_summary cover); module pages each have a body div.
     """
-    rag_color = "#cccccc" if all_no_data else "#22aa55"
+    # Use the actual STATUS_COLOR['no_data'] sentinel so the extractor's
+    # rag_cells_all_no_data detector matches against the real color.
+    try:
+        from reports.modules.rag_utils import STATUS_COLOR
+        no_data_color = STATUS_COLOR.get("no_data", "#cccccc")
+    except Exception:
+        no_data_color = "#cccccc"
+    rag_color = no_data_color if all_no_data else "#22aa55"
     rag_cells = (
         f'<div class="rag-cell" style="background-color: {rag_color}"></div>'
         * 4
