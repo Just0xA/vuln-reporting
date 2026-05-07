@@ -622,6 +622,140 @@ def check_10_phase3_bundle_email_inline_images_key() -> None:
     assert entries == [], f"empty results -> empty entries; got {entries!r}"
 
 
+def check_11_phase3_analyst_workbook_nullable_dtypes() -> None:
+    """
+    Gap 03-UAT.md #1 (BLOCKER) regression lock — committed RED on this
+    commit; goes GREEN when composer.py:1153 is fixed in the next commit.
+
+    composer.assemble_analyst_workbook() previously crashed with
+    ``ValueError: Cannot convert <NA> to Excel`` at composer.py:1153
+    when the cell value was ``pd.NA`` (StringDtype null) or ``pd.NaT``
+    (datetime null). The Phase 2 + Phase 3 fixtures all use synthetic
+    non-null DataFrames so the bug only reproduced against real Tenable
+    data — this check fabricates a DataFrame whose dtypes match what the
+    four migrated board modules actually emit and asserts the workbook
+    is written without raising.
+
+    Test-first commit ordering: this check is committed BEFORE the fix.
+    The Task 1 commit produces 10/11 PASSED, 1 FAILED with the failure
+    message containing "Cannot convert <NA>". The Task 2 commit applies
+    the pd.isna chokepoint and turns the suite GREEN (11/11). The diff
+    between those two commits IS the automatic negative control — proves
+    the test exercises the regression class.
+
+    Asserts (in order):
+      1. assemble_analyst_workbook returns a real Path (not None) when
+         the input DataFrame has at least one populated row, regardless
+         of how many cells in that row are pandas-null sentinels.
+      2. The resulting workbook re-opens cleanly with openpyxl.
+      3. Header row matches input column names.
+      4. Row count = 1 header + len(input_df) data rows.
+      5. Every previously-pd.NA / pd.NaT cell rendered as `None`
+         (openpyxl's empty-cell representation).
+      6. Non-null cells round-trip with their original value.
+    """
+    import pandas as pd                                # noqa: PLC0415
+    from pathlib import Path                           # noqa: PLC0415
+    from reports.modules.base import ModuleData       # noqa: PLC0415
+
+    # Mirror the actual emit shape of scan_coverage_sla_module's
+    # analyst_df: StringDtype text cols + nullable Int64 days col +
+    # tz-aware datetime col. Two rows: one fully populated, one with
+    # one null per nullable column type. NOT a full row of nulls — we
+    # want to prove every nullable dtype is handled, not test a
+    # zero-row case (check_8 already covers zero-row).
+    analyst_df = pd.DataFrame({
+        "hostname":                  pd.array(["host-a", pd.NA],     dtype="string"),
+        "ipv4":                      pd.array(["10.0.0.1", pd.NA],   dtype="string"),
+        "fqdn":                      pd.array([pd.NA, "host-b.lan"], dtype="string"),
+        "last_licensed_scan_date":   pd.to_datetime(
+            ["2026-04-15T12:00:00Z", None], utc=True, errors="coerce",
+        ),
+        "days_since_licensed_scan":  pd.array([21, pd.NA], dtype="Int64"),
+        "business_unit":             pd.array(["Finance", pd.NA],    dtype="string"),
+    })
+
+    # Build a single-module ModuleData carrying that DataFrame.
+    md = ModuleData(
+        module_id        = "scan_coverage_sla",
+        display_name     = "Scan Coverage SLA",
+        metrics          = {"scan_coverage_pct": 80.0, "status": "yellow"},
+        table_data       = {},
+        chart_data       = {},
+        summary_text     = "",
+        metadata         = {"email_gauge_b64": ""},
+        error            = None,
+        driver_narrative = "Test driver for nullable-dtype regression.",
+        analyst_rows     = [("Scan Coverage Detail", analyst_df)],
+        rag_strip        = {},
+    )
+
+    # Use the existing _make_composer helper at line 162. This passes
+    # all four required ReportComposer constructor args (vulns_df,
+    # assets_df, report_date, module_configs) with frozen synthetic
+    # values — the same pattern checks 1-6 use.
+    composer = _make_composer("scan_coverage_sla")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = Path(tmp) / "analyst_test_check11.xlsx"
+        # Mirror the check_6 call shape (line 429-432): results +
+        # positional output_path, then keyword-only slug + scope_label.
+        result_path = composer.assemble_analyst_workbook(
+            [md], out_path,
+            slug="test_check11", scope_label="All Assets",
+        )
+
+        # Assertion 1: returned a real Path (would be None only if
+        # every analyst_rows entry was empty — ours has 2 data rows).
+        assert result_path is not None, (
+            "assemble_analyst_workbook returned None despite 2-row DataFrame"
+        )
+        assert result_path == out_path, f"path mismatch: {result_path} != {out_path}"
+        assert result_path.exists(), f"workbook file not written: {result_path}"
+
+        # Assertion 2-6: re-open and inspect.
+        wb = openpyxl.load_workbook(str(result_path))
+        assert "Scan Coverage Detail" in wb.sheetnames, (
+            f"expected sheet 'Scan Coverage Detail' in {wb.sheetnames}"
+        )
+        ws = wb["Scan Coverage Detail"]
+
+        # Header row matches input columns
+        header_row = [c.value for c in ws[1]]
+        assert header_row == list(analyst_df.columns), (
+            f"header row mismatch: got {header_row!r} vs {list(analyst_df.columns)!r}"
+        )
+
+        # Total rows = 1 header + 2 data rows
+        assert ws.max_row == 1 + len(analyst_df), (
+            f"row count mismatch: ws.max_row={ws.max_row}, expected {1 + len(analyst_df)}"
+        )
+
+        # Row 2 = first input row (all populated except fqdn=pd.NA)
+        row2 = [c.value for c in ws[2]]
+        assert row2[0] == "host-a",   f"row2[0] (hostname): expected 'host-a', got {row2[0]!r}"
+        assert row2[1] == "10.0.0.1", f"row2[1] (ipv4): expected '10.0.0.1', got {row2[1]!r}"
+        assert row2[2] is None,       f"row2[2] (fqdn=pd.NA) must be None, got {row2[2]!r}"
+        # row2[3] is the populated datetime — openpyxl stores as datetime/string;
+        # assert it is non-None and not the literal sentinel string.
+        assert row2[3] is not None,   f"row2[3] (populated date) must not be None, got {row2[3]!r}"
+        assert "<NA>" not in str(row2[3]), f"row2[3] leaked NA sentinel: {row2[3]!r}"
+        assert "NaT"  not in str(row2[3]), f"row2[3] leaked NaT sentinel: {row2[3]!r}"
+        assert row2[4] == 21,         f"row2[4] (days_since_licensed_scan): expected 21, got {row2[4]!r}"
+        assert row2[5] == "Finance",  f"row2[5] (business_unit): expected 'Finance', got {row2[5]!r}"
+
+        # Row 3 = second input row (mostly null sentinels)
+        row3 = [c.value for c in ws[3]]
+        assert row3[0] is None,       f"row3[0] (hostname=pd.NA) must be None, got {row3[0]!r}"
+        assert row3[1] is None,       f"row3[1] (ipv4=pd.NA) must be None, got {row3[1]!r}"
+        assert row3[2] == "host-b.lan", f"row3[2] (populated fqdn): expected 'host-b.lan', got {row3[2]!r}"
+        assert row3[3] is None,       f"row3[3] (last_licensed_scan_date=NaT) must be None, got {row3[3]!r}"
+        assert row3[4] is None,       f"row3[4] (days_since_licensed_scan=pd.NA Int64) must be None, got {row3[4]!r}"
+        assert row3[5] is None,       f"row3[5] (business_unit=pd.NA) must be None, got {row3[5]!r}"
+
+        wb.close()
+
+
 # ===========================================================================
 # Driver
 # ===========================================================================
@@ -637,6 +771,7 @@ CHECKS = [
     ("Phase3 QUALITY-02 zero-row render methods",      check_8_phase3_zero_row_render_methods),
     ("Phase3 populated render methods",                check_9_phase3_populated_render_methods),
     ("Phase3 bundle email_inline_images key",          check_10_phase3_bundle_email_inline_images_key),
+    ("Gap 03-07 analyst workbook nullable dtypes",     check_11_phase3_analyst_workbook_nullable_dtypes),
 ]
 
 
