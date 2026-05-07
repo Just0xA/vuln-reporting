@@ -162,6 +162,19 @@ def _load_config(config_path: Optional[Path] = None) -> list[dict]:
         logger.error("delivery_config.yaml: root must be a mapping")
         return []
 
+    # Phase 4 (CONFIG-02 / D-04-02): single-source-of-truth schema validation.
+    # Misconfiguration must fail loud at startup, not silently at run time.
+    try:
+        schema = _load_schema()
+    except (FileNotFoundError, yaml.YAMLError) as exc:
+        logger.error("delivery_config.schema.yaml load failed: %s", exc)
+        return []
+    errors = _validate_with_schema(raw, schema)
+    if errors:
+        for err in errors:
+            logger.error("config validation: %s", err)
+        return []
+
     groups = raw.get("groups")
     if not isinstance(groups, list):
         logger.error("delivery_config.yaml: 'groups' key must be a list")
@@ -342,6 +355,25 @@ def _dry_run(groups: list[dict]) -> int:
         console.print(
             f"\n[bold red]Missing .env variables:[/bold red] {', '.join(missing_env)}\n"
         )
+
+    # Surface schema errors at the whole-config level: when _load_config()
+    # rejects the file, *groups* is []. Re-read the raw YAML directly here
+    # so we can display the schema errors AND exit non-zero (CONFIG-02).
+    config_path = ROOT_DIR / "delivery_config.yaml"
+    if config_path.exists():
+        try:
+            with open(config_path, encoding="utf-8") as fh:
+                raw = yaml.safe_load(fh)
+            if isinstance(raw, dict):
+                schema_errors = _validate_with_schema(raw, schema)
+                if schema_errors:
+                    any_errors = True
+                    console.print("\n[bold red]Schema validation errors:[/bold red]")
+                    for err in schema_errors:
+                        console.print(f"  [red]x {err}[/red]")
+        except yaml.YAMLError as exc:
+            any_errors = True
+            console.print(f"\n[bold red]YAML parse error:[/bold red] {exc}")
 
     tbl = Table(
         title="Delivery Config — Dry Run Validation",
