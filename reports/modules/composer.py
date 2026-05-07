@@ -296,11 +296,15 @@ _PDF_CSS = """
        basis values and falls back to shrink-to-content when it
        can't, leaving cells sized to label width.
        Page geometry (A4 landscape, @page margin 12mm both sides):
-         content width = 273mm; 4 cells × 62mm + 3 gaps × 4mm = 260mm;
-         13mm total horizontal gutter (6.5mm each side) — visually
-         centered. */
-    flex: 0 0 62mm;
-    width: 62mm;
+         content width = 273mm; 4 cells × 58mm + 3 gaps × 4mm = 244mm;
+         29mm total horizontal gutter (14.5mm each side) — visually
+         centered. Width was 62mm prior to 2026-05-07; 13mm slack got
+         consumed by WeasyPrint flex rounding (border subpixels +
+         gap over-allocation) and the 4th cell dropped to row 2,
+         which doubled strip height and evicted the strip to page 2.
+         Shrunk to 58mm so 29mm slack dwarfs the rounding error. */
+    flex: 0 0 58mm;
+    width: 58mm;
     min-height: 55mm;
     box-sizing: border-box;
     display: flex;
