@@ -1,9 +1,9 @@
 ---
-status: partial
+status: diagnosed
 phase: 03-board-summary-module-migration
 source: [03-01-SUMMARY.md, 03-02-SUMMARY.md, 03-03-SUMMARY.md, 03-04-SUMMARY.md, 03-05-SUMMARY.md, 03-06-SUMMARY.md]
 started: 2026-05-06T21:55:00Z
-updated: 2026-05-06T22:10:00Z
+updated: 2026-05-06T22:15:00Z
 ---
 
 ## Current Test
@@ -92,13 +92,34 @@ blocked: 4
   reason: "User reported: ValueError: Cannot convert <NA> to Excel at composer.py:1153 in assemble_analyst_workbook → ws.cell(value=val). Status: failed, Reports Generated: none, 1 group(s) failed."
   severity: blocker
   test: 2
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "composer.py:1151-1153 writes DataFrame cells directly to openpyxl without coercing pandas null sentinels. openpyxl's _bind_value accepts None and np.nan but explicitly raises on pd.NA (StringDtype null) and pd.NaT (datetime null). All four board modules coerce text columns through .astype('string') (StringDtype produces pd.NA, not np.nan); Int64 days-* columns also carry pd.NA; remediation due_date / last_licensed_scan_date carry pd.NaT. None reproduces in fixtures because regression suite uses synthetic non-null DataFrames."
+  artifacts:
+    - path: "reports/modules/composer.py"
+      issue: "lines 1151-1153 write pd.NA / pd.NaT directly to openpyxl without coercion"
+    - path: "reports/modules/scan_coverage_sla_module.py"
+      issue: "lines 393-399 .astype('string') produces pd.NA on null hostname/ipv4/fqdn/business_unit"
+    - path: "reports/modules/critical_remediation_sla_module.py"
+      issue: "lines 353-359 .astype('string') on asset/plugin/owner_tag"
+    - path: "reports/modules/high_risk_assets_module.py"
+      issue: "lines 365-370 .astype('string') on hostname/business_unit/contributing_finding_ids"
+    - path: "reports/modules/aged_vulns_assets_module.py"
+      issue: "lines 360-365 .astype('string') on hostname/business_unit/contributing_plugins/worst_severity"
+  missing:
+    - "Coerce pd.isna(val) → None at composer.py:1151-1153 before ws.cell(value=val) (single chokepoint covers all 4 modules + future modules)"
+    - "Add regression fixture in tests/test_phase2_composer_pipeline.py with pd.NA in StringDtype col + pd.NaT in datetime col + pd.NA in Int64 col; assert assemble_analyst_workbook returns a path without raising"
+  debug_session: "in-memory (gsd-debugger agent a0cedc164009c042a)"
 
 - truth: "Phase 3 modules use pandas-3.0-safe assignment patterns (no chained assignment)"
   status: failed
   reason: "User reported: 16 pre-existing pandas 3.0 ChainedAssignmentError FutureWarnings across 6 files: scan_coverage_sla_module.py:395, board_report_utils.py:449/454/469, high_risk_assets_module.py:267/366/388, aged_vulns_assets_module.py:262/361/385. Pattern: `df[col] = df[col].something(...)` after a slice — won't work under pandas 3.0 Copy-on-Write."
   severity: minor
   test: 2
-  artifacts: []  # Filled by diagnosis
-  missing: []    # Filled by diagnosis
+  root_cause: "Pre-existing tech debt — chained assignment on slice copies that pandas 2.x tolerates but pandas 3.0 Copy-on-Write breaks. Not introduced by Phase 3 fixes; surfaces in Phase 3 modules because they're the most heavily exercised."
+  artifacts:
+    - path: "reports/modules/scan_coverage_sla_module.py:395"
+    - path: "reports/modules/board_report_utils.py:449,454,469"
+    - path: "reports/modules/high_risk_assets_module.py:267,366,388"
+    - path: "reports/modules/aged_vulns_assets_module.py:262,361,385"
+  missing:
+    - "Replace chained assignment with .loc[:, col] = ... pattern at the 11 cited lines"
+  debug_session: ""
