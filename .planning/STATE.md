@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 3 UAT closed clean — 6/6 passed; ready for Phase 4 planning
-stopped_at: Phase 03 UAT 6/6 — quick-task rag-cell-width-shrink closed Test 3 (cover-page layout); 11/11 regression suite green
-last_updated: "2026-05-07T03:11:00.000Z"
-last_activity: 2026-05-06
+status: Phase 4 Plan 04-01 complete — schema enforcement live; 6/6 regression PASS; Plans 04-02/04-03 unblocked
+stopped_at: "Completed 04-01-PLAN.md"
+last_updated: "2026-05-07T16:45:00.000Z"
+last_activity: 2026-05-07
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 16
+  completed_plans: 16
   percent: 100
 ---
 
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-05-05)
 
 ## Current Position
 
-Phase: 04 (next — not yet started)
-Plan: Phase 03 closed at 6/6 UAT; Phase 4 not yet started
-Status: Phase 03 UAT closed clean — 6/6 passed; ready for Phase 4 planning
+Phase: 04 (in progress)
+Plan: 04-01 complete (schema validation + enum reconcile + analyst_detail field); next Wave 2: 04-02 + 04-03 in parallel
+Status: Phase 4 Plan 04-01 complete — schema enforcement live; 6/6 regression PASS; Plans 04-02/04-03 unblocked
 Last activity: 2026-05-07
 
-Progress: [█████████░] 95% (Phase 3 fully closed incl. 03-07 gap closure + rag-cell-width-shrink quick task; Phase 4 not yet planned)
+Progress: [█████████░] 96% (Phase 3 fully closed; Phase 4 Plan 04-01 complete; 3 of 4 Phase 4 plans remaining)
 
 **Phase 1 plans (all complete):**
 
@@ -97,6 +97,11 @@ Recent decisions affecting current work:
 - Plan 03-07: pd.isna chokepoint at composer.py:1153 (single coercion covers all 4 modules + future modules) + tzinfo strip (composer rejects tz-aware datetimes — surfaced as second BLOCKER when first was fixed; both required to ship)
 - Plan 03-07: F-DTYPE resolution via .assign() — both `df[col]=` and `.loc[:, col]=` patterns failed (CoW warning OR float64 dtype drift); .assign() was the only pattern preserving int64 risk_score AND zero ChainedAssignmentError warnings at 3 sites (board_report_utils:469, high_risk:267, aged_vulns:262)
 - Plan 03-07: critical_remediation_sla_module.py intentionally NOT touched — not cited as gap source in 03-UAT.md, no chained-setter pattern present
+- Plan 04-01 (D-04-01): Wave-0 enum reconcile MUST land before schema enforcement; otherwise the deployed Test Pull (board_summary) group bricks on first commit
+- Plan 04-01 (D-04-02): Single source of truth — _validate_group() body REPLACED with jsonschema-backed shim (no defense-in-depth alongside hand-rolled checks; two validators inevitably drift)
+- Plan 04-01 (D-04-03): analyst_detail default-true semantics live in Python via dict.get('analyst_detail', True); schema's `default: true` is informational only — jsonschema 4.x does NOT auto-inject defaults
+- Plan 04-01: _dry_run() extended to surface whole-config schema errors directly so dry-run exits non-zero AND prints the field path even when _load_config() returns []
+- Plan 04-01: ASCII 'x' bullet substituted for ✗ in schema-error block — Windows cp1252 console UnicodeEncodeError fix; pre-existing per-group ✗ left as-is until exercised under cp1252
 
 ### Pending Todos
 
