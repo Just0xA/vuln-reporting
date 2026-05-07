@@ -88,6 +88,7 @@ def run_report(
     output_dir:   Optional[Path] = None,
     generated_at: Optional[datetime] = None,
     cache_dir:    Optional[Path] = None,
+    analyst_detail: bool = True,
 ) -> dict:
     """
     Generate the Board Vulnerability Metrics Summary.
@@ -115,6 +116,16 @@ def run_report(
         UTC-aware report timestamp.  Defaults to UTC now.
     cache_dir : Path, optional
         Parquet cache directory.  Defaults to today's ``CACHE_DIR`` subfolder.
+    analyst_detail : bool, default True
+        When True (default), the analyst-detail companion workbook is
+        generated and returned in the bundle as ``analyst_workbook_path``,
+        and exposed in this report's return dict as ``analyst_excel``.
+        When False (Phase 4 CONFIG-03 / D-04-03 opt-out), the composer
+        short-circuits the analyst workbook entirely — the file is not
+        written to disk, ``analyst_workbook_path`` is ``None``, and the
+        return dict's ``analyst_excel`` is ``None``. The bundle-driven
+        attach in ``delivery/email_sender.py`` then silently skips the
+        attachment.
 
     Returns
     -------
@@ -244,7 +255,7 @@ def run_report(
         output_dir,
         slug             = "board_summary",
         report_date      = generated_at,
-        generate_analyst = True,             # Phase 4 (CONFIG-03) wires the YAML opt-out (D-25)
+        generate_analyst = analyst_detail,    # Phase 4 (CONFIG-03 / D-04-03): YAML-driven opt-out
         pdf_title        = _REPORT_TITLE,
         pdf_subtitle     = subtitle,
         scope_label      = scope_label,
