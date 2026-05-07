@@ -67,6 +67,8 @@ definitions:
             - ops_remediation
             - management_summary
             - vuln_export
+            - board_summary
+            - unscanned_assets
 
       csv_severities:
         type: array
