@@ -99,6 +99,16 @@ definitions:
       email:
         $ref: "#/definitions/email"
 
+      analyst_detail:
+        type: boolean
+        description: |
+          Optional opt-out for the analyst-detail companion workbook on
+          module-composed reports (board_summary, management_summary).
+          Defaults to true when omitted. Set to false when the recipient
+          group should receive only the PDF, standard Excel, and email
+          panels — no analyst drill-down workbook.
+        default: true
+
   # -------------------------------------------------------------------------
   schedule:
     type: object
