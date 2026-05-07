@@ -295,16 +295,30 @@ _PDF_CSS = """
        implementation does not always resolve mixed % / mm calc()
        basis values and falls back to shrink-to-content when it
        can't, leaving cells sized to label width.
+
+       Width was 62mm pre-2026-05-07. The first attempted shrink to
+       58mm (4 × 58 + 3 × 4 = 244mm in 273mm; 29mm slack on paper)
+       STILL wrapped 3+1 in WeasyPrint 65.1, even though 29mm should
+       have been more than enough. Empirical bisect on real renders:
+         55mm → fits in single row
+         56mm → fits in single row (last value that fits)
+         57mm → wraps to 3+1
+         58mm → wraps to 3+1 (matches the original UAT report)
+         62mm → wraps to 3+1 (the unrelased state pre-fix)
+       So WeasyPrint consumes ~33-37mm of *phantom* space beyond the
+       4 × cell + 3 × gap math. Likely cause: a known flex `gap`
+       accounting issue in weasyprint 65.x where gap is double-counted
+       or treated as having an extra trailing edge. Issue tracked
+       upstream; pinning a width with comfortable headroom is the
+       pragmatic fix.
+
        Page geometry (A4 landscape, @page margin 12mm both sides):
-         content width = 273mm; 4 cells × 58mm + 3 gaps × 4mm = 244mm;
-         29mm total horizontal gutter (14.5mm each side) — visually
-         centered. Width was 62mm prior to 2026-05-07; 13mm slack got
-         consumed by WeasyPrint flex rounding (border subpixels +
-         gap over-allocation) and the 4th cell dropped to row 2,
-         which doubled strip height and evicted the strip to page 2.
-         Shrunk to 58mm so 29mm slack dwarfs the rounding error. */
-    flex: 0 0 58mm;
-    width: 58mm;
+         content width = 273mm; 4 cells × 55mm + 3 gaps × 4mm = 232mm
+         on paper; verified in real render to leave a single-row
+         layout with the 4th cell on row 1. 1mm safety margin below
+         the empirical 56mm threshold. */
+    flex: 0 0 55mm;
+    width: 55mm;
     min-height: 55mm;
     box-sizing: border-box;
     display: flex;
