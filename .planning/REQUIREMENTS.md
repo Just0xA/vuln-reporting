@@ -46,7 +46,7 @@ Recipient groups can opt out of the analyst companion; misconfigured YAML fails 
 
 - [x] **CONFIG-01**: `delivery_config.schema.yaml` extended with an optional per-group `analyst_detail: boolean` field that defaults to `true` when omitted
 - [x] **CONFIG-02**: `run_all.py` and `scheduler.py` startup paths parse `delivery_config.yaml` against the JSON schema using the `jsonschema` library; misconfigured YAML exits with a clear error message naming the offending group and field
-- [ ] **CONFIG-03**: When `analyst_detail: false` is set on a recipient group, that group's `board_summary` delivery omits the analyst companion workbook (PDF + standard Excel + email panels still ship)
+- [x] **CONFIG-03**: When `analyst_detail: false` is set on a recipient group, that group's `board_summary` delivery omits the analyst companion workbook (PDF + standard Excel + email panels still ship)
 - [ ] **CONFIG-04**: A documented example group in `delivery_config.yaml` shows the `analyst_detail: false` opt-out so future groups can copy-paste
 
 ### Empty-Data Hardening (QUALITY)
@@ -121,7 +121,7 @@ Explicitly excluded from v1. Recorded so they don't drift back in mid-milestone.
 | BOARD-08 | Phase 4 | Pending |
 | CONFIG-01 | Phase 4 | Validated |
 | CONFIG-02 | Phase 4 | Validated |
-| CONFIG-03 | Phase 4 | Pending |
+| CONFIG-03 | Phase 4 | Validated |
 | CONFIG-04 | Phase 4 | Pending |
 | QUALITY-01 | Phase 1 | Validated |
 | QUALITY-02 | Phase 3 | Pending |
