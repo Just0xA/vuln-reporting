@@ -108,4 +108,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 (with Phases 2 and 3 parall
 | 1. Module Render Contract | 3/3 | Complete | 2026-05-05 |
 | 2. ReportComposer Upgrades | 5/5 | Complete | 2026-05-06 |
 | 3. Board Summary Module Migration | 6/6 | Complete | 2026-05-06 |
-| 4. YAML Config and Regression Cutover | 0/TBD | Not started | - |
+| 4. YAML Config and Regression Cutover | 1/4 | In progress | - |
