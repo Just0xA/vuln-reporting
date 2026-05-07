@@ -46,6 +46,7 @@ from typing import Optional
 
 import yaml
 from dotenv import load_dotenv
+from jsonschema import Draft7Validator
 from rich import box
 from rich.console import Console
 from rich.table import Table
@@ -128,6 +129,8 @@ _STATUS_STYLE: dict[str, str] = {
     "partial": "bold yellow",
     "failed":  "bold red",
 }
+
+_SCHEMA_PATH: Path = ROOT_DIR / "delivery_config.schema.yaml"
 
 
 # ===========================================================================
@@ -238,84 +241,87 @@ def _is_due(group_config: dict, now: datetime, window_minutes: int = 10) -> bool
 # Config validation (used by --dry-run)
 # ===========================================================================
 
-def _validate_group(group: dict) -> list[str]:
+def _format_error_path(err, raw: dict) -> str:
+    """
+    Render a jsonschema ValidationError into
+    ``[group_name] groups[N].<path>: <message>`` shape.
+
+    The ``[group_name]`` prefix is added whenever the error path starts
+    with ``groups[N]`` and the indexed group has a ``name`` field.
+    Top-level errors (e.g. missing ``groups`` key) get no prefix.
+    """
+    parts: list[str] = []
+    for p in err.absolute_path:
+        if isinstance(p, int):
+            parts.append(f"[{p}]")
+        else:
+            parts.append(f".{p}" if parts else str(p))
+    path = "".join(parts) or "<root>"
+
+    group_name = ""
+    try:
+        ap = list(err.absolute_path)
+        if len(ap) >= 2 and ap[0] == "groups":
+            group_name = raw["groups"][ap[1]].get("name", "") or ""
+    except (KeyError, IndexError, TypeError, AttributeError):
+        pass
+
+    prefix = f"[{group_name}] " if group_name else ""
+    return f"{prefix}{path}: {err.message}"
+
+
+def _load_schema() -> dict:
+    """Load delivery_config.schema.yaml as a Python dict."""
+    with open(_SCHEMA_PATH, encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
+def _validate_with_schema(raw: dict, schema: dict) -> list[str]:
+    """
+    Validate *raw* against *schema* using jsonschema's Draft 7 validator
+    with the standard format checker (catches malformed emails etc.).
+
+    Returns a list of human-readable error strings; an empty list means
+    the input is valid.  This is the single source of truth for delivery
+    config validation (D-04-02).
+    """
+    validator = Draft7Validator(schema, format_checker=Draft7Validator.FORMAT_CHECKER)
+    return [
+        _format_error_path(err, raw)
+        for err in sorted(validator.iter_errors(raw), key=lambda e: list(e.absolute_path))
+    ]
+
+
+def _validate_group(group: dict, *, _schema: Optional[dict] = None) -> list[str]:
     """
     Validate a single group config entry.
 
-    Returns a list of human-readable error strings.  An empty list means the
-    group is valid.
+    Bug-for-bug compat note: the legacy signature accepted a single
+    group dict and returned ``list[str]``.  The new body wraps the
+    group in a synthetic ``{"groups": [group]}`` envelope so the
+    schema's group-level rules apply, then strips the ``groups[0].``
+    prefix from each error so the per-group rich-table dry-run UX
+    renders the same shape it always has.
+
+    The schema (delivery_config.schema.yaml) is the single source of
+    truth (D-04-02) — no hand-rolled per-field validation lives here.
     """
-    errors: list[str] = []
-
-    if not group.get("name"):
-        errors.append("Missing required field: 'name'")
-
-    schedule = group.get("schedule") or {}
-    frequency = schedule.get("frequency")
-    if frequency not in _VALID_FREQUENCIES:
-        errors.append(
-            f"schedule.frequency must be one of {sorted(_VALID_FREQUENCIES)}, "
-            f"got: {frequency!r}"
-        )
-    elif frequency == "weekly":
-        day = str(schedule.get("day_of_week", "")).lower().strip()
-        if day not in _VALID_DAYS:
-            errors.append(f"schedule.day_of_week invalid: {day!r}")
-        if not schedule.get("time"):
-            errors.append("schedule.time is required when frequency is 'weekly'")
+    schema = _schema if _schema is not None else _load_schema()
+    raw = {"groups": [group]}
+    errors = _validate_with_schema(raw, schema)
+    cleaned: list[str] = []
+    for e in errors:
+        # e.g. "[Test Pull] groups[0].schedule.frequency: 'weeky' is not ..."
+        # → "schedule.frequency: 'weeky' is not ..."
+        if "] groups[0]." in e:
+            cleaned.append(e.split("] groups[0].", 1)[1])
+        elif e.startswith("groups[0]."):
+            cleaned.append(e[len("groups[0]."):])
+        elif "groups[0]." in e:
+            cleaned.append(e.split("groups[0].", 1)[1])
         else:
-            try:
-                parts = str(schedule["time"]).split(":")
-                if len(parts) != 2:
-                    raise ValueError
-                int(parts[0]); int(parts[1])
-            except (ValueError, AttributeError):
-                errors.append(
-                    f"schedule.time must be HH:MM format, got: {schedule['time']!r}"
-                )
-    elif frequency == "monthly":
-        dom_raw = schedule.get("day_of_month")
-        if dom_raw is None:
-            errors.append(
-                "schedule.day_of_month is required when frequency is 'monthly'"
-            )
-        else:
-            try:
-                dom = int(dom_raw)
-                if not (1 <= dom <= 28):
-                    raise ValueError(f"value {dom} is outside the allowed range 1–28")
-            except (ValueError, TypeError):
-                errors.append(
-                    f"schedule.day_of_month must be an integer between 1 and 28, "
-                    f"got: {dom_raw!r}"
-                )
-        if not schedule.get("time"):
-            errors.append("schedule.time is required when frequency is 'monthly'")
-        else:
-            try:
-                parts = str(schedule["time"]).split(":")
-                if len(parts) != 2:
-                    raise ValueError
-                int(parts[0]); int(parts[1])
-            except (ValueError, AttributeError):
-                errors.append(
-                    f"schedule.time must be HH:MM format, got: {schedule['time']!r}"
-                )
-
-    reports = group.get("reports")
-    if not isinstance(reports, list) or not reports:
-        errors.append("'reports' must be a non-empty list")
-    else:
-        for r in reports:
-            if r not in _VALID_REPORTS:
-                errors.append(f"Unknown report slug: {r!r}")
-
-    email = group.get("email") or {}
-    recipients = email.get("recipients")
-    if not isinstance(recipients, list) or not recipients:
-        errors.append("email.recipients must be a non-empty list")
-
-    return errors
+            cleaned.append(e)
+    return cleaned
 
 
 def _dry_run(groups: list[dict]) -> int:
@@ -326,6 +332,8 @@ def _dry_run(groups: list[dict]) -> int:
     required .env variables are missing.
     """
     load_dotenv()
+
+    schema = _load_schema()
 
     missing_env = [v for v in _REQUIRED_ENV_VARS if not os.getenv(v)]
     any_errors = bool(missing_env)
@@ -350,7 +358,7 @@ def _dry_run(groups: list[dict]) -> int:
     tbl.add_column("Status",                       no_wrap=True,  width=8)
 
     for group in groups:
-        errs      = _validate_group(group)
+        errs      = _validate_group(group, _schema=schema)
         name      = group.get("name", "[unnamed]")
 
         schedule  = group.get("schedule") or {}
