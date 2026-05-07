@@ -126,9 +126,34 @@ blocked: 0
   reason: "User reported: The RAG strip is still on a separate page. Also the RAG strip has 4 boxes which is expected, but it currently has 3 on 1 row and then a second row with 1 box. The boxes could be a little smaller to fit into a single row."
   severity: major
   test: 3
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: |
+    Problem 1 (strip on separate page) is a DOWNSTREAM SYMPTOM of Problem 2.
+    The cover template at composer.py:359-375 correctly nests .rag-strip
+    inside .report-cover, but when the 4 cells wrap to 2 rows, the strip's
+    vertical mass nearly doubles (~55mm → ~114mm) and overflows A4-landscape
+    page 1 (177mm content area). page-break-after: always then forces a hard
+    break, putting the strip alone on page 2.
+
+    Problem 2 (3+1 row break): WeasyPrint flex implementation rounds aggressively.
+    Geometry: 4 cells × 62mm + 3 gaps × 4mm = 260mm in a 273mm content row =
+    only 13mm slack. Slack is consumed by border subpixel rounding (~2.8mm
+    cumulative across 8 × 0.5pt borders) plus WeasyPrint's flex gap
+    over-allocation. Result: computed row width edges past 273mm and the 4th
+    cell drops to row 2. The 62mm width was pinned in Phase 2 commit 7be4355
+    when the strip lived on standalone page 2 with generous headroom — the
+    margin survived until the unified-cover collapse landed in commit a112a71
+    and the cells now share vertical space with the cover metadata.
+  artifacts:
+    - path: "reports/modules/composer.py:281-291"
+      issue: ".rag-cell-row flex container — flex-wrap: wrap, gap: 4mm — 13mm slack consumed by WeasyPrint flex rounding"
+    - path: "reports/modules/composer.py:293-313"
+      issue: ".rag-cell — flex: 0 0 62mm; width: 62mm — too wide; 4×62+3×4=260mm leaves only 13mm slack in a 273mm row"
+    - path: "reports/modules/composer.py:233"
+      issue: ".report-cover page-break-after: always — fires hard when strip overflows due to wrap, evicting strip to page 2"
+  missing:
+    - "Shrink .rag-cell width from 62mm to 58mm (composer.py:303 + flex-basis at composer.py:302). New row: 4×58 + 3×4 = 244mm in 273mm = 29mm slack — dwarfs WeasyPrint rounding."
+    - "Do NOT change flex-wrap: wrap → nowrap. management_summary uses the same composer with 7 modules and intentionally wraps; nowrap would horizontally overflow on that report."
+  debug_session: "in-memory (gsd-debugger agent a405bc3147e4d8c7d)"
 
 - truth: "Board Summary delivery produces a populated analyst Excel without raising"
   status: failed
