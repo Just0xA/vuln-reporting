@@ -633,6 +633,13 @@ def run_group(
                 csv_severities = group_config.get("csv_severities")
                 if csv_severities is not None:
                     report_kwargs["csv_severities"] = csv_severities
+            if slug == "board_summary":
+                # CONFIG-03 / D-04-03: optional opt-out for the analyst-detail
+                # companion workbook. Default true preserves Phase 3 behavior
+                # for groups without the field. jsonschema 4.x does not
+                # auto-inject schema defaults, so the Python-side .get() with
+                # True is the canonical injection point.
+                report_kwargs["analyst_detail"] = group_config.get("analyst_detail", True)
             if slug == "unscanned_assets":
                 report_kwargs["scan_window_days"] = group_config.get("scan_window_days", 30)
             result = report_module.run_report(tio, run_id, **report_kwargs)
