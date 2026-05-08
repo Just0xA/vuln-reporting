@@ -2,101 +2,80 @@
 
 ## What This Is
 
-A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Management and produces audience-specific KPI/KRI reports for vulnerability management programs. Reports are scoped by Tenable tags, delivered to YAML-configured recipient groups via SMTP, and ship as PDF + Excel + inline-chart email — driven by a scheduler that supports daemon, cron-style, and manual on-demand execution.
+A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Management and produces audience-specific KPI/KRI reports for vulnerability management programs. Reports are scoped by Tenable tags, delivered to YAML-configured recipient groups via SMTP, and ship as PDF + Excel + paired analyst-detail companion workbook + per-module HTML email body — driven by a scheduler that supports daemon, cron-style, and manual on-demand execution.
 
-The next direction is to make every report **modular and composable** rather than canned: individual KPI/KRI modules render themselves into PDF, Excel, email, and analyst drill-down detail, so each recipient group (Operations, Management, Executive Leadership) gets a tailored bundle assembled from the same shared metric library.
+**As of v1.0:** every metric is a **module** that renders itself into 4 channels (PDF section, Excel tabs, email panel, analyst drill-down). Each named report (`board_summary`, `management_summary`, `ops_remediation`, `vuln_export`, `unscanned_assets`) is a bundle of modules; recipient groups consume the bundle. The pattern is proven against Board Summary; v1's job was to establish the pattern, not to migrate every report.
 
 ## Core Value
 
 **Right metric, right audience, right channel — without writing a new report each time.** Operations needs remediation detail, Management needs trend and SLA posture, Executive Leadership needs RAG-strip headlines; all three are different cuts of the same underlying data. The framework's job is to make adding, recombining, and routing those cuts a YAML-and-module exercise rather than a code-fork exercise.
 
-## Requirements
+## Current State
 
-### Validated
+**Shipped:** v1.0 Modular Reporting Framework (2026-05-08) — see [`MILESTONES.md`](MILESTONES.md).
 
-<!-- Inferred from the existing brownfield codebase via .planning/codebase/ map (2026-05-05). -->
+- 4 phases, 19 plans, 1 quick task, 140 commits across 4 days
+- 38 tests green at milestone close (composer regression 11/11, schema validation 6/6, analyst_detail toggle 3/3, baseline extractor 18/18)
+- Board Summary delivers end-to-end: PDF (unified RAG-strip cover + 4 metric pages), standard Excel (4 tabs + `_Metadata`), analyst Excel (4 drill-down tabs), modular email body (4 per-module panels with inline gauges)
+- `delivery_config.yaml` is jsonschema-enforced at startup; misconfigured groups fail loud
+- `analyst_detail: false` per-group opt-out validated end-to-end
+- Cutover smoke (`scripts/smoke_board_summary_cutover.py`) provides a sub-5-second structural-shape regression bar against PII-redacted committed baselines
 
-- ✓ **Tenable.io connectivity** — authenticated `TenableIO` factory with `.env` credential loading, startup connection validation, and tenacity retry/backoff (`tenable_client.py`, `data/fetchers.py`)
-- ✓ **Per-day parquet cache** shared across all reports in a batch run; batch-scoped pre-fetch of `vulns_all` + `assets_all` (`data/fetchers.py`, `run_all.py`)
-- ✓ **YAML-driven delivery configuration** with JSON-schema file (validation gap noted), tag-filtered asset segmentation, weekly / monthly / on-demand schedules (`delivery_config.yaml`, `delivery_config.schema.yaml`)
-- ✓ **Three-mode scheduler** — APScheduler daemon, ±10-min `run-due` for cron / Task Scheduler, manual on-demand for individual or all-on-demand groups (`scheduler.py`)
-- ✓ **Single-entry-point batch executor** — `run_group()` is the sole per-group runner; CLI, scheduler, and on-demand modes all converge there with fail-soft semantics (one report failing doesn't kill the batch) (`run_all.py:424`)
-- ✓ **SMTP delivery** with STARTTLS/SSL, retry with exponential backoff, attachment-size enforcement, inline CID charts, recipient validation (`delivery/email_sender.py`)
-- ✓ **SQLite delivery audit log** with inspection CLI (`delivery/delivery_log.py`)
-- ✓ **Module infrastructure foundation** — `BaseModule` ABC, `ModuleConfig` / `ModuleData` dataclasses, `@register_module` decorator with auto-discovery, `ReportComposer` driving compute → PDF/Excel/email-KPI assembly (`reports/modules/`)
-- ✓ **Five working report slugs** built end-to-end: `board_summary`, `management_summary`, `ops_remediation`, `vuln_export`, `unscanned_assets`
-- ✓ **Excel / PDF / chart exporters** with consistent severity color palette (`exporters/`)
+**Codebase state (post-v1.0):** Five reports work end-to-end. Module infrastructure is exercised by `board_summary` (fully migrated). `management_summary` still uses its bespoke render path (not yet migrated). `ops_remediation`, `vuln_export`, `unscanned_assets` use direct render code without the module contract.
 
-### Active
+## Next Milestone Goals
 
-<!-- v1 milestone — Modular Reporting Framework. The pattern itself is the deliverable. -->
+The next milestone is not yet defined. Run `/gsd-new-milestone` to start questioning → research → requirements → roadmap.
 
-- [ ] **Module render contract extension** — extend `BaseModule` with three new render hooks every module must implement: `render_email_panel()` (gauge + headline % + RAG label + 1-line "what's driving it"), `render_analyst_tabs()` (pivot-friendly Excel detail rows), `render_rag_strip_entry()` (cover-page strip data)
-- [ ] **`ReportComposer` upgrades** — produce a cover page with a RAG strip showing all modules at a glance; assemble email body from per-module panels; emit an always-paired analyst-detail companion Excel workbook (one tab per module) with a `analyst_detail: true|false` toggle in YAML for future flexibility
-- [ ] **Board Summary as exemplar** — finish each of the four board metric modules against the new contract: per-module email panel, per-module analyst-detail tab. Email no longer ships bare; analysts can pinpoint which finding/risk drives a metric without opening a separate ticket
-- [ ] **YAML schema + runtime validation** — extend `delivery_config.yaml` and `delivery_config.schema.yaml` to support the `analyst_detail` toggle; wire `jsonschema` validation on startup so misconfigured groups fail loud (currently the schema file exists but is never enforced)
-- [ ] **Empty-data hardening** — apply the formatting-guard pattern (the fix shipped 2026-05-04 for `ops_remediation` `ops_sla_status` and `management_summary` `exception_rate`) to the sibling site at `management_summary.py:1853` (`cov_pct`), and bake the pattern into all new module render methods so empty-filter recipient groups never crash the batch
+Likely v1.1 / v2 candidates from the acknowledged backlog (see `milestones/v1.0-REQUIREMENTS.md` v2 section):
 
-### Out of Scope
-
-<!-- v2 / backlog. Recorded so v1 stays shippable. -->
-
-- **Migrating `ops_remediation`, `management_summary` to the new module contract** — proves the pattern with Board Summary first; migration is a v2 beat once the contract is field-tested
-- **Migrating `board_summary.py`'s hardcoded `_BOARD_MODULE_CONFIGS` to be YAML-driven** — v1 keeps the module list in code so we exercise the contract before adding configurability; YAML-driven module composition lands in v2
-- **Adding new KPI/KRI modules beyond the four existing board metrics** — new modules are built per analyst-submitted requirement after v1 ships; the framework is what's being built in v1, not the catalog
-- **`enrich_vulns_with_assets` performance pass** — currently runs once per report on a 180k-row frame (~9× per group); real fix is a per-batch enriched-frame cache. Deferred until the modular pattern stabilizes
-- **Per-day cache wipe across midnight boundaries** — current code purges yesterday's cache at run start, which can lose data when a long-running batch straddles local midnight. Deferred — operational impact is small in practice
-- **`ops_remediation`'s 7-tab Excel layout reimagined as modules** — large refactor, no user-visible benefit until the module pattern is proven elsewhere
-- **The `executive_kpi` / `sla_remediation` / `asset_risk` / `patch_compliance` / `trend_analysis` / `plugin_cve` reports listed in CLAUDE.md** — described in the spec but not built; will be re-evaluated post-v1 since several may be expressible as module bundles rather than fresh report scripts
-
-## Context
-
-**Codebase state.** Brownfield. Five reports work end-to-end. Module infrastructure exists and is exercised by `board_summary` and `management_summary`. The five new render hooks needed for v1 are extensions of the existing `BaseModule` ABC, not a rewrite. See `.planning/codebase/` for the full map.
-
-**The in-progress milestone before GSD onboarding.** Board Summary is the first attempt at the modular pattern. Metrics compute correctly and the report file generates, but: the email is bare delivery (no per-module panels), the PDF cover is too thin (no RAG strip), and analysts have no drill-down to identify which findings drive a metric. v1 finishes Board Summary as the proving ground for the broader pattern.
-
-**Audience differentiation is the motivating use case.** Operations, Management, and Executive Leadership consume the same vulnerability data through different lenses. Today, each audience would mean a new bespoke report file. The modular pattern collapses this — same modules, different bundles per group.
-
-**Operational workflow for new modules.** Analyst → Developer → YAML. An analyst working with their delivery group identifies a needed KPI/KRI and submits the requirement to a developer. The developer builds the module against the contract. Once registered, any group can opt in via `delivery_config.yaml` without code changes.
-
-**Concerns map context.** `.planning/codebase/CONCERNS.md` cataloged 0 high / 9 med / 24 low concerns on 2026-05-05. The empty-data formatting bugs and missing `jsonschema` validation are folded into v1 because they touch the same code paths as the modular work. Performance and per-day-cache concerns are explicitly deferred (Out of Scope above).
+- **Migrate `management_summary` and `ops_remediation`** to the new module render contract (GEN-01/02). The contract is now field-tested against Board Summary; bringing the other two reports onto the same path is a clean migration rather than a rewrite.
+- **YAML-driven module composition** (GEN-03/04). Per-group inline `modules: [...]` lists and named report bundles defined in YAML rather than hardcoded in Python. The framework already routes via D-22 bundle-driven predicates with no slug allowlists, so the v2 wiring is a near-zero-cost change to `delivery/email_sender.py`.
+- **Performance pass** (PERF-01..04). `enrich_vulns_with_assets` per-batch caching (~9× current cost on a 180k-row frame), per-day cache midnight crossover, log rotation, tag-value typo detection.
+- **Re-evaluate the 6 unbuilt reports** in CLAUDE.md (`executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`) as candidate module bundles rather than fresh report scripts (LEGACY-01).
+- **Cosmetic janitorial:** `_VALID_FREQUENCIES` / `_VALID_REPORTS` constants in `run_all.py:76,90` are unreferenced after Phase 4 jsonschema replacement; cover-page redesign deferred from Phase 03 UAT (template-based; relocate "Generated" + Data Protection Label to a page footer).
 
 ## Constraints
 
-- **Tech stack**: Python 3.10+, `pyTenable` SDK, pandas, openpyxl, WeasyPrint, matplotlib + plotly, Jinja2, APScheduler, tenacity — locked. No new SDK adoption in v1.
-- **Email-client compatibility**: Outlook / Gmail / Apple Mail must render the per-module email panels. Inline CSS only; no `<style>` blocks; charts via base64 CID. Already established and must be preserved.
-- **Backward compatibility**: Existing groups in `delivery_config.yaml` referencing `board_summary`, `management_summary`, `ops_remediation`, `vuln_export`, `unscanned_assets` must continue to deliver during and after v1. Adding the analyst-detail companion to Board Summary cannot regress existing email/PDF for those recipients.
-- **Credential handling**: All Tenable + SMTP credentials via `.env` only — never hardcoded, never logged, never committed. Existing pattern is locked.
-- **Fail-soft batch semantics**: A module render error must not kill the batch. The empty-data hardening requirement is a hard correctness bar, not a nice-to-have, because filtered-to-zero recipient groups are a regular occurrence (we just hit two on 2026-05-04).
-- **Reviewer-in-the-loop for Board Summary delivery**: Board Summary today goes Manager → CISO → IT Metrics team; it is never delivered directly. v1's `analyst_detail: true|false` toggle exists to future-proof this — when Board Summary delivery becomes more direct, recipient groups can opt out of the analyst companion without changing code.
+- **Tech stack**: Python 3.10+, `pyTenable` SDK, pandas (3.0-safe), openpyxl, WeasyPrint, matplotlib + plotly, Jinja2, APScheduler, tenacity, jsonschema — locked. No new SDK adoption without an explicit decision.
+- **Email-client compatibility**: Outlook / Gmail / Apple Mail must render the per-module email panels. Inline CSS only; no `<style>` blocks; charts via base64 CID. Established and locked.
+- **Backward compatibility**: Existing groups in `delivery_config.yaml` referencing `board_summary`, `management_summary`, `ops_remediation`, `vuln_export`, `unscanned_assets` must continue to deliver. The v1 cutover protected this for `board_summary` (smoke baselines + visual operator UAT); v2 migrations of `management_summary` / `ops_remediation` will need similar regression protection.
+- **Credential handling**: All Tenable + SMTP credentials via `.env` only — never hardcoded, never logged, never committed.
+- **Fail-soft batch semantics**: A module render error must not kill the batch. Empty-data hardening (QUALITY-02) is a hard correctness bar; filtered-to-zero recipient groups are routine.
+- **Sensitive data discipline (D-04-08)**: Test outputs, smoke logs, baseline files, and committed YAML must NOT contain row-level Tenable data (asset names, IPs, plugin names, etc.). Aggregate counts, structural shape, and synthetic test data are safe. Test recipient addresses use the RFC 6761 `example.invalid` domain.
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| v1 = establish the modular pattern (not a polish pass) | User wants modules to be the durable unit of composition; eventually replace canned reports. Polishing Board Summary in isolation would build on a contract that's not finalized. | — Pending |
-| Named report = bundle of modules (Q1 option B) | Keeps `delivery_config.yaml` recipient-readable (`reports: [board_summary]`) while still letting the named bundle be defined as a module list internally. Direct module-list-in-YAML is a v2 generalization. | — Pending |
-| Analyst companion always-paired with toggle (Q2 option a + c) | Today Board Summary always needs the drill-down (Manager + CISO review require it). Future delivery patterns may not. Toggle preserves both paths. | — Pending |
-| Build the module email contract fresh, don't copy `management_summary` (Q3 option b) | `management_summary` did the module → existing-canned-report transform but didn't build the customizable per-module email rendering. v1 builds the pattern fresh against the contract; `management_summary` migrates in v2. | — Pending |
-| Fold empty-data formatting hardening into v1 | Same code paths as the new render hooks; cheaper to bake the guard pattern in once than to revisit each module after the fact. | — Pending |
-| Defer YAML-driven module composition to v2 | Lets v1 prove the render contract with hardcoded module lists before adding the user-facing config surface. | — Pending |
+| v1 = establish the modular pattern (not a polish pass) | User wants modules to be the durable unit of composition; eventually replace canned reports. Polishing Board Summary in isolation would build on a contract that wasn't finalized. | ✓ Good — pattern proven against Board Summary; v2 migration of `management_summary` and `ops_remediation` is now a clean job |
+| Named report = bundle of modules | Keeps `delivery_config.yaml` recipient-readable (`reports: [board_summary]`) while letting the named bundle be defined as a module list internally. Direct module-list-in-YAML deferred to v2 (GEN-03/04). | ✓ Good — D-22 bundle-driven email/analyst routing landed without slug allowlists |
+| Analyst companion always-paired with toggle | Today Board Summary always needs the drill-down (Manager + CISO review require it). Future delivery patterns may not. Toggle (`analyst_detail: true|false`) preserves both paths. | ✓ Good — toggle exercised end-to-end in Phase 4 (Plan 04-02) |
+| Build the per-module email contract fresh, don't copy `management_summary` | `management_summary` did the module → existing-canned-report transform but didn't build customizable per-module email rendering. v1 built fresh against the contract; `management_summary` migrates in v2 against this contract. | ✓ Good — fresh bundle-driven path is cleaner than the legacy KPI-tile shell |
+| Fold empty-data formatting hardening into v1 | Same code paths as the new render hooks; cheaper to bake the guard pattern in once. | ✓ Good — UAT Test 5 confirmed zero-match group renders gray no-data cells + "No data in scope." panels without crashing |
+| Defer YAML-driven module composition to v2 | Lets v1 prove the render contract with hardcoded module lists before adding the user-facing config surface. | ✓ Good — v1 stayed tight; v2 GEN-03/04 is now a clean follow-on |
+| D-01: Collapse PDF cover into unified RAG-strip cover | Phase 2 had separate cover (page 1) + RAG strip (page 2). Phase 3 unified them. | ✓ Good — single cover page replaces page-1+page-2 |
+| D-04-01: Wave-0 enum reconcile MUST land before schema enforcement | `delivery_config.schema.yaml:60-69` `reports.items.enum` was missing `board_summary` and `unscanned_assets`. Turning on jsonschema before fixing the enum would brick the deployed Test Pull group on commit. | ✓ Good — preserved deployed group from being rejected on first commit |
+| D-04-02: Replace `_validate_group()` body, no defense-in-depth | Two validators inevitably drift; the hand-rolled checks already missed format/dependencies/additionalProperties that the schema can express. Single source of truth wins. | ✓ Good — richer error messages from `jsonschema.Draft7Validator` |
+| D-04-05 (REVISED): Structural-only baseline — no metric values | Operator clarified that headline % drift daily with vulnerability churn. Locking values would create false-positive alerts. Structural shape catches refactor regressions; visual operator confirmation remains the value-correctness gate. | ✓ Good — zero false-positive alerts on data churn; smoke is a deterministic <5s regression bar |
+| D-04-08: Sensitive data MUST NOT enter conversation context | PII-class fields (hostnames, IPs, plugin names, etc.) belong only on the operator's machine. Default-redact with exact-match list + narrow substring backstop. Test recipients use `example.invalid` (RFC 6761). | ✓ Good — baselines store counts + booleans only; PII guard exercised in 18/18 baseline-extractor tests |
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
 
-**After each phase transition** (via `/gsd-transition`):
+**After each phase transition:**
 1. Requirements invalidated? → Move to Out of Scope with reason
 2. Requirements validated? → Move to Validated with phase reference
 3. New requirements emerged? → Add to Active
 4. Decisions to log? → Add to Key Decisions
 5. "What This Is" still accurate? → Update if drifted
 
-**After each milestone** (via `/gsd-complete-milestone`):
+**After each milestone:**
 1. Full review of all sections
 2. Core Value check — still the right priority?
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-05 after initialization (brownfield onboarding, GSD installed mid-milestone)*
+*Last updated: 2026-05-08 after v1.0 milestone (Modular Reporting Framework shipped)*
