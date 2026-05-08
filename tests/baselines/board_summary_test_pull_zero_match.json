@@ -1,0 +1,29 @@
+{
+  "analyst_excel_present": false,
+  "bundle_keys_present": [
+    "analyst_workbook_path",
+    "email_body_html",
+    "email_inline_images",
+    "email_kpis",
+    "errors",
+    "excel_workbook",
+    "metrics",
+    "pdf_html"
+  ],
+  "email_inline_image_cids_per_module": [],
+  "email_panel_count": 4,
+  "excel_tab_names_sorted": [
+    "Aged Vuln Assets",
+    "Critical Remediation SLA",
+    "High-Risk Assets",
+    "Scan Coverage Summary",
+    "_Metadata"
+  ],
+  "group_slug": "test_pull_zero_match",
+  "panel_drivers_all_no_data_in_scope": true,
+  "pdf_has_risk_status_summary_header": true,
+  "pdf_page_count": 5,
+  "pdf_rag_cell_count": 4,
+  "rag_cells_all_no_data": true,
+  "schema_version": 1
+}
