@@ -8,6 +8,69 @@ The suite supports **scheduled and on-demand execution**, with a YAML-driven del
 
 ---
 
+# Karpathy Guidelines
+
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
 ## Technology Stack
 
 - **Python 3.10+**
@@ -72,8 +135,8 @@ not the native CVSS-based severity field. Always derive severity from the `vpr_s
 | -------- | --------------- | ----------------------- |
 | Critical | 9.0 – 10.0      | 15 days                 |
 | High     | 7.0 – 8.9       | 30 days                 |
-| Medium   | 4.0 – 6.9       | 90 days                 |
-| Low      | 0.1 – 3.9       | 180 days                |
+| Medium   | 4.0 – 6.9       | 60 days                 |
+| Low      | 0.1 – 3.9       | 120 days                |
 
 A vulnerability with no VPR score should fall back to native Tenable severity.
 
@@ -85,8 +148,8 @@ Define these as constants in a shared `config.py`:
 SLA_DAYS = {
     "critical": 15,
     "high": 30,
-    "medium": 90,
-    "low": 180
+    "medium": 60,
+    "low": 120
 }
 ```
 
@@ -125,18 +188,8 @@ vuln-reporting/
 ├── scheduler.py                  # APScheduler daemon + cron/manual trigger support
 ├── data/
 │   ├── fetchers.py               # All pyTenable API fetch functions
-│   └── trend/                    # Trend data store (JSON snapshots for management_summary)
-├── reports/
-│   ├── executive_kpi.py
-│   ├── sla_remediation.py
-│   ├── asset_risk.py
-│   ├── patch_compliance.py
-│   ├── trend_analysis.py
-│   ├── plugin_cve.py
-│   ├── ops_remediation.py
-│   ├── vuln_export.py
-│   ├── management_summary.py     # Management executive summary (module-based)
-│   ├── board_summary.py          # Board-level KPI report (module-based)
+│   └── trend/                    # Trend data store
+├── reports/                      # Base or Single use Reporting
 │   └── modules/                  # Reusable metric module infrastructure
 │       ├── __init__.py           # Auto-discovery + public exports
 │       ├── base.py               # BaseModule ABC, ModuleConfig, ModuleData
@@ -144,10 +197,6 @@ vuln-reporting/
 │       ├── composer.py           # ReportComposer — PDF/Excel/email assembly
 │       ├── chart_utils.py        # draw_gauge() and shared chart helpers
 │       ├── board_report_utils.py # Shared utilities for board metric modules
-│       ├── scan_coverage_sla_module.py
-│       ├── critical_remediation_sla_module.py
-│       ├── high_risk_assets_module.py
-│       └── aged_vulns_assets_module.py
 ├── exporters/
 │   ├── excel_exporter.py
 │   ├── pdf_exporter.py
@@ -162,13 +211,13 @@ vuln-reporting/
 │   └── formatters.py
 ├── templates/
 │   └── report_email.html         # Jinja2 email template
-├── docs/
+├── docs/                         # Documentation for the application
 │   ├── management_summary_calculations.md
 │   └── board_summary_calculations.md
 ├── logs/                         # Rotating application logs + delivery_log.db
 ├── output/                       # Timestamped report output folders
 ├── run_all.py                    # Master runner
-└── README.md
+└── README.md                     # Description of the Project
 ```
 
 ---
@@ -198,87 +247,6 @@ groups:
       recipients:
         - ciso@company.com
         - vp-it@company.com
-      cc:
-        - security-team@company.com
-      reply_to: security@company.com
-
-  - name: "Finance Remediation Team"
-    description: "Weekly SLA and patch status scoped to Finance assets"
-    schedule:
-      frequency: weekly
-      day_of_week: tuesday
-      time: "08:00"
-    filters:
-      tag_category: "Business Unit"
-      tag_value: "Finance"
-    reports:
-      - sla_remediation
-      - patch_compliance
-      - asset_risk
-    email:
-      subject: "Finance BU — Weekly Vulnerability Remediation Report"
-      recipients:
-        - finance-it-lead@company.com
-        - patching-team@company.com
-      cc: []
-      reply_to: security@company.com
-
-  - name: "Security Analysts — Full Detail"
-    description: "Weekly full-suite delivery for the security team, all assets"
-    schedule:
-      frequency: weekly
-      day_of_week: monday
-      time: "06:00"
-    filters: {} # Empty = all assets, no tag filter
-    reports:
-      - executive_kpi
-      - sla_remediation
-      - asset_risk
-      - patch_compliance
-      - trend_analysis
-      - plugin_cve
-    email:
-      subject: "Weekly Full Vulnerability Report Suite"
-      recipients:
-        - analyst1@company.com
-        - analyst2@company.com
-      cc: []
-      reply_to: security@company.com
-
-  - name: "Ad-Hoc Production Snapshot"
-    description: "On-demand only — triggered manually via CLI"
-    schedule:
-      frequency: on_demand
-    filters:
-      tag_category: "Environment"
-      tag_value: "Production"
-    reports:
-      - executive_kpi
-      - sla_remediation
-    email:
-      subject: "On-Demand Production Vulnerability Snapshot"
-      recipients:
-        - requestor@company.com
-      cc: []
-      reply_to: security@company.com
-
-  - name: "Monthly Executive Summary"
-    description: "First of the month full executive package"
-    schedule:
-      frequency: monthly
-      day_of_month: 1       # integer 1–28 (use 28 max to avoid last-day-of-month issues in February)
-      time: "07:00"         # 24hr, server local time
-    filters:
-      tag_category: "Environment"
-      tag_value: "Production"
-    reports:
-      - executive_kpi
-      - trend_analysis
-      - patch_compliance
-    email:
-      subject: "Monthly Vulnerability Management Report — Production"
-      recipients:
-        - ciso@company.com
       cc:
         - security-team@company.com
       reply_to: security@company.com
@@ -473,6 +441,7 @@ This pattern is used by `board_summary` and `management_summary`.
 ### Module anatomy
 
 Every metric module lives in `reports/modules/` and must:
+
 1. Be named `*_module.py` (auto-discovered by `registry.discover()` on package import)
 2. Decorate the class with `@register_module`
 3. Extend `BaseModule` and implement `compute()`. Override any of the renderer methods (`render_pdf_section`, `render_excel_tabs`, `render_email_kpis`, `render_email_panel`, `render_analyst_tabs`, `render_rag_strip_entry`) whose channel the module contributes to. All renderers are concrete with no-op defaults — un-overridden methods produce empty contributions (gray "No Data" cell for the RAG strip; empty string for email panel; empty list for analyst tabs).
@@ -492,22 +461,22 @@ class MyMetricModule(BaseModule):
 
 Every metric module can render itself into up to four channels via concrete methods on `BaseModule`. All are **concrete with no-op defaults** (NOT `@abstractmethod`) so existing modules continue to instantiate without changes.
 
-| Method | Channel | Default | Override when |
-|--------|---------|---------|---------------|
-| `render_pdf_section(data, config) -> str` | PDF | `""` | `"pdf"` in `SUPPORTED_OUTPUTS` |
-| `render_excel_tabs(data, workbook, config) -> list[str]` | Excel | `[]` | `"excel"` in `SUPPORTED_OUTPUTS` |
-| `render_email_kpis(data, config) -> list[dict]` | Email KPI tiles (legacy) | `[]` | Module surfaces a KPI tile |
-| `render_email_panel(data, config) -> str` | Email body panel (CONTRACT-01) | `""` | Module appears as a per-module panel in composed email body |
-| `render_analyst_tabs(data, config) -> list[tuple[str, pd.DataFrame]]` | Analyst-detail companion workbook (CONTRACT-02) | `[]` | Module produces drill-down rows for analysts |
-| `render_rag_strip_entry(data, config) -> dict` | Cover-page RAG strip (CONTRACT-03) | Gray "No Data" cell | Module appears in the cover-page strip |
+| Method                                                                | Channel                                         | Default             | Override when                                               |
+| --------------------------------------------------------------------- | ----------------------------------------------- | ------------------- | ----------------------------------------------------------- |
+| `render_pdf_section(data, config) -> str`                             | PDF                                             | `""`                | `"pdf"` in `SUPPORTED_OUTPUTS`                              |
+| `render_excel_tabs(data, workbook, config) -> list[str]`              | Excel                                           | `[]`                | `"excel"` in `SUPPORTED_OUTPUTS`                            |
+| `render_email_kpis(data, config) -> list[dict]`                       | Email KPI tiles (legacy)                        | `[]`                | Module surfaces a KPI tile                                  |
+| `render_email_panel(data, config) -> str`                             | Email body panel (CONTRACT-01)                  | `""`                | Module appears as a per-module panel in composed email body |
+| `render_analyst_tabs(data, config) -> list[tuple[str, pd.DataFrame]]` | Analyst-detail companion workbook (CONTRACT-02) | `[]`                | Module produces drill-down rows for analysts                |
+| `render_rag_strip_entry(data, config) -> dict`                        | Cover-page RAG strip (CONTRACT-03)              | Gray "No Data" cell | Module appears in the cover-page strip                      |
 
 The supporting fields on `ModuleData` (CONTRACT-04) carry the data each renderer needs:
 
-| Field | Purpose |
-|-------|---------|
-| `driver_narrative: str` | 1-line "what's driving it" string consumed by `render_email_panel`. Populated inside `compute()`. |
-| `analyst_rows: list[tuple[str, pd.DataFrame]]` | Pivot-friendly drill-down data consumed by `render_analyst_tabs`. Populated inside `compute()`. |
-| `rag_strip: dict` | Pre-built cover-page strip cell `{label, headline_value, rag_color, rag_label}` consumed by `render_rag_strip_entry`. Populated inside `compute()`. |
+| Field                                          | Purpose                                                                                                                                             |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `driver_narrative: str`                        | 1-line "what's driving it" string consumed by `render_email_panel`. Populated inside `compute()`.                                                   |
+| `analyst_rows: list[tuple[str, pd.DataFrame]]` | Pivot-friendly drill-down data consumed by `render_analyst_tabs`. Populated inside `compute()`.                                                     |
+| `rag_strip: dict`                              | Pre-built cover-page strip cell `{label, headline_value, rag_color, rag_label}` consumed by `render_rag_strip_entry`. Populated inside `compute()`. |
 
 ### Empty-data guard pattern
 
@@ -547,15 +516,15 @@ The shared RAG palette + sentinels live in `reports/modules/rag_utils.py` (`STAT
 
 ### Key files
 
-| File | Purpose |
-|------|---------|
-| `reports/modules/base.py` | `BaseModule` ABC, `ModuleConfig`, `ModuleData` dataclasses |
-| `reports/modules/registry.py` | `ModuleRegistry` singleton + `@register_module` decorator |
-| `reports/modules/composer.py` | `ReportComposer` — runs modules, assembles PDF/Excel/email |
-| `reports/modules/board_report_utils.py` | Shared utilities for the four board metric modules |
-| `reports/modules/chart_utils.py` | `draw_gauge()` and other shared rendering helpers |
-| `reports/modules/rag_utils.py` | Shared RAG palette (`STATUS_COLOR`, `STATUS_LABEL`), classifier wrapper (`rag_status_from_value`), strip-cell builder (`build_rag_strip_entry`), no-data sentinels |
-| `reports/modules/format_utils.py` | None/NaN-safe formatters (`safe_pct`, `safe_int`, `safe_format`) for use in render methods |
+| File                                    | Purpose                                                                                                                                                            |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `reports/modules/base.py`               | `BaseModule` ABC, `ModuleConfig`, `ModuleData` dataclasses                                                                                                         |
+| `reports/modules/registry.py`           | `ModuleRegistry` singleton + `@register_module` decorator                                                                                                          |
+| `reports/modules/composer.py`           | `ReportComposer` — runs modules, assembles PDF/Excel/email                                                                                                         |
+| `reports/modules/board_report_utils.py` | Shared utilities for the four board metric modules                                                                                                                 |
+| `reports/modules/chart_utils.py`        | `draw_gauge()` and other shared rendering helpers                                                                                                                  |
+| `reports/modules/rag_utils.py`          | Shared RAG palette (`STATUS_COLOR`, `STATUS_LABEL`), classifier wrapper (`rag_status_from_value`), strip-cell builder (`build_rag_strip_entry`), no-data sentinels |
+| `reports/modules/format_utils.py`       | None/NaN-safe formatters (`safe_pct`, `safe_int`, `safe_format`) for use in render methods                                                                         |
 
 ### PDF assembly note
 
@@ -577,9 +546,11 @@ Every new report script **must** be registered in three places or `--dry-run` wi
 If the report needs group-config parameters beyond the standard set (`tag_category`, `tag_value`, `output_dir`, `generated_at`, `cache_dir`), add a slug-specific block inside `run_group()` in `run_all.py` (see the `vuln_export` / `csv_severities` pattern at the `run_report` call site).
 
 Each report's `run_report()` must return a dict with at minimum these keys:
+
 ```python
 {"pdf": path_or_none, "excel": path_or_none, "charts": list_of_paths}
 ```
+
 CSV-only reports also include `"csv": path_or_none`. All other keys (e.g. `"metrics"`) are optional.
 
 ### Modular reports — bundle-driven routing (Phase 3, D-22)
@@ -707,6 +678,7 @@ the named-report slug.
 Operationally focused report that groups overdue findings by plugin to provide actionable remediation priorities, surfaces risk management posture (accepted/recast findings), and tracks recurring vulnerabilities.
 
 **Excel Tabs (7 total):**
+
 1. **Summary** — KPI snapshot: severity counts, overdue totals, SLA compliance %, exploitability breakdown (exploit available / functional exploit / high maturity), risk management counts (accepted, recast, expiring/expired rules, recurring findings)
 2. **Overdue by Plugin** — Plugins with overdue findings grouped and ranked; columns: Plugin ID, Plugin Name, CVE(s), Exploit Available, Exploit Code Maturity, Severity, VPR Score, Overdue Critical/High/Medium/Low, Total Overdue, Oldest Days Overdue, Affected Assets, SLA Days
 3. **Overdue Findings Detail** — Row-per-finding detail for all overdue vulns; columns: Asset, IP, Plugin ID, Plugin Name, Severity, VPR Score, Days Overdue, First Found, SLA Due Date, CVE(s), Exploit Available
@@ -720,6 +692,7 @@ Operationally focused report that groups overdue findings by plugin to provide a
 **Email KPI tiles (5):** Open Criticals, Overdue Critical+High, Critical+High Within SLA, Exploitable Overdue, Recurring Findings. Includes narrative sentences for elevated risk signals (recurring findings, expired/expiring rules, accepted/recast counts).
 
 **Key data sources:**
+
 - Primary: `tio.exports.vulns()` — `severity_modification_type` field (`"recasted"` / `"accepted"` / `"none"`) is the authoritative source for risk modifications
 - Enrichment: `POST /v1/recast/rules/search` — provides expiration dates, original severity, and `created_at` for risk modification rows; only present when a rule exists
 - `expires_at` is absent from the API response when no expiration has been set (treat as "Never")
@@ -746,8 +719,9 @@ Operationally focused report that groups overdue findings by plugin to provide a
 **Return dict:** `{"pdf": None, "excel": None, "csv": "<path>", "charts": [], "metrics": {...}}`
 
 **Group-config extras:**
+
 ```yaml
-csv_severities:   # optional — defaults to [critical, high, medium]
+csv_severities: # optional — defaults to [critical, high, medium]
   - critical
   - high
   - medium
@@ -811,16 +785,19 @@ module; `ReportComposer` assembles the PDF, Excel, and email KPI tiles.
 Companion report to the Board Summary Scan Coverage SLA metric. Lists every asset that is **not** contributing to the "on time" numerator so analysts can investigate why assets are missing from coverage. Uses identical deduplication logic (`deduplicate_assets_by_name` from `board_report_utils`) so counts reconcile exactly with the board metric.
 
 **Three-way asset split:**
+
 - **On Time** — licensed asset with `last_licensed_scan_date` within `scan_window_days` (excluded from output, count shown in summary only)
 - **Overdue Licensed** — licensed asset whose `last_licensed_scan_date` is older than `scan_window_days`; these inflate the denominator and hurt coverage %
 - **No Licensed Scan** — asset with a null `last_licensed_scan_date`; excluded from both numerator and denominator of the board metric
 
 **Group-config extras:**
+
 ```yaml
-scan_window_days: 30   # optional — defaults to 30; must match board_summary setting
+scan_window_days: 30 # optional — defaults to 30; must match board_summary setting
 ```
 
 **Excel tabs:**
+
 1. **Summary** — reconciliation counts (on time / overdue licensed / no licensed scan / total licensed / unlicensed excluded); formula showing how Scan Coverage SLA % is derived
 2. **Overdue Licensed** — assets with stale scan dates; sorted by `days_since_licensed_scan` descending; columns: hostname, ipv4, fqdn, OS, last_licensed_scan_date, days_since_licensed_scan, last_seen, days_since_last_seen, last_scan_time, source_name, tags, asset_uuid
 3. **No Licensed Scan** — assets never assigned a licensed scan; sorted by `days_since_last_seen` descending; columns: hostname, ipv4, fqdn, OS, last_seen, days_since_last_seen, first_seen, has_plugin_results, source_name, tags, asset_uuid
@@ -951,6 +928,7 @@ The recast rules API returns a `filter` field that can be an arbitrary AND/OR tr
 - [x] `docs/board_summary_calculations.md`
 
 <!-- GSD:project-start source:PROJECT.md -->
+
 ## Project
 
 **Vulnerability Management Reporting Suite**
@@ -972,24 +950,32 @@ The next direction is to make every report **modular and composable** rather tha
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
+
 ## Technology Stack
 
 ## Languages
+
 - Python 3.10+ — entire codebase. `from __future__ import annotations` used pervasively (e.g. `tenable_client.py:13`, `data/fetchers.py:18`) implying minimum 3.10 baseline; project documentation in `CLAUDE.md` declares "Python 3.10+".
 - HTML/Jinja2 templates — `templates/report_email.html` and inline HTML built by `delivery/email_template.py:47-57` (Jinja2 `Environment` + `FileSystemLoader`).
 - YAML — declarative delivery config (`delivery_config.yaml`) plus JSON-Schema-format validator at `delivery_config.schema.yaml`.
 - SQL (SQLite dialect) — embedded delivery audit log; see `delivery/delivery_log.py:49-64` for the `delivery_log` `CREATE TABLE` statement.
+
 ## Runtime
+
 - CPython, expected to be invoked from a project-local virtualenv. The systemd unit at `deploy/vuln-reports.service:43` hard-codes the interpreter path `ExecStart=/opt/vuln-reporting/.venv/bin/python scheduler.py --mode daemon`, and the dev workstation copy of `.venv/` lives at the repo root.
 - pip with a flat, fully-pinned `requirements.txt` (no Poetry/PDM/uv lockfile present).
 - No `pyproject.toml`, `setup.py`, `Pipfile`, or `Pipfile.lock` in the repo root. `requirements.txt` is the single source of truth for dependencies.
+
 ## Frameworks
+
 - `pyTenable` 1.5.2 (`requirements.txt:2`) — Tenable Vulnerability Management SDK; instantiated in `tenable_client.py:80-84` (`TenableIO(access_key=..., secret_key=..., url=...)`); errors caught from the bundled `tenable.errors.APIError` (`tenable_client.py:21`) and from `restfly.errors.UnauthorizedError` re-aliased as `AuthenticationError` (`tenable_client.py:22`). `restfly` is a transitive dependency pulled in by pyTenable.
 - `pandas` 2.2.3 (`requirements.txt:5`) + `numpy` 2.2.4 (`requirements.txt:6`) — every fetcher in `data/fetchers.py` returns a normalized `pd.DataFrame`; date normalization helpers `_parse_iso_utc` / `_normalize_vuln_dates` / `_normalize_asset_dates` at `data/fetchers.py:1132-1168`.
 - `APScheduler` 3.11.0 (`requirements.txt:24`) — used in daemon mode only. `BlockingScheduler` and `IntervalTrigger` imported at `scheduler.py:300-301`; `CronTrigger` imported at `scheduler.py:155`. Misfire grace time set to 600s in `scheduler.py:254`.
 - No test framework declared in `requirements.txt`. A `tests/` directory exists at the repo root but is not wired into a runner. Pytest, unittest, etc. are not installed by `requirements.txt` (verified via grep — `pytest`, `unittest`, `nose` absent).
 - No linter, formatter, or pre-commit configuration committed. No `.flake8`, `pyproject.toml`, `ruff.toml`, `mypy.ini`, `.pre-commit-config.yaml` present at the repo root (only the files listed in the directory listing are tracked).
+
 ## Key Dependencies
+
 - `pyTenable==1.5.2` — Tenable API SDK (`requirements.txt:2`). Used directly via `tio.exports.vulns()`, `tio.exports.assets()`, `tio.tags.list()`, `tio.server.status()`.
 - `pandas==2.2.3` — DataFrame substrate for every report (`requirements.txt:5`).
 - `numpy==2.2.4` — pandas dep, used directly in math/aggregations across reports (`requirements.txt:6`).
@@ -1010,7 +996,9 @@ The next direction is to make every report **modular and composable** rather tha
 - `smtplib` (stdlib) — SMTP transport in `delivery/email_sender.py:33`. Both `smtplib.SMTP` (STARTTLS) and `smtplib.SMTP_SSL` paths implemented at `delivery/email_sender.py:245-265`.
 - `email.mime.*` (stdlib) — `MIMEMultipart`, `MIMEText`, `MIMEImage`, `MIMEBase`, `encoders` imported at `delivery/email_sender.py:38-42`.
 - `sqlite3` (stdlib) — delivery audit log at `delivery/delivery_log.py:28`; WAL journal mode set at `delivery/delivery_log.py:84`.
+
 ## Configuration
+
 - All secrets and connection settings are loaded from a single `.env` file at the repo root via `python-dotenv`. `.env.example` is committed as the onboarding template.
 - Tenable creds (required): `TVM_ACCESS_KEY`, `TVM_SECRET_KEY` (`tenable_client.py:55-67`). Optional: `TVM_URL` (defaults to `https://cloud.tenable.com` at `tenable_client.py:57`).
 - SMTP creds (required for delivery): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_ADDRESS`, `SMTP_FROM_NAME` (read at `delivery/email_sender.py:75-85`). Optional: `SMTP_USE_SSL` (string `"true"` flips port-465 SSL path).
@@ -1018,7 +1006,9 @@ The next direction is to make every report **modular and composable** rather tha
 - `--dry-run` enforces presence of `TVM_ACCESS_KEY`, `TVM_SECRET_KEY`, `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_ADDRESS` (`run_all.py:117-124`).
 - No build step. The project ships as a directory of `.py` source files plus the `.venv/` virtualenv on the deploy host.
 - `delivery_config.schema.yaml` is the JSON-Schema-format validator for `delivery_config.yaml` (intended for editor / CI use; not currently enforced at runtime — see `jsonschema` note above).
+
 ## Platform Requirements
+
 - Python 3.10+.
 - Local virtualenv (`.venv/`) populated by `pip install -r requirements.txt`.
 - WeasyPrint requires GTK/Pango/Cairo native libs on Windows; on Linux/RHEL these are typically installed via `pango`, `cairo`, `gdk-pixbuf2` system packages.
@@ -1028,78 +1018,116 @@ The next direction is to make every report **modular and composable** rather tha
 <!-- GSD:stack-end -->
 
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
+
 ## Conventions
 
 ## Module Header & Imports
+
 ## Naming Patterns
+
 ### Files & Modules
-| Kind | Pattern | Example |
-|------|---------|---------|
-| Report scripts | `reports/<slug>.py` (snake_case slug) | `reports/board_summary.py`, `reports/ops_remediation.py` |
-| Metric modules | `reports/modules/<name>_module.py` (auto-discovered by `*_module.py` glob) | `reports/modules/scan_coverage_sla_module.py` |
-| Utilities | `utils/<area>.py` | `utils/sla_calculator.py`, `utils/formatters.py` |
-| Data fetchers | `data/fetchers.py` (single module) | — |
+
+| Kind           | Pattern                                                                    | Example                                                  |
+| -------------- | -------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Report scripts | `reports/<slug>.py` (snake_case slug)                                      | `reports/board_summary.py`, `reports/ops_remediation.py` |
+| Metric modules | `reports/modules/<name>_module.py` (auto-discovered by `*_module.py` glob) | `reports/modules/scan_coverage_sla_module.py`            |
+| Utilities      | `utils/<area>.py`                                                          | `utils/sla_calculator.py`, `utils/formatters.py`         |
+| Data fetchers  | `data/fetchers.py` (single module)                                         | —                                                        |
+
 ### Identifiers
+
 - **Functions, variables, parameters:** `snake_case` — `run_report`, `vulns_df`, `tag_category`.
 - **Classes:** `PascalCase` — `BaseModule`, `ScanCoverageSLAModule`, `ReportComposer`, `ModuleRegistry`.
 - **Constants:** `UPPER_SNAKE_CASE` at module top — `SLA_DAYS` (`config.py:28`), `_VALID_REPORTS` (`run_all.py:75`), `DEFAULT_SEVERITIES` (`reports/vuln_export.py:67`).
 - **Module-private helpers/constants:** leading underscore — `_extract_plugin_id_from_filter` (`data/fetchers.py:46`), `_BOARD_MODULE_CONFIGS` (`reports/board_summary.py:66`), `_REPORT_MODULE_MAP` (`run_all.py:102`), `_PDF_CSS` (`reports/modules/composer.py:63`).
 - **Class constants on `BaseModule` subclasses:** `MODULE_ID`, `DISPLAY_NAME`, `DESCRIPTION`, `REQUIRED_DATA`, `SUPPORTED_OUTPUTS`, `VERSION` — see `reports/modules/base.py:163-174` and `reports/modules/scan_coverage_sla_module.py:97-104`.
 - **DataFrame variables:** suffix `_df` — `vulns_df`, `assets_df`, `fixed_vulns_df`. Booleans: prefix `is_` / `has_` — `is_overdue`, `has_plugin_results`.
+
 ### Report slugs
+
 ### `MODULE_ID` strings
+
 ## Type Hints
+
 - `list[str]`, `dict[str, int]`, `tuple[int, str]` — never `List[str]`, `Dict[...]`.
 - `Optional[X]` from `typing` is still used in function signatures (`utils/sla_calculator.py:19,32-37`, `run_all.py:45`); newer files freely mix `X | None` (`reports/modules/registry.py:136-148`).
 - Class attribute annotations use the same modern syntax — `_VALID_REPORTS: frozenset[str]` (`run_all.py:75`), `MODULE_ID: str = ""` (`reports/modules/base.py:163`).
 - Function return types are annotated wherever practical; `-> None` is explicit on side-effecting helpers (e.g. `_save_cache` at `data/fetchers.py:188`).
+
 ## Docstring Style
+
 - One-line summary.
 - Optional extended description.
 - `Parameters` section with name, type, description.
 - `Returns` section.
 - `Examples` for utility functions where doctests are useful (`config.py:106-114`, `utils/formatters.py:44-49,206-213`).
+
 ## Logging
+
 ### Log message conventions
+
 - **Group/Report-prefixed messages** use bracketed identifiers: `logger.info("[%s] Running report: %s", group_name, slug)` (`run_all.py:583`), `logger.warning("[%s] Pre-fetch failed (%s) — reports will attempt to fetch individually.", ...)` (`run_all.py:563`).
 - **Phase markers** for cache and API events: `[CACHE HIT]` (`data/fetchers.py:183`), `[API FETCH]` (`data/fetchers.py:236, 368, 477`).
 - **Section dividers** in logs use `===`: `"=== Starting group '%s' (trigger=%s, run_id=%s) ==="` (`run_all.py:502-504`).
 - Use `%s` / `%d` lazy formatting — never `f"{...}"` — so the log level filter elides formatting work for suppressed records.
 - `logger.exception` is rarely used; instead, `logger.error("[%s] %s\n%s", group_name, msg, traceback.format_exc())` is the prevailing pattern (`run_all.py:521, 605, 636`).
 - Module-level helpers expose `_log_prefix(self) -> "[module:<id>]"` (`reports/modules/base.py:424-426`) for use inside metric modules.
+
 ### Log configuration
+
 ## Error Handling
+
 ## Datetime & Timezone Handling
-| Purpose | Clock | Format / Constructor |
-|---------|-------|----------------------|
-| Report timestamps, SLA math, `generated_at`, `as_of` | UTC | `datetime.now(tz=timezone.utc)` |
-| Schedule matching, cache folder names, output folder names | Server local | `datetime.now()` (no tzinfo) |
+
+| Purpose                                                    | Clock        | Format / Constructor            |
+| ---------------------------------------------------------- | ------------ | ------------------------------- |
+| Report timestamps, SLA math, `generated_at`, `as_of`       | UTC          | `datetime.now(tz=timezone.utc)` |
+| Schedule matching, cache folder names, output folder names | Server local | `datetime.now()` (no tzinfo)    |
+
 - UTC for report content: `run_all.py:485, 863`, `reports/board_summary.py:129`, `utils/sla_calculator.py:67`, `utils/formatters.py:319`.
 - Local for cache folder names: `run_all.py:487, 489, 864-867`, `reports/board_summary.py:131`. CLAUDE.md explicitly mandates this (cache by local date).
 - Local for schedule matching: `run_all.py:830` — `_is_due()` accepts a local `now`, see comment at `run_all.py:188-189`.
+
 ## Pandas Patterns
+
 ### `.assign()` chains, not in-place mutation
+
 ### `np.select` for multi-condition labels
+
 ### `filter_by_*` family
+
 ### Empty-DataFrame guards
+
 ### Categorical for ordered enums
+
 ### Caching layer
+
 ## Dataclasses
+
 - `ModuleConfig` (`reports/modules/base.py:43-75`) — what the caller hands to a module: `module_id` and an `options: dict` for forward-compatible per-group customization.
 - `ModuleData` (`reports/modules/base.py:78-126`) — what `compute()` returns: `module_id`, `display_name`, `metrics`, `table_data`, `chart_data`, `summary_text`, `metadata`, `error`. **Always populate every field on success; on failure, set `error` and leave data fields empty** (use `BaseModule._empty_result`).
+
 ## The `@register_module` Decorator Pattern
+
 ## The Slug → Module Triple-Registration Rule
+
 ## Function Design
+
 - **Keyword-only arguments after `*` for optional/configuration kwargs** — see `run_group` (`run_all.py:424-437`) and `run_report` (`reports/board_summary.py:82-91`).
 - **Helpers are module-private (`_leading_underscore`)** when not part of the public API — `_validate_group`, `_dry_run`, `_print_summary`, `_import_report`, `_load_config`, `_is_due`, `_first_str`, `_normalize_vuln_dates`.
 - **Public entry points are short and orchestrate** rather than do work inline — `main()` at `run_all.py:742-905` parses args, loads config, dispatches; the heavy lifting lives in `run_group()`.
 - **Pure helpers** (no I/O, no API calls) live in `utils/` and are explicitly noted as such — `utils/formatters.py:6` ("All functions are pure (no I/O, no API calls) and safe to import anywhere").
+
 ## CLI Convention
+
 - `run_all.py:764-802`
 - `utils/tag_helper.py:228-269`
 - `utils/sla_calculator.py:305-328` (smoke-test entry point)
+
 ## Module-Level Constants Block
+
 ## Comments
+
 - **Section banners** use `# ===` lines or `# ---` for nested subsections.
 - **`# noqa: PLC0415`** marks intentional in-function imports done to break circular-import chains or defer heavy SDK loading — `run_all.py:515, 554, 631, 849`.
 - **`# noqa: BLE001`** marks intentional broad-`Exception` catches.
@@ -1107,39 +1135,48 @@ The next direction is to make every report **modular and composable** rather tha
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
+
 ## Architecture
 
 ## System Overview
+
 ```text
+
 ```
+
 ## Component Responsibilities
-| Component | Responsibility | File |
-|-----------|----------------|------|
-| Master CLI runner | Parse args, load YAML, schedule-match, drive `run_group()` for each selected group | `run_all.py:742` |
-| `run_group()` | Single shared per-group execution: pre-fetch → loop reports → email | `run_all.py:424` |
-| Scheduler | APScheduler daemon, run-due trigger, manual mode — all delegate to `run_group()` | `scheduler.py:1` |
-| Tenable client factory | Build authenticated `TenableIO` from `.env`, validate connection, exit on failure | `tenable_client.py:40` |
-| Shared config | SLA constants, severity / VPR maps, color palette, paths (`ROOT_DIR`, `CACHE_DIR`, `OUTPUT_DIR`, `LOG_DIR`) | `config.py:1` |
-| Data fetchers | All `tio.exports.*` calls + parquet caching + tenacity retry | `data/fetchers.py:203,339,451,554` |
-| Report scripts | Per-slug `run_report(tio, run_id, **kwargs) -> dict` returning `{pdf, excel, csv, charts, metrics}` | `reports/*.py` |
-| Module base / data contracts | `BaseModule` ABC + `ModuleConfig` / `ModuleData` dataclasses | `reports/modules/base.py:43,78,132` |
-| Module registry | `@register_module` decorator + filename-based auto-discovery (`*_module.py`, `*_metrics.py`) | `reports/modules/registry.py:228,413` |
-| Report composer | Drives `compute()` → `assemble_pdf()` / `assemble_excel()` / `collect_email_kpis()` | `reports/modules/composer.py:320,467,588,664` |
-| Excel exporter | openpyxl workbook helpers and styling | `exporters/excel_exporter.py` |
-| PDF exporter | WeasyPrint HTML→PDF wrappers (also embedded inside composer for board/management) | `exporters/pdf_exporter.py` |
-| Chart exporter | Matplotlib + Plotly chart factories; consistent `SEVERITY_COLORS` palette | `exporters/chart_exporter.py` |
-| Email sender | SMTP send (STARTTLS / SSL), tenacity retry, attachment size enforcement, inline CID charts | `delivery/email_sender.py:1` |
-| Email template | Jinja2 HTML body builder | `delivery/email_template.py` |
-| Delivery log | SQLite audit log of every send attempt + inspection CLI | `delivery/delivery_log.py` |
-| SLA / tag / formatter utils | Severity SLA math, tag enrichment, filename / timestamp formatters | `utils/sla_calculator.py`, `utils/tag_helper.py`, `utils/formatters.py` |
+
+| Component                    | Responsibility                                                                                              | File                                                                    |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Master CLI runner            | Parse args, load YAML, schedule-match, drive `run_group()` for each selected group                          | `run_all.py:742`                                                        |
+| `run_group()`                | Single shared per-group execution: pre-fetch → loop reports → email                                         | `run_all.py:424`                                                        |
+| Scheduler                    | APScheduler daemon, run-due trigger, manual mode — all delegate to `run_group()`                            | `scheduler.py:1`                                                        |
+| Tenable client factory       | Build authenticated `TenableIO` from `.env`, validate connection, exit on failure                           | `tenable_client.py:40`                                                  |
+| Shared config                | SLA constants, severity / VPR maps, color palette, paths (`ROOT_DIR`, `CACHE_DIR`, `OUTPUT_DIR`, `LOG_DIR`) | `config.py:1`                                                           |
+| Data fetchers                | All `tio.exports.*` calls + parquet caching + tenacity retry                                                | `data/fetchers.py:203,339,451,554`                                      |
+| Report scripts               | Per-slug `run_report(tio, run_id, **kwargs) -> dict` returning `{pdf, excel, csv, charts, metrics}`         | `reports/*.py`                                                          |
+| Module base / data contracts | `BaseModule` ABC + `ModuleConfig` / `ModuleData` dataclasses                                                | `reports/modules/base.py:43,78,132`                                     |
+| Module registry              | `@register_module` decorator + filename-based auto-discovery (`*_module.py`, `*_metrics.py`)                | `reports/modules/registry.py:228,413`                                   |
+| Report composer              | Drives `compute()` → `assemble_pdf()` / `assemble_excel()` / `collect_email_kpis()`                         | `reports/modules/composer.py:320,467,588,664`                           |
+| Excel exporter               | openpyxl workbook helpers and styling                                                                       | `exporters/excel_exporter.py`                                           |
+| PDF exporter                 | WeasyPrint HTML→PDF wrappers (also embedded inside composer for board/management)                           | `exporters/pdf_exporter.py`                                             |
+| Chart exporter               | Matplotlib + Plotly chart factories; consistent `SEVERITY_COLORS` palette                                   | `exporters/chart_exporter.py`                                           |
+| Email sender                 | SMTP send (STARTTLS / SSL), tenacity retry, attachment size enforcement, inline CID charts                  | `delivery/email_sender.py:1`                                            |
+| Email template               | Jinja2 HTML body builder                                                                                    | `delivery/email_template.py`                                            |
+| Delivery log                 | SQLite audit log of every send attempt + inspection CLI                                                     | `delivery/delivery_log.py`                                              |
+| SLA / tag / formatter utils  | Severity SLA math, tag enrichment, filename / timestamp formatters                                          | `utils/sla_calculator.py`, `utils/tag_helper.py`, `utils/formatters.py` |
+
 ## Pattern Overview
+
 - **Single shared executor.** `run_group()` is the sole entry point for "run one delivery group" — all CLI modes converge there (`run_all.py:424`, `scheduler.py:54` imports it).
 - **Fail-soft batches.** A failure in one report never aborts the rest of the group; a failure in one group never aborts other groups (`run_all.py:603`, `run_all.py:884`).
 - **Run-scoped parquet cache.** Pre-fetch warms `data/cache/<YYYY-MM-DD>/` once per batch; every report in the batch hits `[CACHE HIT]` instead of re-calling Tenable (`run_all.py:553`, `data/fetchers.py:175`).
 - **Standard report contract.** Every `reports/<slug>.py` exposes `run_report(tio, run_id, **kwargs) -> dict` returning at minimum `{pdf, excel, charts}`; CSV-only reports add `csv` (`run_all.py:585`).
 - **Auto-discovery for modules.** Importing `reports.modules` triggers `registry.discover()`, which globs `*_module.py` / `*_metrics.py`, imports each, and lets `@register_module` self-register the class (`reports/modules/__init__.py:67`, `reports/modules/registry.py:228`).
 - **Pure compute, deferred render.** `BaseModule.compute()` is contractually side-effect-free; `render_pdf_section()` / `render_excel_tabs()` / `render_email_kpis()` are called later by the composer (`reports/modules/base.py:180-225`).
+
 ## Layers
+
 - Purpose: Resolve which groups run now, supply shared `tio`, `run_id`, `cache_dir`, `generated_at`, and dispatch `run_group()`.
 - Depends on: `tenable_client`, `config`, `data.fetchers`, `reports.*`, `delivery.email_sender`.
 - Used by: end users (CLI), cron / Task Scheduler (`--mode run-due`), systemd (`--mode daemon`).
@@ -1164,13 +1201,19 @@ The next direction is to make every report **modular and composable** rather tha
 - Used by: `run_group()` after report generation (`run_all.py:631`).
 - Purpose: SLA calculation (`sla_calculator.py`), tag discovery / asset-by-tag fetch (`tag_helper.py`), filename + timestamp formatting (`formatters.py`).
 - Used by: every layer above.
+
 ## Data Flow
+
 ### Primary "scheduled batch" path
+
 ### Composed-report sub-flow (e.g. `board_summary`)
+
 - No long-lived state; the daemon mode keeps APScheduler in-process but each fired job calls the same stateless `run_group()`.
 - Trend snapshots persist between runs in `data/trend/management_summary_<scope>.json` for `management_summary`'s month-over-month metric.
 - Run-scoped state (`tio`, `run_id`, `cache_dir`, `generated_at`) is created once per batch and passed by argument — no globals are mutated between groups.
+
 ## Key Abstractions
+
 - Purpose: One delivery group, end-to-end — the unit of execution shared by every entry point.
 - File: `run_all.py:424`.
 - Pattern: Function with rich keyword args; never raises, always returns a result dict (`{group_name, status, output_folder, duration_seconds, reports_generated, email_status, error}`).
@@ -1185,7 +1228,9 @@ The next direction is to make every report **modular and composable** rather tha
 - File: `reports/modules/registry.py:59,410,413`.
 - Purpose: Orchestrate module execution and assemble outputs. Owns no metric logic.
 - File: `reports/modules/composer.py:288`.
+
 ## Entry Points
+
 - Location: `run_all.py:742`.
 - Triggers: User runs `python run_all.py [--group | --dry-run | --no-email | --tag-category | --tag-value | --recipients]`.
 - Responsibilities: Logging setup, arg parsing, `.env` load, config load + validate, group selection, shared `tio` + `cache_dir` setup, loop `run_group()`, print rich summary, set exit code.
@@ -1196,26 +1241,39 @@ The next direction is to make every report **modular and composable** rather tha
 - Triggers: Standalone reproduction / debugging without the YAML config (e.g. `python reports/board_summary.py --tag-category "Environment" --tag-value "Production"`).
 - Location: `tenable_client.py:140`.
 - Triggers: `python tenable_client.py` — connectivity smoke test.
+
 ## Extension Points
+
 - Add a new function in `data/fetchers.py` next to existing `fetch_*` functions; reuse `_cache_path` / `_load_cache` / `_save_cache` (`data/fetchers.py:175-200`) and `tenacity` retry decorators.
+
 ## Architectural Constraints
+
 - **Threading:** Single-threaded by default. APScheduler daemon mode runs jobs serially in its own background thread; nothing in the report layer is thread-safe and `ModuleRegistry` is explicitly documented as not designed for concurrent mutation (`reports/modules/registry.py:71`).
 - **Global state:**
 - **Import-time side effects:** Importing `reports.modules` runs `registry.discover()`, which imports every `*_module.py` in the package. Module files must be importable without external resources.
 - **Namespace collision avoidance:** `run_all.py:62-64` deletes any pre-existing `reports`, `data`, `utils` modules from `sys.modules` before adding the project root, so a pip-installed `reports` package on the host can't shadow project-local code. Each project package directory has its own `__init__.py` to guarantee non-namespace-package status.
 - **Date / timezone policy:** Cache folder names use **local** machine date (`run_all.py:864`, `run_all.py:870`); report timestamps use **UTC** (`run_all.py:863`). Stale cache folders from prior local-days are pruned at the start of each batch (`run_all.py:870`).
+
 ## Anti-Patterns
+
 ### Hardcoding new reports outside the three registration sites
+
 ### Manual module imports in board/management reports
+
 ### Side effects in `BaseModule.compute()`
+
 ### Raising exceptions out of report code
+
 ## Error Handling
+
 - **`run_group()`** — wraps the Tenable connection, every `run_report()` call, and the email send; returns a status dict instead of raising (`run_all.py:519`, `run_all.py:603`, `run_all.py:634`).
 - **`ReportComposer.run_module()`** — catches `validate_config()` and `compute()` exceptions and returns a `ModuleData` with `error` set (`reports/modules/composer.py:355,429`).
 - **`registry.discover()`** — broken module file logs a warning, other modules still load (`reports/modules/registry.py:391`).
 - **`send_report_email()`** — never raises; tenacity retries SMTP-class errors up to 3 times with exponential backoff; final failure logged and recorded in `delivery_log.db` (`delivery/email_sender.py:91`).
 - **`tenable_client.get_client()`** — fatal-only path: missing env vars or bad credentials → `sys.exit(1)` with a clear message; everything downstream assumes the client is valid.
+
 ## Cross-Cutting Concerns
+
 - `run_all.py:742` configures root logging (`StreamHandler` + `FileHandler(LOG_DIR/'app.log')`) with a third-party noise filter for `fontTools` and `weasyprint.progress` (`run_all.py:724`).
 - `scheduler.py` uses a `RotatingFileHandler` on `logs/scheduler.log` (`scheduler.py:60`).
 - Each module emits via `logger = logging.getLogger(__name__)` so log lines are namespaced by file.
@@ -1227,27 +1285,34 @@ The next direction is to make every report **modular and composable** rather tha
 <!-- GSD:architecture-end -->
 
 <!-- GSD:skills-start source:skills/ -->
+
 ## Project Skills
 
 No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
+
 <!-- GSD:skills-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->
+
 ## GSD Workflow Enforcement
 
 Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
 
 Use these entry points:
+
 - `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
 - `/gsd-debug` for investigation and bug fixing
 - `/gsd-execute-phase` for planned phase work
 
 Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
+
 <!-- GSD:workflow-end -->
 
 <!-- GSD:profile-start -->
+
 ## Developer Profile
 
 > Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
+
 <!-- GSD:profile-end -->
