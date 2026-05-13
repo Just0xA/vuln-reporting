@@ -44,7 +44,7 @@ import openpyxl
 # Ensure the project root is on sys.path when this script is run directly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import CACHE_DIR, OUTPUT_DIR
+from config import CACHE_DIR, HEADER_BG_COLOR, LOGO_PATH, OUTPUT_DIR
 from data.fetchers import (
     fetch_all_assets,
     fetch_all_vulnerabilities,
@@ -56,6 +56,22 @@ from data.fetchers import (
 # each file's @register_module decorator — including all four board modules.
 from reports.modules import ReportComposer
 from reports.modules.base import ModuleConfig
+from reports.modules.pdf_chrome import PdfChromeConfig
+
+
+# Phase 6 plan 06-03: scope subtitle helper.
+# Originally we attempted `from run_all import _format_scope_subtitle` to keep
+# a single source of truth (D-02). That triggers a circular import because
+# run_all.py top-level imports (config, data.fetchers, etc.) drag the project
+# into a partially-initialized state before reports/* can pull from it. The
+# plan explicitly authorized inlining as the fallback — kept here verbatim
+# to match run_all.py:_format_scope_subtitle (D-02 single behavior, two call
+# sites). If/when run_all's top-level imports get slimmed, swap back to the
+# import.
+def _format_scope_subtitle(tc: str | None, tv: str | None) -> str:
+    """Value-only scope subtitle per D-02. Returns ``tag_value`` when both
+    category and value are non-empty, else ``"All assets"`` (sentence case)."""
+    return tv if (tc and tv) else "All assets"
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +105,8 @@ def run_report(
     generated_at: Optional[datetime] = None,
     cache_dir:    Optional[Path] = None,
     analyst_detail: bool = True,
+    privacy_label: str = "Confidential",
+    scope_subtitle: Optional[str] = None,
 ) -> dict:
     """
     Generate the Board Vulnerability Metrics Summary.
@@ -217,31 +235,51 @@ def run_report(
     # Only CriticalRemediationSLAModule consumes it; the other three ignore
     # the kwarg silently (their compute() signature accepts **kwargs).
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Resolve subtitle (D-02 single source of truth): explicit
+    # scope_subtitle kwarg wins; otherwise derive from tag filter via
+    # _format_scope_subtitle. The same string feeds BOTH the cover-body
+    # subtitle line AND PdfChromeConfig.subtitle (chrome header band).
+    # ------------------------------------------------------------------
+    resolved_subtitle = (
+        scope_subtitle
+        if scope_subtitle is not None
+        else _format_scope_subtitle(tag_category, tag_value)
+    )
+
+    # scope_label is the analyst workbook _Metadata Scope row (D-19) —
+    # UNCHANGED. RESEARCH.md "Files Touched" line 234-244 calls this out:
+    # the analyst metadata row uses the "Category = Value" / "All Assets"
+    # formatting and must not be conflated with the chrome subtitle.
+    scope_label = (
+        f"{tag_category} = {tag_value}"
+        if tag_category and tag_value
+        else "All Assets"
+    )
+
+    # ------------------------------------------------------------------
+    # Build PdfChromeConfig (CHROME-INT-02) — wired into ReportComposer
+    # via the optional pdf_chrome= kwarg landed in plan 06-01.
+    # ------------------------------------------------------------------
+    pdf_chrome_cfg = PdfChromeConfig(
+        title         = _REPORT_TITLE,
+        subtitle      = resolved_subtitle,
+        generated_at  = generated_at,
+        header_bg     = HEADER_BG_COLOR,
+        logo_path     = LOGO_PATH,
+        privacy_label = privacy_label,
+    )
+
     composer = ReportComposer(
         vulns_df       = vulns_df,
         assets_df      = assets_df,
         report_date    = generated_at,
         module_configs = _BOARD_MODULE_CONFIGS,
         fixed_vulns_df = fixed_vulns_df,
+        pdf_chrome     = pdf_chrome_cfg,
     )
 
     results = composer.run_all()
-
-    # ------------------------------------------------------------------
-    # Build PDF subtitle (computed first so it can be passed into the
-    # bundle pipeline below)
-    # ------------------------------------------------------------------
-    scope_str = (
-        f"Scope: {tag_category} = {tag_value}"
-        if tag_category and tag_value
-        else "Scope: All Assets"
-    )
-    subtitle    = scope_str
-    scope_label = (
-        f"{tag_category} = {tag_value}"
-        if tag_category and tag_value
-        else "All Assets"
-    )   # used for analyst workbook _Metadata Scope row (D-19)
 
     # ------------------------------------------------------------------
     # Drive all four render channels through the bundle orchestrator
@@ -257,7 +295,7 @@ def run_report(
         report_date      = generated_at,
         generate_analyst = analyst_detail,    # Phase 4 (CONFIG-03 / D-04-03): YAML-driven opt-out
         pdf_title        = _REPORT_TITLE,
-        pdf_subtitle     = subtitle,
+        pdf_subtitle     = resolved_subtitle,
         scope_label      = scope_label,
     )
 

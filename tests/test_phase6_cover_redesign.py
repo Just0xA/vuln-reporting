@@ -57,12 +57,11 @@ def test_built_cover_renders_scope_subtitle():
     )
     # results=[] → no rag cells, but the wrapper + header marker + subtitle
     # interpolation are what we're asserting on.
+    # Phase 6 plan 06-03 pruned title/generated_at_str/module_list_str —
+    # only `subtitle` remains on _build_unified_cover_page.
     html = composer._build_unified_cover_page(
         [],
-        title             = "Board Summary",
-        subtitle          = "Production",
-        generated_at_str  = "2026-05-13 11:53 UTC",
-        module_list_str   = "",
+        subtitle = "Production",
     )
     assert "Production" in html
     assert "Risk Status Summary" in html
