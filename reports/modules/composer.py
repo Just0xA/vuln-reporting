@@ -680,30 +680,21 @@ class ReportComposer:
                 sections.append('<div class="page-break"></div>')
             sections.append(html_section)
 
-        # Build generated_at string
-        generated_at_str = (
-            self._report_date.strftime("%Y-%m-%d %H:%M UTC")
-            if hasattr(self._report_date, "strftime")
-            else str(self._report_date)
-        )
-
-        # Subtitle fallback (scope only — generated_at appears on the cover separately)
+        # Subtitle fallback. Phase 6 plan 06-03 cleanup: when chrome is
+        # active the generated_at string is rendered by PdfChrome on every
+        # page, so this fallback no longer reaches for it. Keep a minimal
+        # default so older non-chrome callers still see a recognizable
+        # scope line on the cover.
         if not subtitle:
-            subtitle = f"Scope: All Assets  |  Generated {generated_at_str}"
+            subtitle = "Scope: All Assets"
 
-        # Human-readable section list for the cover page
-        module_list_str = ", ".join(d.display_name for d in results)
-
-        # Phase 3 D-01: page 1 is now the unified cover (title + scope +
-        # generated + sections + RAG strip cells). The legacy thin cover
-        # template constant has been deleted and the separate page-2 RAG
-        # strip has been collapsed into this one page.
+        # Phase 6 plan 06-02 trimmed the cover body to scope-subtitle +
+        # RAG strip; plan 06-03 prunes the now-unused title /
+        # generated_at_str / module_list_str arguments that 06-02
+        # explicitly deferred (06-02 SUMMARY → "Caller Cleanup Deferred").
         cover = self._build_unified_cover_page(
             results,
-            title             = title,
-            subtitle          = subtitle,
-            generated_at_str  = generated_at_str,
-            module_list_str   = module_list_str,
+            subtitle = subtitle,
         )
 
         body = "\n".join(sections) if sections else (
@@ -754,17 +745,16 @@ class ReportComposer:
         self,
         results: list[ModuleData],
         *,
-        title:             str,
-        subtitle:          str,
-        generated_at_str:  str,
-        module_list_str:   str,
+        subtitle: str,
     ) -> str:
         """
-        Build the unified page-1 cover: header band + RAG strip cells.
+        Build the unified page-1 cover: scope subtitle + RAG strip cells.
 
-        Combines the legacy thin cover (title + subtitle + generated +
-        sections list) and the Phase 2 page-2 RAG strip into a single
-        page-1 cover (D-01). Page 2+ are the per-module sections.
+        Phase 6 plan 06-02 trimmed the cover body to scope-subtitle +
+        RAG strip (title, generated_at, and section list moved to the
+        per-page chrome header/footer when PdfChrome is active). Plan
+        06-03 prunes the now-unused ``title`` / ``generated_at_str`` /
+        ``module_list_str`` keyword arguments left over from that trim.
 
         Iterates results in ``_module_configs`` order, calls each
         module's ``render_rag_strip_entry()`` (Phase 1 contract), and
@@ -773,27 +763,22 @@ class ReportComposer:
         the rag_label text (D-04 / D-08).
 
         Per-module exception isolation mirrors ``assemble_pdf()``'s
-        existing pattern at composer.py:522-533 (Phase 2 D-28). Modules
-        whose class is missing from the registry, whose render method
-        raises, or whose entry returns an empty dict all collapse to a
-        gray "No Data" placeholder cell — never skipped, so the strip
-        always shows one cell per configured module (D-06).
+        existing pattern (Phase 2 D-28). Modules whose class is missing
+        from the registry, whose render method raises, or whose entry
+        returns an empty dict all collapse to a gray "No Data"
+        placeholder cell — never skipped, so the strip always shows one
+        cell per configured module (D-06).
 
-        T-03-01 Mitigation: every interpolated string (title, subtitle,
-        generated_at_str, module_list_str, label, headline_value,
-        rag_label) is HTML-escaped via ``html.escape(..., quote=True)``
-        before f-string composition.
+        T-03-01 Mitigation: every interpolated string (subtitle, label,
+        headline_value, rag_label) is HTML-escaped via
+        ``html.escape(..., quote=True)`` before f-string composition.
 
         Parameters
         ----------
         results : list[ModuleData]
             Output of ``run_all()``.
-        title, subtitle : str, keyword-only
-            Cover header band text.
-        generated_at_str : str, keyword-only
-            Pre-formatted timestamp string (UTC).
-        module_list_str : str, keyword-only
-            Comma-joined display names for the "Sections:" line.
+        subtitle : str, keyword-only
+            Scope subtitle line (the only remaining cover-body text).
 
         Returns
         -------
