@@ -92,7 +92,7 @@ _VALID_REPORTS: frozenset[str] = frozenset({
 # Per RESEARCH.md Q2 and D-05: an allowlist beats inspect.signature for
 # a one-consumer rollout. CHROME-COMPAT-01 — management_summary and
 # ops_remediation MUST NOT receive privacy_label / scope_subtitle.
-_CHROME_AWARE_SLUGS: frozenset[str] = frozenset({"board_summary"})
+_CHROME_AWARE_SLUGS: frozenset[str] = frozenset({"board_summary", "composed_report"})
 
 _VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "monthly", "on_demand"})
 
@@ -705,19 +705,6 @@ def run_group(
                 # auto-inject schema defaults, so the Python-side .get() with
                 # True is the canonical injection point.
                 report_kwargs["analyst_detail"] = group_config.get("analyst_detail", True)
-                # Phase 6 (CHROME-INT-01 + CHROME-COMPAT-01): chrome kwargs are
-                # injected ONLY for slugs in the allowlist. The outer
-                # `if slug == "board_summary":` already restricts to one slug,
-                # but the inner gate documents the compat-safety contract at
-                # the point of risk and survives future refactors that
-                # consolidate the per-slug extras blocks (D-05).
-                if slug in _CHROME_AWARE_SLUGS:
-                    report_kwargs["privacy_label"]  = privacy_label
-                    report_kwargs["scope_subtitle"] = scope_subtitle
-                    # Optional YAML-driven cover-title override (parity with
-                    # composed_report). None → board_summary uses its slug
-                    # default (_REPORT_TITLE).
-                    report_kwargs["report_title"]   = group_config.get("report_title")
             if slug == "unscanned_assets":
                 report_kwargs["scan_window_days"] = group_config.get("scan_window_days", 30)
             if slug == "composed_report":
@@ -725,11 +712,19 @@ def run_group(
                 # enforces minItems:1 when composed_report is in reports);
                 # module_options is permissive pass-through (per-module
                 # options dict). analyst_detail mirrors board_summary's
-                # opt-out plumbing; report_title is an optional cover-page
-                # override.
+                # opt-out plumbing.
                 report_kwargs["modules"]        = group_config.get("modules") or []
                 report_kwargs["module_options"] = group_config.get("module_options") or {}
                 report_kwargs["analyst_detail"] = group_config.get("analyst_detail", True)
+            # Phase 6 (CHROME-INT-01 + CHROME-COMPAT-01): single chrome
+            # gate. Slugs in _CHROME_AWARE_SLUGS opt into the chrome
+            # design system (header band + footer + cover-page contract);
+            # legacy slugs (management_summary, ops_remediation, etc.)
+            # MUST NOT receive these kwargs — their run_report signatures
+            # don't accept them.
+            if slug in _CHROME_AWARE_SLUGS:
+                report_kwargs["privacy_label"]  = privacy_label
+                report_kwargs["scope_subtitle"] = scope_subtitle
                 report_kwargs["report_title"]   = group_config.get("report_title")
             result = report_module.run_report(tio, run_id, **report_kwargs)
             report_outputs[slug]  = result
