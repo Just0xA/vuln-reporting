@@ -377,15 +377,9 @@ _PDF_CSS = """
 
 _PDF_UNIFIED_COVER_TEMPLATE = """
 <div class="report-cover">
-  <p class="cover-title">{title}</p>
-  <p class="cover-subtitle">{subtitle}</p>
-  <hr class="cover-divider">
-  <div class="cover-meta">
-    <p style="margin:0 0 2mm 0;">Generated: {generated_at}</p>
-    <p style="margin:0 0 4mm 0;">Sections: {module_list}</p>
-  </div>
+  <p class="cover-subtitle">{scope_subtitle}</p>
   <div class="rag-strip">
-    <h2 class="rag-strip-header">{header}</h2>
+    <h2 class="rag-strip-header">Risk Status Summary</h2>
     <div class="rag-cell-row">
 {cells_html}
     </div>
@@ -911,18 +905,14 @@ class ReportComposer:
         cells_html = "\n".join(cells)
 
         # T-03-01: HTML-escape every interpolated string for the cover band.
-        safe_title         = html.escape(str(title),            quote=True)
-        safe_subtitle      = html.escape(str(subtitle),         quote=True)
-        safe_generated_at  = html.escape(str(generated_at_str), quote=True)
-        safe_module_list   = html.escape(str(module_list_str),  quote=True)
+        # Phase 6 plan 06-02 (CHROME-COV-02): cover body trimmed to scope
+        # subtitle + RAG strip only. Title/generated/module list are now
+        # carried by the chrome header/footer on every page (D-01).
+        safe_scope_subtitle = html.escape(str(subtitle), quote=True)
 
         return _PDF_UNIFIED_COVER_TEMPLATE.format(
-            title         = safe_title,
-            subtitle      = safe_subtitle,
-            generated_at  = safe_generated_at,
-            module_list   = safe_module_list,
-            header        = "Risk Status Summary",
-            cells_html    = cells_html,
+            scope_subtitle = safe_scope_subtitle,
+            cells_html     = cells_html,
         )
 
     # Class-level alias for the renamed method (W3 safety net).
