@@ -23,17 +23,31 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 **Codebase state (post-v1.0):** Five reports work end-to-end. Module infrastructure is exercised by `board_summary` (fully migrated). `management_summary` still uses its bespoke render path (not yet migrated). `ops_remediation`, `vuln_export`, `unscanned_assets` use direct render code without the module contract.
 
-## Next Milestone Goals
+## Current Milestone: v1.1 PDF Chrome Redesign
 
-The next milestone is not yet defined. Run `/gsd-new-milestone` to start questioning → research → requirements → roadmap.
+**Goal:** Redesign the PDF cover and apply a consistent, configurable header/footer to every page of every PDF report.
 
-Likely v1.1 / v2 candidates from the acknowledged backlog (see `milestones/v1.0-REQUIREMENTS.md` v2 section):
+**Target features:**
+- Configurable PDF header — optional logo (left), Report Title (right), background color. Logo path + header color set globally in `config.py`; missing/unset logo renders title-only.
+- Cover page body — preserves the unified RAG strip from v1.0.
+- Footer on every page — "Confidential" privacy label (left) + Date Generated (right). Privacy label defaults to "Confidential" with optional per-group override in `delivery_config.yaml`.
+- Non-cover pages add page number centered between the footer corners.
+- Shared PDF chrome utility — applied to `board_summary` in v1.1; designed so every future PDF report inherits it for free.
 
-- **Migrate `management_summary` and `ops_remediation`** to the new module render contract (GEN-01/02). The contract is now field-tested against Board Summary; bringing the other two reports onto the same path is a clean migration rather than a rewrite.
-- **YAML-driven module composition** (GEN-03/04). Per-group inline `modules: [...]` lists and named report bundles defined in YAML rather than hardcoded in Python. The framework already routes via D-22 bundle-driven predicates with no slug allowlists, so the v2 wiring is a near-zero-cost change to `delivery/email_sender.py`.
-- **Performance pass** (PERF-01..04). `enrich_vulns_with_assets` per-batch caching (~9× current cost on a 180k-row frame), per-day cache midnight crossover, log rotation, tag-value typo detection.
-- **Re-evaluate the 6 unbuilt reports** in CLAUDE.md (`executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`) as candidate module bundles rather than fresh report scripts (LEGACY-01).
-- **Cosmetic janitorial:** `_VALID_FREQUENCIES` / `_VALID_REPORTS` constants in `run_all.py:76,90` are unreferenced after Phase 4 jsonschema replacement; cover-page redesign deferred from Phase 03 UAT (template-based; relocate "Generated" + Data Protection Label to a page footer).
+**Scope notes:**
+- Default header color: dark navy (`#1a2332`); user-overridable in `config.py`.
+- `management_summary` and `ops_remediation` PDFs remain on the legacy render path for this milestone; they'll inherit the chrome when migrated to the module contract in a later milestone (GEN-01/02 still deferred).
+- Cutover smoke baselines for `board_summary` will need updating to reflect the new cover-page structure.
+
+## Deferred to Future Milestones
+
+Carried from the v1.0 backlog (see `milestones/v1.0-REQUIREMENTS.md` v2 section):
+
+- **GEN-01/02** — Migrate `management_summary` and `ops_remediation` to the module render contract.
+- **GEN-03/04** — YAML-driven module composition (partially landed 2026-05-13 via the `composed_report` slug; remaining work is broader bundle definition in YAML).
+- **PERF-01..04** — `enrich_vulns_with_assets` per-batch caching, per-day cache midnight crossover, log rotation, tag-value typo detection.
+- **LEGACY-01** — Re-evaluate the 6 unbuilt reports in CLAUDE.md (`executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`) as candidate module bundles.
+- **Cosmetic janitorial** — `_VALID_FREQUENCIES` / `_VALID_REPORTS` stale constants in `run_all.py:76,90`.
 
 ## Constraints
 
@@ -78,4 +92,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-08 after v1.0 milestone (Modular Reporting Framework shipped)*
+*Last updated: 2026-05-13 — milestone v1.1 PDF Chrome Redesign started*

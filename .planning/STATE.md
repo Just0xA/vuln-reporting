@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: shipped:v1.0
-milestone_name: post-v1.0
-status: v1.0 Modular Reporting Framework SHIPPED — ready for /gsd-new-milestone
-stopped_at: "Milestone v1.0 archived; next milestone not yet defined"
-last_updated: "2026-05-08T11:55:00.000Z"
-last_activity: 2026-05-08
+milestone: v1.1
+milestone_name: PDF Chrome Redesign
+status: planning
+stopped_at: "Milestone v1.1 initialized — defining requirements"
+last_updated: "2026-05-13T12:00:00.000Z"
+last_activity: 2026-05-13
 progress:
   total_phases: 0
   completed_phases: 0
@@ -18,41 +18,41 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-08)
+See: .planning/PROJECT.md (updated 2026-05-13)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** v1.0 shipped 2026-05-08; next milestone planning is the next step (`/gsd-new-milestone`).
+**Current focus:** v1.1 PDF Chrome Redesign — configurable header/footer applied to every page of every PDF report.
 
 ## Current Position
 
-Phase: (none — between milestones)
-Plan: (none)
-Status: v1.0 Modular Reporting Framework SHIPPED — ready for /gsd-new-milestone
-Last activity: 2026-05-08
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-13 — Milestone v1.1 started
 
-Progress: [          ] (next milestone not yet defined)
+Progress: [          ] 0% (roadmap not yet created)
 
 ## Shipped Milestones
 
-- ✅ **v1.0 Modular Reporting Framework** (2026-05-08) — see [`MILESTONES.md`](MILESTONES.md). 4 phases, 19 plans, 1 quick task, 140 commits across 4 days. All 24 v1 requirements Validated. Full archive: [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md), [`milestones/v1.0-REQUIREMENTS.md`](milestones/v1.0-REQUIREMENTS.md). Retrospective: [`RETROSPECTIVE.md`](RETROSPECTIVE.md).
+- ✅ **v1.0 Modular Reporting Framework** (2026-05-08) — see [`MILESTONES.md`](MILESTONES.md). 4 phases, 19 plans, 1 quick task, 140 commits across 4 days. All 24 v1 requirements Validated. Full archive: [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md), [`milestones/v1.0-REQUIREMENTS.md`](milestones/v1.0-REQUIREMENTS.md), [`milestones/v1.0-phases/`](milestones/v1.0-phases/). Retrospective: [`RETROSPECTIVE.md`](RETROSPECTIVE.md).
 
 ## Performance Metrics
 
-(Reset at milestone boundary; will accumulate again starting with next milestone.)
+(Reset at milestone boundary; accumulates as v1.1 phases ship.)
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions are logged in PROJECT.md "Key Decisions" table. v1.0's full decision log is also archived at `milestones/v1.0-ROADMAP.md` § Key Decisions.
+Decisions logged in PROJECT.md "Key Decisions" table. v1.0's full decision log is archived at `milestones/v1.0-ROADMAP.md` § Key Decisions.
 
 ### Pending Todos
 
-None at milestone close.
+None at milestone start.
 
 ### Blockers/Concerns
 
-None at milestone close.
+None at milestone start.
 
 ## Quick Tasks Completed
 
@@ -63,18 +63,20 @@ None at milestone close.
 
 ## Deferred Items
 
-Items acknowledged at v1.0 close and carried forward to v2 / future milestones. See `milestones/v1.0-REQUIREMENTS.md` for the v2 requirements list (GEN-01..04, PERF-01..04, CATALOG-01, LEGACY-01).
+Carried forward from v1.0; not in scope for v1.1.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| design | Cover-page redesign — template-based on Report Title; relocate "Generated" timestamp + Data Protection Label to a page footer to de-clutter page 1. | deferred to future milestone | 2026-05-07 |
-| janitorial | `run_all.py:76,90` stale `_VALID_FREQUENCIES` / `_VALID_REPORTS` constants — unreferenced after Phase 4 jsonschema replacement. Safe whenever. | deferred (cosmetic) | 2026-05-08 |
-| cleanup | Phase 3 W3 deprecated aliases (`_PDF_RAG_STRIP_TEMPLATE`, `_build_rag_strip_page`) — kept across v1 for safety; safe to remove now that Phase 2 cover-hash check tolerates it. | deferred (cosmetic) | 2026-05-08 |
-| backlog | All v2 requirements (GEN, PERF, CATALOG, LEGACY families) — see `milestones/v1.0-REQUIREMENTS.md` § v2 Requirements. | tracked for next milestone | 2026-05-08 |
+| backlog | GEN-01/02: migrate `management_summary` + `ops_remediation` to module render contract | deferred | 2026-05-08 |
+| backlog | GEN-03/04: YAML-driven module composition (partially landed via `composed_report` slug 2026-05-13) | partially deferred | 2026-05-08 |
+| backlog | PERF-01..04: per-batch enrich cache, midnight cache crossover, log rotation, tag-value typo detection | deferred | 2026-05-08 |
+| backlog | LEGACY-01: re-evaluate the 6 unbuilt reports in CLAUDE.md as candidate module bundles | deferred | 2026-05-08 |
+| janitorial | `run_all.py:76,90` stale `_VALID_FREQUENCIES` / `_VALID_REPORTS` constants | deferred (cosmetic) | 2026-05-08 |
+| cleanup | Phase 3 W3 deprecated aliases (`_PDF_RAG_STRIP_TEMPLATE`, `_build_rag_strip_page`) | deferred (cosmetic) | 2026-05-08 |
 
 ## Session Continuity
 
-Last session: 2026-05-08T11:55:00.000Z
-Stopped at: v1.0 milestone archived (ROADMAP + REQUIREMENTS + RETROSPECTIVE + MILESTONES); git tag pending; next milestone not yet defined.
-Resume file: .planning/MILESTONES.md (v1.0 entry + full archive links)
-Next command: `/gsd-new-milestone` — start next milestone (questioning → research → requirements → roadmap)
+Last session: 2026-05-13T12:00:00.000Z
+Stopped at: Milestone v1.1 initialized; defining requirements next.
+Resume file: .planning/PROJECT.md (Current Milestone section)
+Next command: continue `/gsd-new-milestone` (requirements + roadmap), or `/gsd-plan-phase 5` after roadmap approval
