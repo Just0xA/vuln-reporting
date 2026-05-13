@@ -88,6 +88,12 @@ _VALID_REPORTS: frozenset[str] = frozenset({
     "composed_report",
 })
 
+# Slugs whose run_report() opts in to the Phase 6 chrome utility.
+# Per RESEARCH.md Q2 and D-05: an allowlist beats inspect.signature for
+# a one-consumer rollout. CHROME-COMPAT-01 — management_summary and
+# ops_remediation MUST NOT receive privacy_label / scope_subtitle.
+_CHROME_AWARE_SLUGS: frozenset[str] = frozenset({"board_summary"})
+
 _VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "monthly", "on_demand"})
 
 _VALID_DAYS: frozenset[str] = frozenset({
@@ -602,6 +608,12 @@ def run_group(
     tag_category = tag_category_override or filters.get("tag_category")
     tag_value    = tag_value_override    or filters.get("tag_value")
 
+    # Phase 6 (CHROME-INT-01 / D-05): resolve chrome kwargs once per group.
+    # Only injected into chrome-aware report slugs (CHROME-COMPAT-01); see
+    # the _CHROME_AWARE_SLUGS-gated block in the per-slug extras below.
+    privacy_label  = group_config.get("privacy_label", "Confidential")
+    scope_subtitle = _format_scope_subtitle(tag_category, tag_value)
+
     # Ensure Tenable client is available
     if tio is None:
         try:
@@ -693,6 +705,15 @@ def run_group(
                 # auto-inject schema defaults, so the Python-side .get() with
                 # True is the canonical injection point.
                 report_kwargs["analyst_detail"] = group_config.get("analyst_detail", True)
+                # Phase 6 (CHROME-INT-01 + CHROME-COMPAT-01): chrome kwargs are
+                # injected ONLY for slugs in the allowlist. The outer
+                # `if slug == "board_summary":` already restricts to one slug,
+                # but the inner gate documents the compat-safety contract at
+                # the point of risk and survives future refactors that
+                # consolidate the per-slug extras blocks (D-05).
+                if slug in _CHROME_AWARE_SLUGS:
+                    report_kwargs["privacy_label"]  = privacy_label
+                    report_kwargs["scope_subtitle"] = scope_subtitle
             if slug == "unscanned_assets":
                 report_kwargs["scan_window_days"] = group_config.get("scan_window_days", 30)
             if slug == "composed_report":
