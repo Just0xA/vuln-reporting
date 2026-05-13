@@ -6,6 +6,8 @@ Build a modular Python reporting suite that connects to **Tenable.io / Tenable V
 
 The suite supports **scheduled and on-demand execution**, with a YAML-driven delivery system that emails the right reports to the right recipients — each group with its own filters, report selection, frequency, and recipient list that can be updated without touching code.
 
+**Vocabulary:** Project-specific terms (chrome, RAG strip, VPR, four-channel render contract, slug, etc.) are defined in [`docs/GLOSSARY.md`](docs/GLOSSARY.md). Read it when a term is unfamiliar; add an entry when introducing a new one.
+
 ---
 
 # Karpathy Guidelines
@@ -88,7 +90,7 @@ Severity is determined by the **VPR (Vulnerability Priority Rating)** score from
 | -------- | --------------- | ---------- |
 | Critical | 9.0 – 10.0      | 15         |
 | High     | 7.0 – 8.9       | 30         |
-| Medium   | 4.0 – 6.9       | 60         |
+| Medium   | 4.0 – 6.9       | 45         |
 | Low      | 0.1 – 3.9       | 120        |
 
 A vulnerability is **overdue** when `today - first_found_date > SLA_days` AND not remediated.
@@ -149,9 +151,9 @@ Single file controlling who gets what, with what filters, and how often. Editabl
 groups:
   - name: "Executive Team"
     schedule:
-      frequency: weekly         # weekly | monthly | on_demand
-      day_of_week: monday       # weekly only
-      time: "07:00"             # 24hr, server local
+      frequency: weekly # weekly | monthly | on_demand
+      day_of_week: monday # weekly only
+      time: "07:00" # 24hr, server local
     filters:
       tag_category: "Environment"
       tag_value: "Production"
@@ -290,14 +292,14 @@ class MyMetricModule(BaseModule):
 
 All renderer methods are **concrete with no-op defaults** (not `@abstractmethod`).
 
-| Method                                                                | Channel                                  | Default             |
-| --------------------------------------------------------------------- | ---------------------------------------- | ------------------- |
-| `render_pdf_section(data, config) -> str`                             | PDF                                      | `""`                |
-| `render_excel_tabs(data, workbook, config) -> list[str]`              | Excel                                    | `[]`                |
-| `render_email_kpis(data, config) -> list[dict]`                       | Email KPI tiles (legacy)                 | `[]`                |
-| `render_email_panel(data, config) -> str`                             | Email body panel (CONTRACT-01)           | `""`                |
-| `render_analyst_tabs(data, config) -> list[tuple[str, pd.DataFrame]]` | Analyst-detail workbook (CONTRACT-02)    | `[]`                |
-| `render_rag_strip_entry(data, config) -> dict`                        | Cover-page RAG strip (CONTRACT-03)       | Gray "No Data" cell |
+| Method                                                                | Channel                               | Default             |
+| --------------------------------------------------------------------- | ------------------------------------- | ------------------- |
+| `render_pdf_section(data, config) -> str`                             | PDF                                   | `""`                |
+| `render_excel_tabs(data, workbook, config) -> list[str]`              | Excel                                 | `[]`                |
+| `render_email_kpis(data, config) -> list[dict]`                       | Email KPI tiles (legacy)              | `[]`                |
+| `render_email_panel(data, config) -> str`                             | Email body panel (CONTRACT-01)        | `""`                |
+| `render_analyst_tabs(data, config) -> list[tuple[str, pd.DataFrame]]` | Analyst-detail workbook (CONTRACT-02) | `[]`                |
+| `render_rag_strip_entry(data, config) -> dict`                        | Cover-page RAG strip (CONTRACT-03)    | Gray "No Data" cell |
 
 `ModuleData` (CONTRACT-04) carries the supporting fields:
 
@@ -363,19 +365,19 @@ This pattern is intentional: v2's planned YAML-driven module composition (`group
 
 ## Report Scripts — Slug Index
 
-| Slug                  | Audience                            | Outputs                | Notes |
-| --------------------- | ----------------------------------- | ---------------------- | ----- |
-| `executive_kpi`       | Management / Executives             | PDF, Excel, charts     | Open vulns by severity, SLA %, MTTR, top-5 risky tags |
-| `sla_remediation`     | IT / Remediation + Analysts         | Excel (per-sev tabs), PDF, chart | SLA status per vuln, velocity, breach trend |
-| `asset_risk`          | Analysts + IT                       | Excel, PDF, chart      | Per-asset weighted risk score |
-| `patch_compliance`    | IT / Remediation + Analysts         | Excel, PDF, chart      | Age buckets, % beyond SLA, oldest unpatched |
-| `trend_analysis`      | Management + Analysts               | Excel, PDF, charts     | Weekly/monthly snapshots, MTTR trend |
-| `plugin_cve`          | Analysts                            | Excel, PDF, charts     | Top plugins/CVEs, exploitable breakdown |
-| `ops_remediation`     | Operations / Remediation            | Excel (7 tabs), PDF    | Overdue by plugin, risk acceptances, recurring vulns |
-| `vuln_export`         | Operations + Analysts               | CSV only               | Raw open findings, configurable `csv_severities` |
-| `management_summary`  | Senior Management (Directors/VPs)   | PDF (5pp), HTML email  | 7 RAG metrics; modules-based. See `docs/management_summary_calculations.md` |
-| `board_summary`       | Board / Executive Leadership        | PDF, Excel             | 4 board KPIs; modules-based. See `docs/board_summary_calculations.md` |
-| `unscanned_assets`    | Analysts / IT Ops                   | Excel, CSV             | Companion to Scan Coverage SLA; on-time / overdue / no-licensed-scan split |
+| Slug                 | Audience                          | Outputs                          | Notes                                                                       |
+| -------------------- | --------------------------------- | -------------------------------- | --------------------------------------------------------------------------- |
+| `executive_kpi`      | Management / Executives           | PDF, Excel, charts               | Open vulns by severity, SLA %, MTTR, top-5 risky tags                       |
+| `sla_remediation`    | IT / Remediation + Analysts       | Excel (per-sev tabs), PDF, chart | SLA status per vuln, velocity, breach trend                                 |
+| `asset_risk`         | Analysts + IT                     | Excel, PDF, chart                | Per-asset weighted risk score                                               |
+| `patch_compliance`   | IT / Remediation + Analysts       | Excel, PDF, chart                | Age buckets, % beyond SLA, oldest unpatched                                 |
+| `trend_analysis`     | Management + Analysts             | Excel, PDF, charts               | Weekly/monthly snapshots, MTTR trend                                        |
+| `plugin_cve`         | Analysts                          | Excel, PDF, charts               | Top plugins/CVEs, exploitable breakdown                                     |
+| `ops_remediation`    | Operations / Remediation          | Excel (7 tabs), PDF              | Overdue by plugin, risk acceptances, recurring vulns                        |
+| `vuln_export`        | Operations + Analysts             | CSV only                         | Raw open findings, configurable `csv_severities`                            |
+| `management_summary` | Senior Management (Directors/VPs) | PDF (5pp), HTML email            | 7 RAG metrics; modules-based. See `docs/management_summary_calculations.md` |
+| `board_summary`      | Board / Executive Leadership      | PDF, Excel                       | 4 board KPIs; modules-based. See `docs/board_summary_calculations.md`       |
+| `unscanned_assets`   | Analysts / IT Ops                 | Excel, CSV                       | Companion to Scan Coverage SLA; on-time / overdue / no-licensed-scan split  |
 
 Per-report details (column lists, exact calculations, data sources) live in each report's module docstring and the `docs/*_calculations.md` runbooks.
 
@@ -447,6 +449,7 @@ The next direction is to make every report **modular and composable** rather tha
 ## Technology Stack
 
 See `.planning/codebase/STACK.md` for the deep-dive (per-dependency versions, import locations, retry policies, platform requirements).
+
 <!-- GSD:stack-end -->
 
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
@@ -454,6 +457,7 @@ See `.planning/codebase/STACK.md` for the deep-dive (per-dependency versions, im
 ## Conventions
 
 See `.planning/codebase/CONVENTIONS.md` for naming, type hints, docstring style, logging conventions, datetime/timezone rules, pandas patterns, dataclass usage, and comment conventions.
+
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
@@ -476,6 +480,7 @@ Quick reference — the load-bearing patterns:
 ## Project Skills
 
 No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
+
 <!-- GSD:skills-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->
@@ -496,4 +501,5 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 
 > Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
+
 <!-- GSD:workflow-end -->
