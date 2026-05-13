@@ -377,9 +377,9 @@ _PDF_CSS = """
 
 _PDF_UNIFIED_COVER_TEMPLATE = """
 <div class="report-cover">
-  <p class="cover-subtitle">{scope_subtitle}</p>
+  <p class="cover-subtitle">Scope: {scope_subtitle}</p>
   <div class="rag-strip">
-    <h2 class="rag-strip-header">Risk Status Summary</h2>
+    <h2 class="rag-strip-header">Key Performance Metrics</h2>
     <div class="rag-cell-row">
 {cells_html}
     </div>
