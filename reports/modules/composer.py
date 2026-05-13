@@ -52,6 +52,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from reports.modules.base import BaseModule, ModuleConfig, ModuleData
+from reports.modules.pdf_chrome import PdfChrome, PdfChromeConfig
 from reports.modules.registry import registry
 
 logger = logging.getLogger(__name__)
@@ -433,6 +434,7 @@ class ReportComposer:
         assets_df:      pd.DataFrame,
         report_date:    Any,
         module_configs: list[ModuleConfig],
+        pdf_chrome:     PdfChromeConfig | None = None,
         **kwargs:       Any,
     ) -> None:
         self._vulns_df       = vulns_df
@@ -440,6 +442,13 @@ class ReportComposer:
         self._report_date    = report_date
         self._module_configs = module_configs
         self._kwargs         = kwargs
+
+        # Phase 6 D-06: optional chrome wiring. When pdf_chrome is None,
+        # assemble_pdf() emits no chrome CSS or header HTML — output is
+        # byte-identical to pre-Phase-6 behavior (CHROME-INT-01).
+        self._pdf_chrome: PdfChrome | None = (
+            PdfChrome(pdf_chrome) if pdf_chrome is not None else None
+        )
 
         # Validate configs up front — log warnings for unknown/misconfigured
         # modules but do not abort; run_all() will surface per-module errors.
