@@ -69,6 +69,7 @@ definitions:
             - vuln_export
             - board_summary
             - unscanned_assets
+            - composed_report
 
       csv_severities:
         type: array
@@ -108,6 +109,29 @@ definitions:
           group should receive only the PDF, standard Excel, and email
           panels — no analyst drill-down workbook.
         default: true
+
+      report_title:
+        type: string
+        description: |
+          Optional cover-page title override used only by composed_report.
+          Ignored by all other slugs. Defaults to "Composed Vulnerability
+          Report" when absent.
+        minLength: 1
+
+    # Conditional: when reports contains composed_report, modules is required
+    # and must be non-empty (mirrors the schedule frequency/day_of_week pattern).
+    allOf:
+      - if:
+          properties:
+            reports:
+              contains:
+                const: composed_report
+        then:
+          required:
+            - modules
+          properties:
+            modules:
+              minItems: 1
 
   # -------------------------------------------------------------------------
   schedule:
