@@ -336,6 +336,44 @@ def _validate_group(group: dict, *, _schema: Optional[dict] = None) -> list[str]
             cleaned.append(e.split("groups[0].", 1)[1])
         else:
             cleaned.append(e)
+
+    # Runtime registry validation for composed_report. Schema enforces
+    # shape (modules required + non-empty); registry enforces that each
+    # ID resolves to a registered module class. Lazy-import so unit
+    # tests that exercise _validate_group on non-composed_report groups
+    # don't pay the discovery cost.
+    reports_list = group.get("reports") or []
+    if "composed_report" in reports_list:
+        try:
+            from reports.modules import registry  # noqa: PLC0415
+        except Exception as exc:  # noqa: BLE001
+            cleaned.append(
+                f"modules: failed to load module registry ({exc}) — "
+                f"cannot validate composed_report module IDs."
+            )
+        else:
+            module_ids = group.get("modules") or []
+            if module_ids:
+                _, invalid = registry.validate_module_list(list(module_ids))
+                if invalid:
+                    registered = sorted(registry._modules.keys())  # noqa: SLF001
+                    for bad in invalid:
+                        idx = module_ids.index(bad) if bad in module_ids else -1
+                        cleaned.append(
+                            f"modules[{idx}]: '{bad}' is not a registered "
+                            f"module. Registered: {registered}"
+                        )
+
+                # Permissive pass-through (Q4): stray module_options keys
+                # not in modules are warning-logged only, not errors.
+                opts = group.get("module_options") or {}
+                if isinstance(opts, dict):
+                    stray = set(opts.keys()) - set(module_ids)
+                    for k in sorted(stray):
+                        logger.warning(
+                            "module_options: key '%s' not in modules list "
+                            "(ignored)", k,
+                        )
     return cleaned
 
 
