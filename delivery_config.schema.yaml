@@ -118,6 +118,22 @@ definitions:
           Report" when absent.
         minLength: 1
 
+      privacy_label:
+        type: string
+        description: |
+          Optional per-group override for the PDF footer privacy label
+          (e.g. "Confidential", "Internal Only", "TLP:Amber"). When
+          omitted, run_group() resolves the default "Confidential" at
+          the call site (CHROME-COMPAT-02). Consumed by the shared
+          PDF chrome utility in reports/modules/pdf_chrome.py.
+
+          Disallows the double-quote character (") because the value
+          is interpolated into a CSS `content: "..."` string. Use
+          smart quotes or single quotes inside the label if you need
+          quoting visually.
+        minLength: 1
+        pattern: '^[^"]+$'
+
     # Conditional: when reports contains composed_report, modules is required
     # and must be non-empty (mirrors the schedule frequency/day_of_week pattern).
     allOf:
