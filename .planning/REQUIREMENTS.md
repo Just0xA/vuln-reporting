@@ -3,6 +3,7 @@
 **Goal:** Redesign the PDF cover and apply a consistent, configurable header/footer to every page of every PDF report.
 
 **Status:** Active (defined 2026-05-13)
+**Count:** 16 REQs across 6 categories
 
 ---
 
@@ -53,7 +54,26 @@ Carried forward to a later milestone; explicitly NOT this milestone:
 
 ## Traceability
 
-(Filled by roadmap creation. Maps each REQ-ID to the phase that delivers it.)
+| REQ-ID | Phase |
+|--------|-------|
+| CHROME-CFG-01 | 5 — PDF Chrome Foundation |
+| CHROME-CFG-02 | 5 — PDF Chrome Foundation |
+| CHROME-CFG-03 | 5 — PDF Chrome Foundation |
+| CHROME-CFG-04 | 5 — PDF Chrome Foundation |
+| CHROME-HDR-01 | 5 — PDF Chrome Foundation |
+| CHROME-HDR-02 | 5 — PDF Chrome Foundation |
+| CHROME-FTR-01 | 5 — PDF Chrome Foundation |
+| CHROME-FTR-02 | 5 — PDF Chrome Foundation |
+| CHROME-FTR-03 | 5 — PDF Chrome Foundation |
+| CHROME-COV-01 | 6 — Cover Redesign + Board Summary Integration |
+| CHROME-COV-02 | 6 — Cover Redesign + Board Summary Integration |
+| CHROME-INT-01 | 6 — Cover Redesign + Board Summary Integration |
+| CHROME-INT-02 | 6 — Cover Redesign + Board Summary Integration |
+| CHROME-INT-03 | 6 — Cover Redesign + Board Summary Integration |
+| CHROME-COMPAT-01 | 6 — Cover Redesign + Board Summary Integration |
+| CHROME-COMPAT-02 | 6 — Cover Redesign + Board Summary Integration |
+
+Coverage: 16/16 REQs mapped (100%).
 
 ---
 
