@@ -168,7 +168,9 @@ class PdfChrome:
         return f"""
         @page {{
           size: A4 landscape;
-          margin: 15mm 12mm 18mm 12mm;
+          /* 18mm top reserves 15mm for the fixed-overlay header band
+             plus a 3mm breathing gap before body content starts. */
+          margin: 18mm 12mm 18mm 12mm;
           @bottom-left   {{
             content: "{cfg.privacy_label}";
             font-size: 8pt; color: #666;
@@ -193,7 +195,7 @@ class PdfChrome:
            paints the entire 15mm top strip edge-to-edge. */
         .chrome-header {{
           position: fixed;
-          top: -15mm;
+          top: -18mm;
           left: -12mm;
           right: -12mm;
           height: 15mm;

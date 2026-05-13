@@ -68,24 +68,40 @@ def _run_group_with_slug(slug: str, group_overrides: dict | None = None) -> dict
 
 
 def test_board_summary_receives_privacy_label_and_scope_subtitle():
-    """CHROME-INT-01 — chrome-aware slug gets BOTH new kwargs."""
+    """CHROME-INT-01 — chrome-aware slug gets BOTH new kwargs plus report_title."""
     kw = _run_group_with_slug("board_summary")
     assert "privacy_label" in kw
     assert "scope_subtitle" in kw
+    # YAML-driven cover-title override flows through with the other
+    # chrome kwargs; group without `report_title:` passes None and the
+    # slug falls back to its built-in default.
+    assert "report_title" in kw
+    assert kw["report_title"] is None
 
 
-def test_management_summary_does_not_receive_privacy_label():
+def test_board_summary_report_title_override_forwarded():
+    """YAML `report_title:` on a board_summary group propagates verbatim."""
+    kw = _run_group_with_slug(
+        "board_summary",
+        group_overrides={"report_title": "Q2 Posture"},
+    )
+    assert kw["report_title"] == "Q2 Posture"
+
+
+def test_management_summary_does_not_receive_chrome_kwargs():
     """CHROME-COMPAT-01 — legacy renderer signature is unchanged."""
     kw = _run_group_with_slug("management_summary")
-    assert "privacy_label" not in kw
+    assert "privacy_label"  not in kw
     assert "scope_subtitle" not in kw
+    assert "report_title"   not in kw
 
 
-def test_ops_remediation_does_not_receive_privacy_label():
+def test_ops_remediation_does_not_receive_chrome_kwargs():
     """CHROME-COMPAT-01 — legacy renderer signature is unchanged."""
     kw = _run_group_with_slug("ops_remediation")
-    assert "privacy_label" not in kw
+    assert "privacy_label"  not in kw
     assert "scope_subtitle" not in kw
+    assert "report_title"   not in kw
 
 
 def test_privacy_label_defaults_to_confidential():

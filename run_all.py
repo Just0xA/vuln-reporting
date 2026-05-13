@@ -714,6 +714,10 @@ def run_group(
                 if slug in _CHROME_AWARE_SLUGS:
                     report_kwargs["privacy_label"]  = privacy_label
                     report_kwargs["scope_subtitle"] = scope_subtitle
+                    # Optional YAML-driven cover-title override (parity with
+                    # composed_report). None → board_summary uses its slug
+                    # default (_REPORT_TITLE).
+                    report_kwargs["report_title"]   = group_config.get("report_title")
             if slug == "unscanned_assets":
                 report_kwargs["scan_window_days"] = group_config.get("scan_window_days", 30)
             if slug == "composed_report":

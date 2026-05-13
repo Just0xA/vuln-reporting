@@ -107,6 +107,7 @@ def run_report(
     analyst_detail: bool = True,
     privacy_label: str = "Confidential",
     scope_subtitle: Optional[str] = None,
+    report_title: Optional[str] = None,
 ) -> dict:
     """
     Generate the Board Vulnerability Metrics Summary.
@@ -261,8 +262,12 @@ def run_report(
     # Build PdfChromeConfig (CHROME-INT-02) — wired into ReportComposer
     # via the optional pdf_chrome= kwarg landed in plan 06-01.
     # ------------------------------------------------------------------
+    # YAML-driven cover title override (parity with composed_report).
+    # None / empty → fall back to the slug's canonical default.
+    effective_title = report_title or _REPORT_TITLE
+
     pdf_chrome_cfg = PdfChromeConfig(
-        title         = _REPORT_TITLE,
+        title         = effective_title,
         subtitle      = resolved_subtitle,
         generated_at  = generated_at,
         header_bg     = HEADER_BG_COLOR,
@@ -294,7 +299,7 @@ def run_report(
         slug             = "board_summary",
         report_date      = generated_at,
         generate_analyst = analyst_detail,    # Phase 4 (CONFIG-03 / D-04-03): YAML-driven opt-out
-        pdf_title        = _REPORT_TITLE,
+        pdf_title        = effective_title,
         pdf_subtitle     = resolved_subtitle,
         scope_label      = scope_label,
     )
