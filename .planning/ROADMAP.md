@@ -37,6 +37,14 @@ Full archive: [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md). Requir
 3. Shared chrome utility renders header band (logo-or-no-logo branches) and footer band (cover-variant vs page-N-of-M variant) — covered by unit tests on generated HTML/CSS.
 4. Logo-missing fallback test passes: no exception, no logo space reserved, title-only rendering.
 
+**Plans:** 4 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Config surface: HEADER_BG_COLOR + LOGO_PATH + privacy_label schema field + pypdf pin
+- [ ] 05-02-PLAN.md — Shared PDF chrome utility (PdfChromeConfig + PdfChrome class) in reports/modules/pdf_chrome.py
+- [ ] 05-03-PLAN.md — Layer-1 unit tests for PdfChrome (string-assert, no WeasyPrint)
+- [ ] 05-04-PLAN.md — Layer-2 real-render integration test (WeasyPrint + pypdf text extraction)
+
 #### Phase 6: Cover Redesign + Board Summary Integration
 
 - [ ] Wire chrome into `board_summary`, redesign cover body to use the RAG strip with the new chrome, and confirm end-to-end via real-Tenable smoke + operator UAT.
@@ -66,7 +74,7 @@ From the v1.0 acknowledged backlog (see `milestones/v1.0-REQUIREMENTS.md` v2 sec
 | 2. ReportComposer Upgrades | v1.0 | 5/5 | Complete | 2026-05-06 |
 | 3. Board Summary Module Migration | v1.0 | 7/7 | Complete | 2026-05-07 |
 | 4. YAML Config and Regression Cutover | v1.0 | 4/4 | Complete | 2026-05-08 |
-| 5. PDF Chrome Foundation | v1.1 | 0/0 | Not started | — |
+| 5. PDF Chrome Foundation | v1.1 | 0/4 | Planned | — |
 | 6. Cover Redesign + Board Summary Integration | v1.1 | 0/0 | Not started | — |
 
 ## Backlog
