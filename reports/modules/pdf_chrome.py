@@ -169,9 +169,15 @@ class PdfChrome:
         @page {{
           size: A4 landscape;
           margin: 15mm 12mm 18mm 12mm;
-          @top-left      {{ content: element(chrome-header); background: {cfg.header_bg}; }}
-          @top-center    {{ background: {cfg.header_bg}; }}
-          @top-right     {{ background: {cfg.header_bg}; }}
+          @top-left-corner  {{ content: ""; background: {cfg.header_bg}; }}
+          @top-left         {{ content: element(chrome-header); background: {cfg.header_bg}; }}
+          @top-center       {{ content: ""; background: {cfg.header_bg}; }}
+          @top-right        {{ content: ""; background: {cfg.header_bg}; }}
+          @top-right-corner {{ content: ""; background: {cfg.header_bg}; }}
+          @bottom-left-corner {{
+            content: "";
+            border-top: 1px solid #999;
+          }}
           @bottom-left   {{
             content: "{cfg.privacy_label}";
             font-size: 8pt; color: #666;
@@ -189,6 +195,10 @@ class PdfChrome:
             font-size: 8pt; color: #666;
             border-top: 1px solid #999;
             padding-top: 2mm;
+          }}
+          @bottom-right-corner {{
+            content: "";
+            border-top: 1px solid #999;
           }}
         }}
         @page :first {{
