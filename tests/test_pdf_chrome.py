@@ -157,3 +157,83 @@ def test_config_rejects_double_quote_in_privacy_label():
             title="T", subtitle="S", generated_at=GEN,
             privacy_label='Has a "quote" in it',
         )
+
+
+# ===========================================================================
+# Layer 2 — One real-render integration test (WeasyPrint + pypdf)
+# ===========================================================================
+# Per memory `feedback_layout_fixes`: WeasyPrint flex bugs in this project
+# require real renders, not on-paper geometry. Layer 1 tests above confirm
+# the chrome STRINGS are correct; this test confirms WeasyPrint actually
+# does what the strings claim. RESEARCH.md Q1–Q4 verified every assertion
+# below against locally rendered PDFs on weasyprint 65.1 + pypdf 6.11.0.
+# ===========================================================================
+
+
+def test_real_render_chrome_2_pages():
+    """
+    End-to-end render: build minimal 2-page HTML containing the chrome
+    CSS + header div, render to PDF, extract per-page text, verify the
+    four CONTEXT.md D-04 Layer-2 assertions.
+
+    Assertions:
+      1. Page 1 (cover) text does NOT contain 'Page 1 of'  (CHROME-FTR-03)
+      2. Page 2 text DOES contain 'Page 2 of 2'            (CHROME-FTR-02)
+      3. Every page text contains the privacy label        (CHROME-FTR-01)
+      4. Every page text contains the report title         (CHROME-HDR-01)
+    """
+    # Lazy imports: WeasyPrint is heavy; only import inside the test so
+    # the Layer-1 suite stays fast (pytest collection time matters).
+    import io
+    import weasyprint
+    from pypdf import PdfReader
+
+    chrome = PdfChrome(_cfg())  # uses GEN, title="Vuln Report", privacy="Confidential"
+
+    html_doc = f"""<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>{chrome.build_css()}</style>
+      </head>
+      <body>
+        {chrome.build_header_html()}
+        <h1>Cover Page</h1>
+        <p>RAG strip goes here in Phase 6.</p>
+        <div style="page-break-before: always;">
+          <h1>Metric Page</h1>
+          <p>Module content goes here in Phase 6.</p>
+        </div>
+      </body>
+    </html>"""
+
+    pdf_bytes = weasyprint.HTML(string=html_doc).write_pdf()
+    assert pdf_bytes, "WeasyPrint produced empty bytes"
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    assert len(reader.pages) == 2, f"expected 2 pages, got {len(reader.pages)}"
+
+    page1 = reader.pages[0].extract_text()
+    page2 = reader.pages[1].extract_text()
+
+    # CHROME-FTR-03: cover page footer has NO page number
+    assert "Page 1 of" not in page1, (
+        f"cover page leaked 'Page 1 of' into footer; got text:\n{page1!r}"
+    )
+
+    # CHROME-FTR-02: page 2 footer renders 'Page 2 of 2'
+    assert "Page 2 of 2" in page2, (
+        f"page 2 missing 'Page 2 of 2'; got text:\n{page2!r}"
+    )
+
+    # CHROME-FTR-01: privacy label on every page
+    assert "Confidential" in page1, f"page 1 missing privacy label; got:\n{page1!r}"
+    assert "Confidential" in page2, f"page 2 missing privacy label; got:\n{page2!r}"
+
+    # CHROME-HDR-01: header title on every page (via running element)
+    assert "Vuln Report" in page1, f"page 1 missing header title; got:\n{page1!r}"
+    assert "Vuln Report" in page2, f"page 2 missing header title; got:\n{page2!r}"
+
+    # Bonus: generated-at timestamp on every page (CHROME-FTR-01 right corner)
+    assert "2026-05-13 08:52 UTC" in page1
+    assert "2026-05-13 08:52 UTC" in page2
