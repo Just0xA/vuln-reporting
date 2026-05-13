@@ -219,3 +219,19 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 # =============================================================================
 CACHE_DIR: Path = ROOT_DIR / "data" / "cache"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# =============================================================================
+# PDF Chrome — header band and optional company logo
+#
+# Consumed by reports/modules/pdf_chrome.py (the shared design-system
+# utility) and by run_group() in run_all.py (Phase 6 wiring) when it
+# constructs PdfChromeConfig for each delivery group.
+#
+# LOGO_PATH is intentionally typed Path | None and defaults to None so
+# the chrome utility renders title-only headers out of the box. The
+# missing-file fallback is owned by PdfChrome.build_header_html() at
+# render time (CHROME-CFG-03) — there is no startup-time FS check here.
+# =============================================================================
+HEADER_BG_COLOR: str       = "#1a2332"   # CHROME-CFG-01 — operator-overridable dark navy default
+LOGO_PATH:       Path | None = None      # CHROME-CFG-02 — absolute Path; None means "title-only header"
