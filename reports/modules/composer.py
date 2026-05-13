@@ -716,6 +716,24 @@ class ReportComposer:
             '<p class="explanatory-text">No module output to display.</p>'
         )
 
+        # Phase 6 (CHROME-INT-01): optional chrome CSS as a second <style>
+        # block AFTER _PDF_CSS (RESEARCH.md Q1 — source-order cascade so
+        # @page :first wins on page-1 page-number suppression). Header div
+        # is body-level (RESEARCH.md Finding 4) — WeasyPrint pulls it into
+        # @top-left via the `position: running(chrome-header)` rule.
+        # Both guards collapse to "" when self._pdf_chrome is None →
+        # output is byte-identical to pre-Phase-6 (D-06 backward compat).
+        chrome_style = (
+            f"<style>{self._pdf_chrome.build_css()}</style>"
+            if self._pdf_chrome is not None
+            else ""
+        )
+        chrome_header = (
+            self._pdf_chrome.build_header_html()
+            if self._pdf_chrome is not None
+            else ""
+        )
+
         return "\n".join([
             _PDF_DOCTYPE,
             "<html>",
@@ -723,9 +741,11 @@ class ReportComposer:
             '<meta charset="utf-8">',
             f"<title>{title}</title>",
             _PDF_CSS,
+            chrome_style,
             f"<style>{page_css}</style>" if page_css else "",
             "</head>",
             "<body>",
+            chrome_header,
             cover,
             body,
             "</body>",
