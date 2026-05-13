@@ -644,6 +644,17 @@ def run_group(
                 report_kwargs["analyst_detail"] = group_config.get("analyst_detail", True)
             if slug == "unscanned_assets":
                 report_kwargs["scan_window_days"] = group_config.get("scan_window_days", 30)
+            if slug == "composed_report":
+                # YAML-driven module composition. modules is required (schema
+                # enforces minItems:1 when composed_report is in reports);
+                # module_options is permissive pass-through (per-module
+                # options dict). analyst_detail mirrors board_summary's
+                # opt-out plumbing; report_title is an optional cover-page
+                # override.
+                report_kwargs["modules"]        = group_config.get("modules") or []
+                report_kwargs["module_options"] = group_config.get("module_options") or {}
+                report_kwargs["analyst_detail"] = group_config.get("analyst_detail", True)
+                report_kwargs["report_title"]   = group_config.get("report_title")
             result = report_module.run_report(tio, run_id, **report_kwargs)
             report_outputs[slug]  = result
             reports_generated.append(slug)
