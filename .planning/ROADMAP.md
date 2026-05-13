@@ -45,9 +45,9 @@ Plans:
 - [x] 05-03-PLAN.md — Layer-1 unit tests for PdfChrome (string-assert, no WeasyPrint)
 - [x] 05-04-PLAN.md — Layer-2 real-render integration test (WeasyPrint + pypdf text extraction)
 
-#### Phase 6: Cover Redesign + Board Summary Integration
+#### Phase 6: Cover Redesign + Board Summary Integration ✅
 
-- [ ] Wire chrome into `board_summary`, redesign cover body to use the RAG strip with the new chrome, and confirm end-to-end via real-Tenable smoke + operator UAT.
+- [x] Wire chrome into `board_summary`, redesign cover body to use the RAG strip with the new chrome, and confirm end-to-end via real-Tenable smoke + operator UAT.
 
 **Requirements covered:** CHROME-COV-01, CHROME-COV-02, CHROME-INT-01, CHROME-INT-02, CHROME-INT-03, CHROME-COMPAT-01, CHROME-COMPAT-02
 
