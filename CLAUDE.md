@@ -172,7 +172,8 @@ groups:
 - `day_of_month` required for monthly (integer 1–28; 28 max to avoid February edge cases)
 - `time` required for weekly/monthly (`HH:MM`, 24-hour, server local)
 - `filters` may be `{}` (all assets)
-- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`, `management_summary`, `vuln_export`, `board_summary`, `unscanned_assets`
+- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`, `management_summary`, `vuln_export`, `board_summary`, `unscanned_assets`, `composed_report`
+- When `reports` contains `composed_report`, the group must also declare a non-empty `modules:` array of registered module IDs. Optional `module_options:` is a per-module options dict; optional `report_title:` overrides the cover-page title.
 - `recipients` required; `cc` may be empty
 - Validate on startup — exit with a clear error if misconfigured
 - `delivery_config.schema.yaml` is the JSON-Schema validator (editor/CI use)
@@ -353,6 +354,10 @@ Reports on the `reports/modules/` infrastructure can opt into the upgraded email
 - **`email_inline_images: list[{"cid": str, "b64_png": str}]`** — base64 PNG entries decoded into MIMEImage parts with `Content-ID = <{cid}>` so panels can reference them as `<img src="cid:{module_id}_gauge">`.
 
 This pattern is intentional: v2's planned YAML-driven module composition (`groups[].modules: [m1, m2]`) needs zero changes to `delivery/email_sender.py` or `reports/modules/composer.py` because both layers self-describe from the bundle, not from named-report slugs.
+
+### Composed Reports — YAML-driven module composition
+
+`reports/composed_report.py` is the generic slug that realizes the YAML-driven composition pattern. A group opts in with `reports: [composed_report]` plus a `modules:` list of registered module IDs (and optional `module_options:` per-module dicts, optional `report_title:` cover override, optional `analyst_detail:` opt-out). The slug fetches `vulns_df` + `assets_df` (plus `fixed_vulns_df` only when `critical_remediation_sla` is composed), applies the group's tag filter, drives `ReportComposer.run_full_pipeline`, and returns the standard board-shaped four-channel bundle. Adding a new metric module needs no change to `composed_report.py` — module auto-discovery picks it up on next import.
 
 ---
 
