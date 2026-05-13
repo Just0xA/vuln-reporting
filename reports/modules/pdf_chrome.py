@@ -169,46 +169,40 @@ class PdfChrome:
         @page {{
           size: A4 landscape;
           margin: 15mm 12mm 18mm 12mm;
-          @top-left-corner  {{ content: ""; background: {cfg.header_bg}; }}
-          @top-left         {{ content: element(chrome-header); background: {cfg.header_bg}; }}
-          @top-center       {{ content: ""; background: {cfg.header_bg}; }}
-          @top-right        {{ content: ""; background: {cfg.header_bg}; }}
-          @top-right-corner {{ content: ""; background: {cfg.header_bg}; }}
-          @bottom-left-corner {{
-            content: "";
-            border-top: 1px solid #999;
-          }}
           @bottom-left   {{
             content: "{cfg.privacy_label}";
             font-size: 8pt; color: #666;
-            border-top: 1px solid #999;
-            padding-top: 2mm;
           }}
           @bottom-center {{
             content: "Page " counter(page) " of " counter(pages);
             font-size: 8pt; color: #666;
-            border-top: 1px solid #999;
-            padding-top: 2mm;
           }}
           @bottom-right  {{
             content: "Generated On: {generated_at_str}";
             font-size: 8pt; color: #666;
-            border-top: 1px solid #999;
-            padding-top: 2mm;
-          }}
-          @bottom-right-corner {{
-            content: "";
-            border-top: 1px solid #999;
           }}
         }}
         @page :first {{
           @bottom-center {{ content: ""; }}
         }}
+        /* Full-width header band painted via position:fixed instead of
+           @top-* margin boxes. Empty margin boxes collapse to zero width
+           in WeasyPrint, which leaves white gaps next to the title.
+           A fixed-positioned div with negative left/right offsets
+           (matching the page side margins) repeats on every page and
+           paints the entire 15mm top strip edge-to-edge. */
         .chrome-header {{
-          position: running(chrome-header);
+          position: fixed;
+          top: -15mm;
+          left: -12mm;
+          right: -12mm;
+          height: 15mm;
+          box-sizing: border-box;
           background: {cfg.header_bg};
           color: #ffffff;
           padding: 3mm 4mm;
+          display: flex;
+          align-items: center;
         }}
         .chrome-header img {{
           height: 8mm;
@@ -219,6 +213,17 @@ class PdfChrome:
           vertical-align: middle;
           font-weight: bold;
           font-size: 12pt;
+        }}
+        /* Full-width footer separator — same fixed-overlay technique.
+           Lives 15mm above page bottom (3mm into the 18mm bottom margin),
+           which sits just above the @bottom-* margin-box text. */
+        .chrome-footer-separator {{
+          position: fixed;
+          left: -12mm;
+          right: -12mm;
+          bottom: -3mm;
+          height: 1px;
+          background: #999;
         }}
         """
 
@@ -268,14 +273,13 @@ class PdfChrome:
 
     def build_footer_runners(self) -> str:
         """
-        Return an empty string in v1.
+        Emit the fixed-positioned full-width footer separator div.
 
-        Footer corners are emitted as literal ``content:`` strings
-        inside the margin boxes defined by ``build_css()``. There is
-        no body-side running element for the footer. This method
-        exists for API symmetry with ``build_header_html()`` and to
-        future-proof for cases where the footer eventually needs HTML
-        markup (e.g. clickable links, mixed-color text spans, a QR
-        code).
+        The separator is a single 1px line painted edge-to-edge via
+        ``position: fixed``. It sits 3mm into the 18mm bottom margin
+        (just above the ``@bottom-*`` margin-box text), matching the
+        header band's fixed-overlay technique. Composer scaffolds this
+        alongside ``build_header_html()`` so a single page-level
+        ``position: fixed`` rule repeats it on every rendered page.
         """
-        return ""
+        return '<div class="chrome-footer-separator"></div>'

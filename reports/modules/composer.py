@@ -718,6 +718,11 @@ class ReportComposer:
             if self._pdf_chrome is not None
             else ""
         )
+        chrome_footer = (
+            self._pdf_chrome.build_footer_runners()
+            if self._pdf_chrome is not None
+            else ""
+        )
 
         return "\n".join([
             _PDF_DOCTYPE,
@@ -731,6 +736,7 @@ class ReportComposer:
             "</head>",
             "<body>",
             chrome_header,
+            chrome_footer,
             cover,
             body,
             "</body>",

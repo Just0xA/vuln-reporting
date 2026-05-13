@@ -132,9 +132,13 @@ def test_header_html_missing_logo_silent_fallback(tmp_path: Path, caplog):
 # build_footer_runners() — empty-string contract in v1
 # ---------------------------------------------------------------------------
 
-def test_footer_runners_empty_in_v1():
-    """Footer is CSS-only; the body-side helper returns ''."""
-    assert PdfChrome(_cfg()).build_footer_runners() == ""
+def test_footer_runners_emits_separator_div():
+    """Footer separator is a fixed-positioned full-width 1px line.
+    Empty @bottom-* margin boxes wouldn't paint a contiguous border
+    across the page, so the separator is rendered as a body-level
+    fixed-positioned div alongside the chrome-header band."""
+    out = PdfChrome(_cfg()).build_footer_runners()
+    assert 'class="chrome-footer-separator"' in out
 
 
 # ---------------------------------------------------------------------------
