@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: PDF Chrome Redesign
-status: completed
-stopped_at: Milestone v1.1 initialized; defining requirements next.
-last_updated: "2026-05-13T17:26:15.242Z"
-last_activity: 2026-05-13 -- Phase 06 marked complete
+milestone: none
+milestone_name: (between milestones — v1.1 shipped 2026-05-13)
+status: idle
+stopped_at: Milestone v1.1 shipped and archived. Run /gsd-new-milestone to start the next cycle.
+last_updated: "2026-05-13T19:42:00.000Z"
+last_activity: 2026-05-13 -- v1.1 milestone archived
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,19 +21,19 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-13)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** Phase 06 — cover-redesign-board-summary-integration
+**Current focus:** (none — between milestones)
 
 ## Current Position
 
-Phase: 06 — COMPLETE
-Plan: 1 of 5
-Status: Phase 06 complete
-Last activity: 2026-05-13 -- Phase 06 marked complete
+Milestone: none active
+Status: v1.1 shipped 2026-05-13; awaiting next milestone definition
+Last activity: 2026-05-13 -- v1.1 milestone archived
 
-Progress: [█████     ] 50% (1/2 phases complete)
+Progress: [          ] No active milestone
 
 ## Shipped Milestones
 
+- ✅ **v1.1 PDF Chrome Redesign** (2026-05-13) — see [`MILESTONES.md`](MILESTONES.md). 2 phases, 9 plans, 49 files / +7305 LOC across 1 day. All 16 v1.1 requirements satisfied. Shared `PdfChrome` utility wired into `board_summary` + `composed_report` via `_CHROME_AWARE_SLUGS` allowlist; legacy renderers byte-unchanged. Full archive: [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md), [`milestones/v1.1-REQUIREMENTS.md`](milestones/v1.1-REQUIREMENTS.md). Audit: [`v1.1-MILESTONE-AUDIT.md`](v1.1-MILESTONE-AUDIT.md).
 - ✅ **v1.0 Modular Reporting Framework** (2026-05-08) — see [`MILESTONES.md`](MILESTONES.md). 4 phases, 19 plans, 1 quick task, 140 commits across 4 days. All 24 v1 requirements Validated. Full archive: [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md), [`milestones/v1.0-REQUIREMENTS.md`](milestones/v1.0-REQUIREMENTS.md), [`milestones/v1.0-phases/`](milestones/v1.0-phases/). Retrospective: [`RETROSPECTIVE.md`](RETROSPECTIVE.md).
 
 ## Performance Metrics

@@ -12,7 +12,18 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 ## Current State
 
-**Shipped:** v1.0 Modular Reporting Framework (2026-05-08) — see [`MILESTONES.md`](MILESTONES.md).
+**Shipped:** v1.1 PDF Chrome Redesign (2026-05-13) — see [`MILESTONES.md`](MILESTONES.md).
+
+- 2 phases, 9 plans, 49 files changed across 1 day (2026-05-13 same-day discuss → plan → execute → UAT → close)
+- 37 tests green on the v1.1 surface at milestone close
+- Shared PDF chrome utility in `reports/modules/pdf_chrome.py` wired through `ReportComposer`; both `board_summary` and `composed_report` opt in via the `_CHROME_AWARE_SLUGS` allowlist
+- Every page of every chrome-aware PDF renders a full-width header band (configurable bg + optional operator logo + report title) and a footer (privacy label / page number / "Generated On:" UTC timestamp) with a full-width separator line
+- Cover body trimmed to `Scope: <value>` subtitle + RAG strip ("Key Performance Metrics" header)
+- Modular-framework parity: adding a new `*_module.py` and listing it under `reports: [composed_report]` with `modules: [...]` gives it full chrome with **zero per-slug Python**
+- Legacy `management_summary` + `ops_remediation` byte-unchanged across the milestone (CHROME-COMPAT-01 hard contract)
+
+<details>
+<summary>Previous shipped: v1.0 Modular Reporting Framework (2026-05-08)</summary>
 
 - 4 phases, 19 plans, 1 quick task, 140 commits across 4 days
 - 38 tests green at milestone close (composer regression 11/11, schema validation 6/6, analyst_detail toggle 3/3, baseline extractor 18/18)
@@ -20,24 +31,21 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 - `delivery_config.yaml` is jsonschema-enforced at startup; misconfigured groups fail loud
 - `analyst_detail: false` per-group opt-out validated end-to-end
 - Cutover smoke (`scripts/smoke_board_summary_cutover.py`) provides a sub-5-second structural-shape regression bar against PII-redacted committed baselines
+- Codebase state: Module infrastructure exercised by `board_summary` (fully migrated). `management_summary` still on bespoke render path. `ops_remediation`, `vuln_export`, `unscanned_assets` use direct render code without the module contract.
 
-**Codebase state (post-v1.0):** Five reports work end-to-end. Module infrastructure is exercised by `board_summary` (fully migrated). `management_summary` still uses its bespoke render path (not yet migrated). `ops_remediation`, `vuln_export`, `unscanned_assets` use direct render code without the module contract.
+</details>
 
-## Current Milestone: v1.1 PDF Chrome Redesign
+**Codebase state (post-v1.1):** Five reports work end-to-end plus the YAML-driven `composed_report` slug. `board_summary` and `composed_report` are chrome-aware. `management_summary` + `ops_remediation` remain on legacy render paths (untouched); they will inherit chrome only after migration to the module contract (GEN-01/02 deferred).
 
-**Goal:** Redesign the PDF cover and apply a consistent, configurable header/footer to every page of every PDF report.
+## Next Milestone
 
-**Target features:**
-- Configurable PDF header — optional logo (left), Report Title (right), background color. Logo path + header color set globally in `config.py`; missing/unset logo renders title-only.
-- Cover page body — preserves the unified RAG strip from v1.0.
-- Footer on every page — "Confidential" privacy label (left) + Date Generated (right). Privacy label defaults to "Confidential" with optional per-group override in `delivery_config.yaml`.
-- Non-cover pages add page number centered between the footer corners.
-- Shared PDF chrome utility — applied to `board_summary` in v1.1; designed so every future PDF report inherits it for free.
+Not yet defined. Run `/gsd-new-milestone` to capture goals, requirements, and roadmap. Candidates from the accumulated backlog:
 
-**Scope notes:**
-- Default header color: dark navy (`#1a2332`); user-overridable in `config.py`.
-- `management_summary` and `ops_remediation` PDFs remain on the legacy render path for this milestone; they'll inherit the chrome when migrated to the module contract in a later milestone (GEN-01/02 still deferred).
-- Cutover smoke baselines for `board_summary` will need updating to reflect the new cover-page structure.
+- **GEN-01/02** — Migrate `management_summary` / `ops_remediation` to the module render contract (would automatically inherit chrome once added to `_CHROME_AWARE_SLUGS`).
+- **GEN-03/04** — Broader YAML-driven module composition beyond the `composed_report` slug.
+- **composed_report output filename disambiguation** — captured during v1.1 once multiple composed groups became plausible.
+- **PERF-01..04** — Performance pass.
+- **LEGACY-01** — Re-evaluate the 6 unbuilt reports in CLAUDE.md as candidate module bundles.
 
 ## Deferred to Future Milestones
 

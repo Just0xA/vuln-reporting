@@ -4,6 +4,49 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 
 ---
 
+## v1.1 — PDF Chrome Redesign
+
+**Shipped:** 2026-05-13
+**Phases:** 2 | **Plans:** 9
+**Timeline:** 1 day (same-day discuss → plan → execute → UAT → close)
+**Git range:** `0cda7bc` (Phase 5 context capture) → `c8f521d` (Phase 6 closeout)
+**Files changed:** 49 | **LOC delta:** +7,305 / −166
+
+**Delivered:** A shared PDF chrome design system applied to every page of every chrome-aware PDF report. The chrome lives in `reports/modules/pdf_chrome.py` and is wired through `ReportComposer` via an optional `pdf_chrome=` constructor kwarg. Two slugs (`board_summary` and `composed_report`) opt into chrome via the `_CHROME_AWARE_SLUGS` allowlist — meaning every future metric module added to a `composed_report` group inherits chrome with **zero per-slug Python**.
+
+**Key accomplishments:**
+- **`PdfChrome` utility** ships a single design-system surface: frozen `PdfChromeConfig` dataclass (`title`, `subtitle`, `generated_at`, `header_bg`, `logo_path`, `privacy_label`) feeds a `PdfChrome` class that emits CSS + header HTML + footer-separator HTML. Silent fallback to title-only when `LOGO_PATH` is unset/missing (CHROME-CFG-03, no log spam).
+- **`position: fixed` chrome overlays** paint a full-width 15mm header band and a 1px footer separator edge-to-edge on every page. Replaced the initial margin-box approach after UAT revealed empty `@top-*` margin boxes collapse to zero width in WeasyPrint.
+- **Cover body trimmed** to `Scope: <value>` subtitle + RAG strip (now headed "Key Performance Metrics"). Inline title, divider, `.cover-meta`, "Generated:" line, "Sections:" line all removed — those moved to chrome.
+- **`_CHROME_AWARE_SLUGS` allowlist** is the single source of truth for chrome-kwarg injection. Legacy `management_summary` + `ops_remediation` byte-unchanged across the milestone — `git diff` returns 0 bytes for both.
+- **Modular-framework parity:** `composed_report` inherits chrome on the same seam. Dropping a new `*_module.py` into a `reports: [composed_report]` group + `modules:` list gives it full chrome.
+- **YAML knobs:** optional `privacy_label:` and `report_title:` per group; both default-safe (`"Confidential"` and the slug's built-in title respectively).
+- **Operator-supplied logo** lives at `assets/logo.png` (`.gitignore`'d); `config.LOGO_PATH` resolves to it; silent-fallback if missing.
+
+**Verification:**
+- 2/2 phase verifications PASSED (Phase 5 PASS, Phase 6 PASS WITH NOTES)
+- 16/16 requirements satisfied (3-source cross-reference clean)
+- 37/37 tests green on the v1.1 surface
+- Operator visual UAT approved both `board_summary` and `composed_report` renders
+- 0-byte diff on `reports/management_summary.py` + `reports/ops_remediation.py` across the milestone
+
+**Notable surprises:**
+- **Empty margin boxes collapse in WeasyPrint.** Initial header design painted backgrounds on `@top-left/-center/-right`; empty boxes rendered zero-width, leaving visible gaps. Pivoted to `position: fixed` overlays with negative side offsets — predictable, pixel-perfect.
+- **Latent `pdf_subtitle` double-prefix bug in composed_report.** When the cover template was changed to bake "Scope: " into itself, `composed_report` would have rendered "Scope: Scope: Production". Caught during the chrome-parity extension.
+- **`_format_scope_subtitle` circular import.** Both consumers are imported via `importlib` from `run_all`, so they can't import the helper back. Inlined the 3-line helper in both. Defer factoring until > 2 consumers.
+- **Same-day end-to-end delivery.** Milestone setup → close in 1 day. v1.0 was 4 days; v1.1 was 1 day because the milestone was scoped tight (chrome + one consumer + framework parity) and the v1.0 module contract did most of the heavy lifting.
+
+**Carried to next milestone (acknowledged backlog):**
+- composed_report output filename disambiguation (every group writes `composed_report.{pdf,xlsx}` today; needs per-group basenames).
+- All v1.0 backlog still open: GEN-01/02, GEN-03/04, PERF-01..04, LEGACY-01, cosmetic janitorial.
+
+**Archive:**
+- [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md) — full phase + plan + UAT-cycle details
+- [`milestones/v1.1-REQUIREMENTS.md`](milestones/v1.1-REQUIREMENTS.md) — all 16 requirements traceability
+- [`v1.1-MILESTONE-AUDIT.md`](v1.1-MILESTONE-AUDIT.md) — aggregated milestone audit (status: passed)
+
+---
+
 ## v1.0 — Modular Reporting Framework
 
 **Shipped:** 2026-05-08
