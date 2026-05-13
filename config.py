@@ -234,4 +234,4 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # render time (CHROME-CFG-03) — there is no startup-time FS check here.
 # =============================================================================
 HEADER_BG_COLOR: str       = "#1a2332"   # CHROME-CFG-01 — operator-overridable dark navy default
-LOGO_PATH:       Path | None = None      # CHROME-CFG-02 — absolute Path; None means "title-only header"
+LOGO_PATH:       Path | None = Path(__file__).resolve().parent / "assets" / "logo.png"  # CHROME-CFG-02 — absolute Path; None means "title-only header"

@@ -12,6 +12,11 @@ data/cache/
 *.parquet
 delivery_config.yaml
 
+# Operator-supplied brand logo — keep out of the repo (CHROME-CFG-02);
+# config.LOGO_PATH points at this path but the chrome silent-fallback
+# (CHROME-CFG-03) renders title-only when missing.
+assets/logo.png
+
 # =============================================================================
 # Python
 # =============================================================================
