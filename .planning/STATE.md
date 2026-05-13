@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: PDF Chrome Redesign
-status: planning
-stopped_at: "Phase 6 context captured — ready for /gsd-plan-phase 6"
-last_updated: "2026-05-13T13:45:00.000Z"
-last_activity: 2026-05-13
+status: executing
+stopped_at: Milestone v1.1 initialized; defining requirements next.
+last_updated: "2026-05-13T15:49:35.626Z"
+last_activity: 2026-05-13 -- Phase 06 execution started
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 4
+  total_plans: 9
   completed_plans: 4
-  percent: 50
+  percent: 44
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-13)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** v1.1 PDF Chrome Redesign — configurable header/footer applied to every page of every PDF report.
+**Current focus:** Phase 06 — cover-redesign-board-summary-integration
 
 ## Current Position
 
-Phase: 6 — Cover Redesign + Board Summary Integration (context captured)
-Plan: —
-Status: 6 implementation decisions locked in `.planning/phases/06-cover-redesign-board-summary-integration/06-CONTEXT.md` (cover body shape, value-only scope subtitle, LOGO_PATH stays None, wipe-and-regen baselines, composer-constructor wire point, privacy-label threading). Ready for `/gsd-plan-phase 6`.
-Last activity: 2026-05-13 — Phase 6 CONTEXT.md + DISCUSSION-LOG.md written; Phase 5 closeout: 8 commits (35523ac..1d89dde), VERIFICATION.md PASS
+Phase: 06 (cover-redesign-board-summary-integration) — EXECUTING
+Plan: 1 of 5
+Status: Executing Phase 06
+Last activity: 2026-05-13 -- Phase 06 execution started
 
 Progress: [█████     ] 50% (1/2 phases complete)
 
@@ -73,6 +73,7 @@ Carried forward from v1.0; not in scope for v1.1.
 | backlog | LEGACY-01: re-evaluate the 6 unbuilt reports in CLAUDE.md as candidate module bundles | deferred | 2026-05-08 |
 | janitorial | `run_all.py:76,90` stale `_VALID_FREQUENCIES` / `_VALID_REPORTS` constants | deferred (cosmetic) | 2026-05-08 |
 | cleanup | Phase 3 W3 deprecated aliases (`_PDF_RAG_STRIP_TEMPLATE`, `_build_rag_strip_page`) | deferred (cosmetic) | 2026-05-08 |
+| backlog | composed_report output filenames are hardcoded to `composed_report.{pdf,xlsx}` — every group with `reports: [composed_report]` writes the same basenames in its run folder. Need per-group disambiguation (slugified `report_title`, explicit `output_basename:` YAML field, or slugified group name). Captured during Phase 6 chrome rollout once multiple composed groups became plausible. | deferred | 2026-05-13 |
 
 ## Session Continuity
 
