@@ -23,6 +23,9 @@ def test_run_report_signature_has_new_kwargs():
     sig = inspect.signature(bs.run_report)
     assert sig.parameters["privacy_label"].default == "Confidential"
     assert sig.parameters["scope_subtitle"].default is None
+    # YAML-driven cover-title override (parity with composed_report);
+    # None means board_summary falls back to its slug default.
+    assert sig.parameters["report_title"].default is None
 
 
 def _invoke_and_capture_pdf_chrome(**run_kwargs):
@@ -95,6 +98,20 @@ def test_privacy_label_defaults_to_confidential():
     """CHROME-INT-02 — omitted privacy_label defaults to 'Confidential'."""
     cfg = _invoke_and_capture_pdf_chrome()
     assert cfg.privacy_label == "Confidential"
+
+
+def test_report_title_defaults_to_slug_default():
+    """Omitted report_title falls back to the board_summary slug default."""
+    cfg = _invoke_and_capture_pdf_chrome()
+    assert cfg.title == bs._REPORT_TITLE
+
+
+def test_report_title_override_propagates_to_chrome_title():
+    """YAML-driven report_title flows into PdfChromeConfig.title verbatim."""
+    cfg = _invoke_and_capture_pdf_chrome(
+        report_title="Executive Security Posture",
+    )
+    assert cfg.title == "Executive Security Posture"
 
 
 def test_privacy_label_override_propagates():
