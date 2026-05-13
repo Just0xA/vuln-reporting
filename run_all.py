@@ -497,6 +497,19 @@ def _import_report(slug: str):
         return None
 
 
+def _format_scope_subtitle(tag_category: str | None, tag_value: str | None) -> str:
+    """Value-only scope subtitle per D-02.
+
+    Single source of truth feeding both the cover-body subtitle line and
+    PdfChromeConfig.subtitle (chrome header band). Drops the category prefix
+    intentionally — "Production", not "Environment = Production".
+
+    Returns sentence-case "All assets" when no tag filter is set (D-01 case
+    normalization — old cover text was "all assets", new is "All assets").
+    """
+    return tag_value if (tag_category and tag_value) else "All assets"
+
+
 # ===========================================================================
 # Core execution — shared across all scheduler modes
 # ===========================================================================
