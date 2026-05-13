@@ -23,11 +23,13 @@ import run_all  # noqa: E402
 from run_all import _CHROME_AWARE_SLUGS  # noqa: E402
 
 
-def test_chrome_aware_slugs_only_contains_board_summary():
+def test_chrome_aware_slugs_includes_both_modular_consumers():
     """CHROME-COMPAT-01 — the allowlist is the single source of truth for
-    which slugs may receive chrome kwargs. board_summary is the sole
-    Phase 6 consumer; expanding the set requires deliberate review."""
-    assert _CHROME_AWARE_SLUGS == frozenset({"board_summary"})
+    which slugs may receive chrome kwargs. board_summary and the
+    YAML-driven composed_report slug both opt into the chrome design
+    system; legacy renderers (management_summary, ops_remediation) stay
+    out so their run_report() signatures remain untouched."""
+    assert _CHROME_AWARE_SLUGS == frozenset({"board_summary", "composed_report"})
 
 
 def _run_group_with_slug(slug: str, group_overrides: dict | None = None) -> dict:
@@ -86,6 +88,24 @@ def test_board_summary_report_title_override_forwarded():
         group_overrides={"report_title": "Q2 Posture"},
     )
     assert kw["report_title"] == "Q2 Posture"
+
+
+def test_composed_report_receives_chrome_kwargs():
+    """CHROME-INT-01 — the YAML-driven module-composition slug is the
+    other chrome-aware consumer. Adding new metric modules and dropping
+    them into a `reports: [composed_report]` group must inherit the
+    chrome design (header band, footer, cover layout) without any
+    per-slug wiring."""
+    kw = _run_group_with_slug(
+        "composed_report",
+        group_overrides={
+            "modules": ["scan_coverage_sla"],
+            "report_title": "Custom Composed Report",
+        },
+    )
+    assert "privacy_label"  in kw
+    assert "scope_subtitle" in kw
+    assert kw["report_title"] == "Custom Composed Report"
 
 
 def test_management_summary_does_not_receive_chrome_kwargs():

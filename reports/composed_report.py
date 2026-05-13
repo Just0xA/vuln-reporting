@@ -39,7 +39,7 @@ import pandas as pd
 # Ensure the project root is on sys.path when this script is run directly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import CACHE_DIR, OUTPUT_DIR
+from config import CACHE_DIR, HEADER_BG_COLOR, LOGO_PATH, OUTPUT_DIR
 from data.fetchers import (
     fetch_all_assets,
     fetch_all_vulnerabilities,
@@ -49,6 +49,16 @@ from data.fetchers import (
 # Importing reports.modules triggers registry.discover().
 from reports.modules import ReportComposer, registry
 from reports.modules.base import ModuleConfig
+from reports.modules.pdf_chrome import PdfChromeConfig
+
+
+def _format_scope_subtitle(
+    tag_category: Optional[str], tag_value: Optional[str]
+) -> str:
+    """Value-only scope formatter (Phase 6 D-02). Duplicated from
+    run_all.py to avoid the circular import board_summary already hit
+    (run_all imports composed_report via importlib)."""
+    return tag_value if (tag_category and tag_value) else "All assets"
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +90,8 @@ def run_report(
     module_options: Optional[dict[str, dict]] = None,
     analyst_detail: bool = True,
     report_title:   Optional[str] = None,
+    privacy_label:  str = "Confidential",
+    scope_subtitle: Optional[str] = None,
 ) -> dict:
     """
     Generate a YAML-composed vulnerability report.
@@ -225,6 +237,36 @@ def run_report(
         )
 
     # ------------------------------------------------------------------
+    # Resolve cover subtitle / scope label / chrome config (Phase 6).
+    #
+    # `resolved_subtitle` is the value-only scope string (D-02): caller's
+    # explicit scope_subtitle wins, otherwise it's derived from the tag
+    # filter. The cover template prefixes "Scope: " itself, so the value
+    # passed as pdf_subtitle must be the bare token ("Production",
+    # "All assets") — NOT "Scope: Production".
+    # ------------------------------------------------------------------
+    resolved_subtitle = (
+        scope_subtitle
+        if scope_subtitle is not None
+        else _format_scope_subtitle(tag_category, tag_value)
+    )
+    scope_label = (
+        f"{tag_category} = {tag_value}"
+        if tag_category and tag_value
+        else "All Assets"
+    )
+    pdf_title = report_title or _DEFAULT_REPORT_TITLE
+
+    pdf_chrome_cfg = PdfChromeConfig(
+        title         = pdf_title,
+        subtitle      = resolved_subtitle,
+        generated_at  = generated_at,
+        header_bg     = HEADER_BG_COLOR,
+        logo_path     = LOGO_PATH,
+        privacy_label = privacy_label,
+    )
+
+    # ------------------------------------------------------------------
     # Run composer pipeline
     # ------------------------------------------------------------------
     composer_kwargs: dict = {}
@@ -236,24 +278,11 @@ def run_report(
         assets_df      = assets_df,
         report_date    = generated_at,
         module_configs = module_configs,
+        pdf_chrome     = pdf_chrome_cfg,
         **composer_kwargs,
     )
 
     results = composer.run_all()
-
-    scope_str = (
-        f"Scope: {tag_category} = {tag_value}"
-        if tag_category and tag_value
-        else "Scope: All Assets"
-    )
-    subtitle    = scope_str
-    scope_label = (
-        f"{tag_category} = {tag_value}"
-        if tag_category and tag_value
-        else "All Assets"
-    )
-
-    pdf_title = report_title or _DEFAULT_REPORT_TITLE
 
     bundle = composer.run_full_pipeline(
         results,
@@ -262,7 +291,7 @@ def run_report(
         report_date      = generated_at,
         generate_analyst = analyst_detail,
         pdf_title        = pdf_title,
-        pdf_subtitle     = subtitle,
+        pdf_subtitle     = resolved_subtitle,
         scope_label      = scope_label,
     )
 
