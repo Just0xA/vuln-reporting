@@ -40,13 +40,13 @@ def test_cover_template_removes_legacy_elements():
 def test_cover_template_preserves_rag_strip_marker():
     """CHROME-COV-01 + R1 — baseline extractor depends on this exact header text."""
     from reports.modules.composer import _PDF_UNIFIED_COVER_TEMPLATE as tmpl
-    assert "Risk Status Summary" in tmpl
+    assert "Key Performance Metrics" in tmpl
     assert "rag-strip" in tmpl
 
 
 def test_built_cover_renders_scope_subtitle():
     """Rendered cover HTML contains the supplied scope subtitle verbatim
-    and preserves the Risk Status Summary baseline marker."""
+    and preserves the Key Performance Metrics baseline marker."""
     from reports.modules.composer import ReportComposer
 
     composer = ReportComposer(
@@ -64,7 +64,7 @@ def test_built_cover_renders_scope_subtitle():
         subtitle = "Production",
     )
     assert "Production" in html
-    assert "Risk Status Summary" in html
+    assert "Key Performance Metrics" in html
     # And the removed elements must NOT appear in rendered output either.
     for needle in ("cover-title", "cover-divider", "cover-meta",
                    "Generated:", "Sections:"):

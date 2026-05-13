@@ -306,7 +306,7 @@ def check_3_page2_strip_and_cover_stability() -> None:
     # 2. Page-2 RAG strip is present and AFTER the cover
     assert '<div class="report-cover">' in html_a, "cover div missing"
     assert '<div class="rag-strip">' in html_a, "page-2 strip div missing"
-    assert "Risk Status Summary" in html_a, "page-2 header missing (D-05)"
+    assert "Key Performance Metrics" in html_a, "page-2 header missing (D-05)"
     assert html_a.index('<div class="rag-strip">') > html_a.index(
         '<div class="report-cover">'
     ), "page-2 strip rendered BEFORE cover — wrong placement"

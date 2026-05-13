@@ -169,18 +169,26 @@ class PdfChrome:
         @page {{
           size: A4 landscape;
           margin: 15mm 12mm 18mm 12mm;
-          @top-left   {{ content: element(chrome-header); }}
+          @top-left      {{ content: element(chrome-header); background: {cfg.header_bg}; }}
+          @top-center    {{ background: {cfg.header_bg}; }}
+          @top-right     {{ background: {cfg.header_bg}; }}
           @bottom-left   {{
             content: "{cfg.privacy_label}";
             font-size: 8pt; color: #666;
+            border-top: 1px solid #999;
+            padding-top: 2mm;
           }}
           @bottom-center {{
             content: "Page " counter(page) " of " counter(pages);
             font-size: 8pt; color: #666;
+            border-top: 1px solid #999;
+            padding-top: 2mm;
           }}
           @bottom-right  {{
-            content: "{generated_at_str}";
+            content: "Generated On: {generated_at_str}";
             font-size: 8pt; color: #666;
+            border-top: 1px solid #999;
+            padding-top: 2mm;
           }}
         }}
         @page :first {{
@@ -201,13 +209,6 @@ class PdfChrome:
           vertical-align: middle;
           font-weight: bold;
           font-size: 12pt;
-        }}
-        .chrome-header .chrome-subtitle {{
-          vertical-align: middle;
-          font-weight: normal;
-          font-size: 9pt;
-          color: #cccccc;
-          margin-left: 5mm;
         }}
         """
 
@@ -242,18 +243,12 @@ class PdfChrome:
             # Missing-file fallback: silent. No log, no exception, no
             # reserved width. CHROME-CFG-03 acceptance.
 
-        title    = html.escape(cfg.title)
-        subtitle = html.escape(cfg.subtitle) if cfg.subtitle else ""
-        subtitle_html = (
-            f'<span class="chrome-subtitle">{subtitle}</span>'
-            if subtitle else ""
-        )
+        title = html.escape(cfg.title)
 
         return (
             f'<div class="chrome-header">'
             f'{logo_html}'
             f'<span class="chrome-title">{title}</span>'
-            f'{subtitle_html}'
             f'</div>'
         )
 

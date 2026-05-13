@@ -79,7 +79,7 @@ def _build_pdf_html_n_pages(n_pages: int, *, all_no_data: bool = False) -> str:
 
     Uses CSS `page-break-before: always` on sibling divs to force page breaks
     so the rendered byte stream has exactly `n_pages` pages. The cover page
-    has the "Risk Status Summary" header and 4 RAG cells (matching the
+    has the "Key Performance Metrics" header and 4 RAG cells (matching the
     production board_summary cover); module pages each have a body div.
     """
     # Use the actual STATUS_COLOR['no_data'] sentinel so the extractor's
@@ -96,7 +96,7 @@ def _build_pdf_html_n_pages(n_pages: int, *, all_no_data: bool = False) -> str:
     )
     cover = (
         '<div class="report-cover" style="page-break-after: always;">'
-        '<h2>Risk Status Summary</h2>'
+        '<h2>Key Performance Metrics</h2>'
         f'{rag_cells}'
         '</div>'
     )

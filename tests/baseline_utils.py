@@ -89,7 +89,7 @@ def _no_data_color() -> str:
 # test fixture together if the production marker changes.
 _RAG_CELL_CLASS = 'class="rag-cell"'
 _PANEL_MARKER = 'role="presentation"'
-_RISK_STATUS_HEADER = "Risk Status Summary"
+_RISK_STATUS_HEADER = "Key Performance Metrics"
 _NO_DATA_DRIVER = "No data in scope."
 
 
