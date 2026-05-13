@@ -1,0 +1,104 @@
+"""Phase 6 plan 04 — run_group privacy_label + scope_subtitle threading.
+
+Covers CHROME-INT-01 + CHROME-COMPAT-01.
+
+These tests stub the dynamically-imported report module and the Tenable
+client so they exercise ONLY the kwarg-routing path in run_group(). No
+Tenable API calls, no parquet I/O, no PDF/Excel rendering.
+
+The load-bearing assertions are tests 3 and 4 — they prove that legacy
+slugs (management_summary, ops_remediation) never receive privacy_label
+or scope_subtitle, which is the compat-safety contract for the Phase 6
+chrome rollout (Plan 06-04, threat T-06-06).
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import run_all  # noqa: E402
+from run_all import _CHROME_AWARE_SLUGS  # noqa: E402
+
+
+def test_chrome_aware_slugs_only_contains_board_summary():
+    """CHROME-COMPAT-01 — the allowlist is the single source of truth for
+    which slugs may receive chrome kwargs. board_summary is the sole
+    Phase 6 consumer; expanding the set requires deliberate review."""
+    assert _CHROME_AWARE_SLUGS == frozenset({"board_summary"})
+
+
+def _run_group_with_slug(slug: str, group_overrides: dict | None = None) -> dict:
+    """Dispatch a synthetic group through run_group() and return the kwargs
+    that the dynamically-imported report module's run_report() received."""
+    captured: dict = {}
+
+    def _spy_run_report(tio, run_id, **kwargs):
+        captured.update(kwargs)
+        return {"pdf": None, "excel": None, "charts": []}
+
+    fake_module = MagicMock()
+    fake_module.run_report = _spy_run_report
+
+    group = {
+        "name": "Phase6 Test Group",
+        "schedule": {"frequency": "on_demand"},
+        "reports": [slug],
+        "filters": {},
+        "email": {"subject": "s", "recipients": ["a@b.c"]},
+    }
+    if group_overrides:
+        group.update(group_overrides)
+
+    # Stub importlib so _import_report(slug) returns our spy module
+    # regardless of slug. Also stub the pre-fetch helpers and email send
+    # path so run_group() never touches Tenable or SMTP.
+    with patch("run_all.importlib.import_module", return_value=fake_module), \
+         patch("data.fetchers.fetch_all_assets", return_value=MagicMock()), \
+         patch("data.fetchers.fetch_all_vulnerabilities", return_value=MagicMock()):
+        run_all.run_group(
+            group,
+            tio=MagicMock(),
+            run_id="t",
+            no_email=True,
+        )
+    return captured
+
+
+def test_board_summary_receives_privacy_label_and_scope_subtitle():
+    """CHROME-INT-01 — chrome-aware slug gets BOTH new kwargs."""
+    kw = _run_group_with_slug("board_summary")
+    assert "privacy_label" in kw
+    assert "scope_subtitle" in kw
+
+
+def test_management_summary_does_not_receive_privacy_label():
+    """CHROME-COMPAT-01 — legacy renderer signature is unchanged."""
+    kw = _run_group_with_slug("management_summary")
+    assert "privacy_label" not in kw
+    assert "scope_subtitle" not in kw
+
+
+def test_ops_remediation_does_not_receive_privacy_label():
+    """CHROME-COMPAT-01 — legacy renderer signature is unchanged."""
+    kw = _run_group_with_slug("ops_remediation")
+    assert "privacy_label" not in kw
+    assert "scope_subtitle" not in kw
+
+
+def test_privacy_label_defaults_to_confidential():
+    """CHROME-COMPAT-02 — groups without privacy_label still work; the
+    default flows through as 'Confidential'."""
+    kw = _run_group_with_slug("board_summary")
+    assert kw["privacy_label"] == "Confidential"
+
+
+def test_privacy_label_override_propagates():
+    """Operator-supplied privacy_label reaches board_summary verbatim."""
+    kw = _run_group_with_slug(
+        "board_summary",
+        group_overrides={"privacy_label": "Internal Only"},
+    )
+    assert kw["privacy_label"] == "Internal Only"
