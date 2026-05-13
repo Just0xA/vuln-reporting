@@ -25,9 +25,9 @@ Full archive: [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md). Requir
 
 **Goal:** Redesign the PDF cover and apply a consistent, configurable header/footer to every page of every PDF report.
 
-#### Phase 5: PDF Chrome Foundation
+#### Phase 5: PDF Chrome Foundation ✅
 
-- [ ] Build shared PDF chrome utility (header band + footer band CSS) plus config surface; provable in isolation before any report consumes it.
+- [x] Build shared PDF chrome utility (header band + footer band CSS) plus config surface; provable in isolation before any report consumes it. — completed 2026-05-13
 
 **Requirements covered:** CHROME-CFG-01, CHROME-CFG-02, CHROME-CFG-03, CHROME-CFG-04, CHROME-HDR-01, CHROME-HDR-02, CHROME-FTR-01, CHROME-FTR-02, CHROME-FTR-03
 
@@ -40,10 +40,10 @@ Full archive: [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md). Requir
 **Plans:** 4 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Config surface: HEADER_BG_COLOR + LOGO_PATH + privacy_label schema field + pypdf pin
-- [ ] 05-02-PLAN.md — Shared PDF chrome utility (PdfChromeConfig + PdfChrome class) in reports/modules/pdf_chrome.py
-- [ ] 05-03-PLAN.md — Layer-1 unit tests for PdfChrome (string-assert, no WeasyPrint)
-- [ ] 05-04-PLAN.md — Layer-2 real-render integration test (WeasyPrint + pypdf text extraction)
+- [x] 05-01-PLAN.md — Config surface: HEADER_BG_COLOR + LOGO_PATH + privacy_label schema field + pypdf pin
+- [x] 05-02-PLAN.md — Shared PDF chrome utility (PdfChromeConfig + PdfChrome class) in reports/modules/pdf_chrome.py
+- [x] 05-03-PLAN.md — Layer-1 unit tests for PdfChrome (string-assert, no WeasyPrint)
+- [x] 05-04-PLAN.md — Layer-2 real-render integration test (WeasyPrint + pypdf text extraction)
 
 #### Phase 6: Cover Redesign + Board Summary Integration
 
@@ -74,7 +74,7 @@ From the v1.0 acknowledged backlog (see `milestones/v1.0-REQUIREMENTS.md` v2 sec
 | 2. ReportComposer Upgrades | v1.0 | 5/5 | Complete | 2026-05-06 |
 | 3. Board Summary Module Migration | v1.0 | 7/7 | Complete | 2026-05-07 |
 | 4. YAML Config and Regression Cutover | v1.0 | 4/4 | Complete | 2026-05-08 |
-| 5. PDF Chrome Foundation | v1.1 | 0/4 | Planned | — |
+| 5. PDF Chrome Foundation | v1.1 | 4/4 | Complete | 2026-05-13 |
 | 6. Cover Redesign + Board Summary Integration | v1.1 | 0/0 | Not started | — |
 
 ## Backlog
