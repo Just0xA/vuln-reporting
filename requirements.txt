@@ -40,3 +40,6 @@ jsonschema==4.23.0
 
 # Timezone support
 tzdata==2025.2
+
+# Testing — PDF text extraction for chrome integration tests (plan 05-04)
+pypdf~=6.0
