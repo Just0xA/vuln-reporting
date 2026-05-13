@@ -64,22 +64,22 @@ groups:
   # pass-through dict — keys must match entries in `modules:` or they
   # are silently ignored (logged at WARNING).
   #
-  # - name: "Custom Composed Report — example"
-  #   description: "Demonstrates YAML-driven module composition."
-  #   schedule:
-  #     frequency: on_demand
-  #   reports:
-  #     - composed_report
-  #   modules:
-  #     - scan_coverage_sla
-  #     - critical_remediation_sla
-  #   # module_options:           # optional, permissive pass-through
-  #   #   scan_coverage_sla: {}
-  #   # report_title: "My Custom Report"   # optional cover override
-  #   # analyst_detail: true       # optional, defaults to true
-  #   filters: {}
-  #   email:
-  #     subject: "Composed Report — Custom Mix"
-  #     recipients:
-  #       - reports-test@example.invalid
-  #     reply_to: reports-test@example.invalid
+  - name: "Custom Composed Report — example"
+    description: "Demonstrates YAML-driven module composition."
+    schedule:
+      frequency: on_demand
+    reports:
+      - composed_report
+    modules:
+      - scan_coverage_sla
+      - critical_remediation_sla
+    # module_options:           # optional, permissive pass-through
+    #   scan_coverage_sla: {}
+    # report_title: "My Custom Report"   # optional cover override
+    # analyst_detail: true       # optional, defaults to true
+    filters: {}
+    email:
+      subject: "Composed Report — Custom Mix"
+      recipients:
+        - monroe.justin@gmail.com
+      reply_to: reports-test@example.invalid
