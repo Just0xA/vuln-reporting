@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: PDF Chrome Redesign
-status: executing
-stopped_at: "Phase 5 complete (4/4 plans, PHASE PASS) — ready for Phase 6 discuss/plan"
-last_updated: "2026-05-13T13:22:00.000Z"
+status: planning
+stopped_at: "Phase 6 context captured — ready for /gsd-plan-phase 6"
+last_updated: "2026-05-13T13:45:00.000Z"
 last_activity: 2026-05-13
 progress:
   total_phases: 2
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-13)
 
 ## Current Position
 
-Phase: 5 — PDF Chrome Foundation ✅ COMPLETE (4/4 plans, PHASE PASS)
+Phase: 6 — Cover Redesign + Board Summary Integration (context captured)
 Plan: —
-Status: All 9 Phase-5 requirements verified against codebase (CHROME-CFG-01..04, CHROME-HDR-01..02, CHROME-FTR-01..03). 12/12 tests pass in 1.26s. Ready for `/gsd-discuss-phase 6` or `/gsd-plan-phase 6`.
-Last activity: 2026-05-13 — Phase 5 executed: 8 commits (35523ac..1d89dde), VERIFICATION.md written
+Status: 6 implementation decisions locked in `.planning/phases/06-cover-redesign-board-summary-integration/06-CONTEXT.md` (cover body shape, value-only scope subtitle, LOGO_PATH stays None, wipe-and-regen baselines, composer-constructor wire point, privacy-label threading). Ready for `/gsd-plan-phase 6`.
+Last activity: 2026-05-13 — Phase 6 CONTEXT.md + DISCUSSION-LOG.md written; Phase 5 closeout: 8 commits (35523ac..1d89dde), VERIFICATION.md PASS
 
 Progress: [█████     ] 50% (1/2 phases complete)
 
