@@ -8,7 +8,14 @@ files:
   - ref/
   - tests/
   - scripts/
+related:
+  - .planning/todos/pending/2026-05-14-deploy-ops-scripts-and-runbook-warm-cache-update-from-github.md
 ---
+
+> **Related:** the ops-side companion to this work lives in
+> `2026-05-14-deploy-ops-scripts-and-runbook-warm-cache-update-from-github.md` —
+> warm-cache job, GitHub update script, and RUNBOOK sections. That todo assumes
+> the slim release tarball produced here; pick this one up first.
 
 ## Problem
 
