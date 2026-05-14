@@ -5,7 +5,7 @@ milestone_name: (between milestones — v1.1 shipped 2026-05-13)
 status: idle
 stopped_at: Milestone v1.1 shipped and archived. Run /gsd-new-milestone to start the next cycle.
 last_updated: "2026-05-14T08:33:00.000Z"
-last_activity: 2026-05-14 -- quick task: Tenable assets + compliance API reference docs
+last_activity: 2026-05-14 -- quick task 260514-mlk: scrub data/trend from git history
 progress:
   total_phases: 0
   completed_phases: 0
@@ -62,6 +62,7 @@ None at milestone start.
 | 2026-05-13 | composed-report-slug (260513-9cf) | New `composed_report` slug for YAML-driven module composition — schema enum + conditional, registry-aware dry-run validation, generic `reports/composed_report.py`, two new test files; backward compatible (status: complete, 8 commits) | 917e1cb, 8e2f1f3, cf8a272, 1307560, 9049d46, 6e982d1, 56334bd, 9510566 |
 | 2026-05-14 | tenable-assets-compliance-reference-docs | Two field reference docs in `docs/`: `tenable_assets_api_reference.md` (v1+v2 with per-field version indicators and migration summary) and `tenable_compliance_api_reference.md` (single-version reference). Mirrors style of existing `tenable_vuln_api_reference.md`. No code changes. | 73510eb |
 | 2026-05-14 | github-contribution-templates | Scaffolded `.github/ISSUE_TEMPLATE/{config,feature_request,enhancement,bug_report,chore}.yml` + `.github/PULL_REQUEST_TEMPLATE/{feature,enhancement,fix}.md` + `CONTRIBUTING.md`. Tailored to project stack (Python + pyTenable + WeasyPrint); PII checklist enforced as required on bug reports; PR templates include issue-first gate notice. Required by `/gsd-inbox` triage. | 8ad2828 |
+| 2026-05-14 | stop-syncing-data-trend-to-github-and-sc (260514-mlk) | Untracked `data/trend/*.json` (3 files w/ aggregate severity counts + internal Owner tag names), added `data/trend/` to `.gitignore`, scrubbed all history via `git filter-repo` (230 commits rewritten), force-pushed `main` (29fddd0→5bdb866) + tags v1.0/v1.1. Backup at `origin/backup/pre-trend-scrub-2026-05-14`. **Outstanding:** backup branch still contains the sensitive data — delete after confidence window to complete scrub. | 5bdb866 |
 
 ## Deferred Items
 
