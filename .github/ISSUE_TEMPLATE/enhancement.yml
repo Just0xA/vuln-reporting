@@ -1,0 +1,100 @@
+name: Enhancement
+description: Improve an existing report, module, delivery flow, or utility (NOT a net-new feature).
+title: "[Enhancement] "
+labels: ["enhancement", "needs-review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Enhancements modify behavior that already exists. If the work is net-new, use the Feature Request template instead.
+
+  - type: checkboxes
+    id: pre-submission
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I have searched existing open and closed issues for duplicates.
+          required: true
+        - label: I have read `CONTRIBUTING.md` and understand the approval-gate rule (no PR before `approved-enhancement`).
+          required: true
+        - label: This is a modification to an **existing** feature (not net-new).
+          required: true
+        - label: I have not included any real customer, vulnerability, or asset data in this issue.
+          required: true
+
+  - type: input
+    id: target
+    attributes:
+      label: What is being improved
+      description: Name the existing feature / report / module / helper being changed.
+      placeholder: e.g., "board_summary high_risk_assets module", "delivery_config.yaml schema validator"
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current behavior
+      description: What does it do today? Include a concrete example (output snippet, CLI behavior, error message).
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-behavior
+    attributes:
+      label: Proposed behavior
+      description: What should it do after this change? Same level of concreteness.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Reason / benefit
+      description: Why is this change worth making? Who benefits, by how much, how often?
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope of changes
+      description: Files / modules expected to be modified. List specific call sites if known.
+    validations:
+      required: true
+
+  - type: textarea
+    id: breaking-changes
+    attributes:
+      label: Breaking changes
+      description: Does this change existing output formats, YAML schema, CLI flags, or function signatures? "No" is a valid answer if accurate.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area affected
+      options:
+        - Report (any slug)
+        - Metric module
+        - ReportComposer / module framework
+        - Data fetcher (Tenable API)
+        - Cache layer
+        - Delivery (email / SMTP / templates)
+        - Scheduler
+        - PDF chrome / styling
+        - Excel output
+        - Configuration (delivery_config / schema)
+        - Documentation
+        - Tests / smoke harness
+        - Other
+    validations:
+      required: true

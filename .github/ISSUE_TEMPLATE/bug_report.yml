@@ -1,0 +1,116 @@
+name: Bug Report
+description: Report a defect, crash, incorrect output, or unexpected behavior.
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please complete every field. **Never paste real customer / vulnerability / asset data** — redact hostnames, IPs, CVE-linked plugin output, and credentials before submitting. The PII checklist at the bottom is enforced.
+
+  - type: input
+    id: project-version
+    attributes:
+      label: Project version / commit
+      description: Output of `git rev-parse --short HEAD`, or the tagged release version (e.g., `v1.1`).
+      placeholder: e.g., "d7b74b3" or "v1.1"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: Output of `python --version`.
+      placeholder: e.g., "Python 3.12.4"
+    validations:
+      required: true
+
+  - type: input
+    id: pytenable-version
+    attributes:
+      label: pyTenable version
+      description: Output of `pip show pyTenable | grep Version`. The project pins this in `requirements.txt`.
+      placeholder: e.g., "1.5.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows 10 / 11
+        - Linux (Ubuntu / Debian)
+        - Linux (RHEL / Rocky / Alma)
+        - Linux (other)
+        - macOS
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you observe? Include relevant log lines (REDACTED) and the exact CLI invocation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered, minimal steps. If a YAML config snippet is needed, paste a **redacted** version (no real recipients, no real tag values).
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      options:
+        - Always (100%)
+        - Often (>50%)
+        - Sometimes (~25%)
+        - Rare (<10%)
+        - Once (cannot reproduce)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity / impact
+      options:
+        - Critical — data loss, incorrect output sent to recipients, credentials exposed
+        - High — report fails to send, scheduler crashes, no output produced
+        - Medium — visible defect in output, but workaround exists
+        - Low — cosmetic, log noise, or affects only a single rare configuration
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: pii
+    attributes:
+      label: PII / data-sensitivity checklist
+      description: Required — incomplete bug reports are auto-closed.
+      options:
+        - label: I have redacted all real hostnames, FQDNs, and IP addresses from logs and pasted output.
+          required: true
+        - label: I have redacted all real CVE-specific plugin output, asset UUIDs, and finding IDs.
+          required: true
+        - label: I have not included any SMTP / Tenable / cloud credentials, even partially.
+          required: true
+        - label: I have not attached any real cache parquet, real output PDF/XLSX, or real `delivery_config.yaml`.
+          required: true
