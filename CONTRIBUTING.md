@@ -162,6 +162,23 @@ python scripts/smoke_board_summary_cutover.py
 
 ---
 
+## Maintainer setup — labels
+
+The label scheme referenced above (`feature-request`, `enhancement`, `bug`, `type: chore`, `needs-review`, `needs-triage`, `approved-feature`, `approved-enhancement`, `confirmed-bug`, `gate-violation`) can be created or synced in one command:
+
+```powershell
+# PowerShell
+$env:GH_TOKEN = "ghp_yourTokenHere"
+python scripts/setup_github_labels.py
+```
+
+```bash
+# bash / zsh
+GH_TOKEN=ghp_yourTokenHere python scripts/setup_github_labels.py
+```
+
+The token needs `repo` scope (or `public_repo` if the repo is public-only). Create one at <https://github.com/settings/tokens>. The script is idempotent — re-running it updates color/description on existing labels but never deletes labels. Use `--dry-run` to preview changes.
+
 ## Questions
 
 For general help, setup questions, or "is this in scope?" conversations *before* filing an issue, use [Discussions](https://github.com/Just0xA/vuln-reporting/discussions).
