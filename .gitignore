@@ -9,6 +9,7 @@
 output/
 logs/
 data/cache/
+data/trend/
 *.parquet
 delivery_config.yaml
 
