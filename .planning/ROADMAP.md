@@ -60,6 +60,7 @@ From the accumulated backlog (v1.0 + v1.1):
 - **LEGACY-01** — Re-evaluate the 6 unbuilt reports in CLAUDE.md as candidate module bundles.
 - **composed_report output filename disambiguation** — per-group basenames (slugified `report_title`, `output_basename:` YAML field, or slugified group name). Captured during v1.1 once multiple composed groups became plausible.
 - **Cosmetic janitorial** — `_VALID_FREQUENCIES` / `_VALID_REPORTS` stale constants (`run_all.py:76,90`); Phase 3 deprecated aliases `_PDF_RAG_STRIP_TEMPLATE` / `_build_rag_strip_page`.
+- **pyTenable upgrade + `assets_v2()` migration** — pin is `pyTenable==1.5.2`; latest is `1.9.1` (2026-04-09). Recommend splitting into two units of work to separate platform-stability risk from new-feature risk. See [Backlog → pyTenable upgrade + asset export v2](#backlog) below for the detail and recommended sequencing.
 
 ## Progress
 
@@ -76,4 +77,39 @@ From the accumulated backlog (v1.0 + v1.1):
 
 (Backlog section preserved across milestone closes — accumulates 999.x items if any.)
 
-*(empty)*
+### pyTenable upgrade + asset export v2 migration
+
+**Captured:** 2026-05-14 (research pass; see `feedback_gsd_artifact_reuse` memory for the explore conversation)
+**Status:** Deferred — slot before or as part of the Operator Remediation Report v2 phase, or whenever we need a v2-only asset attribute.
+
+**Context.** Project pins `pyTenable==1.5.2` (`requirements.txt:2`). Asset exports go through `tio.exports.assets()` → v1 endpoint `POST /assets/export`. Tenable shipped a v2 endpoint at `POST /assets/v2/export`, and pyTenable now exposes it as `tio.exports.assets_v2()`. Latest pyTenable is **1.9.1** (released 2026-04-09) — four minor releases ahead of our pin. Both v1 and v2 methods coexist in 1.9.x, so adoption is additive (no forced migration, no Tenable deprecation pressure today).
+
+**Why upgrade.** The v2 endpoint unlocks fields directly relevant to the Operator Remediation Report v2 work (see [`notes/operator-remediation-priority-model.md`](notes/operator-remediation-priority-model.md)):
+
+- `types` filter — first-class include/exclude of Tenable WAS (Web App Scanning) assets in operator reports.
+- ACR (Asset Criticality Rating) and AES (Asset Exposure Score) attributes — could replace or supplement the RFC-1918 heuristic for "externally-facing" detection.
+- `since` filter — returns assets updated/deleted/terminated since a timestamp regardless of state; enables incremental fetches instead of full exports each run.
+- `include_resource_tags` — explicit toggle, cleaner than v1's implicit behavior.
+
+Secondary benefits: Python 3.13 / 3.14 compatibility, Marshmallow → Pydantic refactor of the Exports API (1.7.0 + finalized in 1.9.0), and T1 Export APIs added in 1.8.2 if Tenable One ever scopes in.
+
+**Risk to test.** The upgrade itself is the bigger risk than the v2 swap. The Marshmallow → Pydantic refactor in 1.7.0 / 1.9.0 could shift:
+
+- Parameter validation error shape (low impact — our code doesn't catch SDK validation errors specifically).
+- Response-iterator behavior — pyTenable historically yields dicts; verify Pydantic v2 doesn't return model instances that would break the DataFrame construction in `data/fetchers.py` (≈ lines 488, 949, 984, 1113) or anywhere downstream.
+- Schema field renames from the 1.8.2 / 1.8.3 schema-correction commits.
+
+Both `tio.exports.vulns()` and `tio.exports.assets()` call sites need end-to-end re-testing on the upgrade, not just assets.
+
+**Recommended sequencing (do not couple).**
+
+1. **Platform upgrade, no behavior change.** Bump `pyTenable` to latest 1.9.x; keep calling `assets()` and `vulns()` as today. Re-run full report suite against real Tenable; confirm no drift. Independently valuable (security, Python compat).
+2. **`assets_v2()` adoption.** Swap asset-export call sites in `data/fetchers.py` to `assets_v2()`, surface the new fields into the assets parquet, and update the Operator Remediation priority model to consume ACR/AES where they beat the RFC-1918 heuristic. Add `since`-based incremental fetches if/when the warm-cache story justifies it.
+
+Coupling the platform upgrade with the new-feature adoption couples two distinct risk profiles into one debug surface.
+
+**Sources.**
+- [pyTenable on PyPI](https://pypi.org/pypi/pytenable/json)
+- [pyTenable Exports API docs (1.9.1)](https://pytenable.readthedocs.io/en/stable/api/io/exports.html) — `assets_v2()` method reference
+- [Tenable Export Assets v2 API reference](https://developer.tenable.com/reference/export-assets-v2)
+- [pyTenable CHANGELOG.md](https://github.com/tenable/pyTenable/blob/main/CHANGELOG.md)
