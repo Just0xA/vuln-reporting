@@ -37,6 +37,19 @@ Full archive: [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md). Requir
 
 Next milestone not yet defined. Start with `/gsd-new-milestone` to capture goals, requirements, and roadmap.
 
+**Candidate phase (awaiting milestone assignment):**
+
+- **Phase: Operator Remediation Report v2 — Modular, Priority-Driven**
+  Successor to (or replacement for) the current `ops_remediation` slug. Realized as a `composed_report`-style bundle of operator-focused metric modules driven by the priority model captured in [`notes/operator-remediation-priority-model.md`](notes/operator-remediation-priority-model.md). Each module renders into the four-channel contract (PDF section, Excel tab, email panel, analyst drill-down).
+  - **External-Facing Priority Queue** — findings on assets where `Location ∈ {External, DMZ}` OR `ipv4` is outside RFC 1918 private space; ranked by VPR × asset count.
+  - **Risk-Flag Hot List** — findings where VPR = 10, `vpr_v2.on_cisa_kev = true`, or CVE matches the Threat Intel watchlist (sourced from `config/threat_intel_priority_cves.yaml`; see seed [`threat-intel-tag-migration.md`](seeds/threat-intel-tag-migration.md) for the future Tenable-tag source).
+  - **Aged Critical / High** — operator cut of the existing aged-vulns logic, scoped to Critical + High open > 90 days.
+  - **Remediation Action Grouping** — group open findings by `plugin.id` (or by patch reference where applicable) so a single fix action shows the full finding-and-host footprint it would resolve.
+  - **Fix-Type Breakdown** — counts by patch / configuration change / workaround / disable-service / no-fix-available / vendor-unpatched (Pillar 2 of the operator info model). Depends on research question Q-001 (fix-type reliability) before final classifier shape.
+  - **Per-Environment Routing** — operator groups receive only the rows scoped to the environments they own (`Environment ∈ {Dev, Non-Prod, Prod}`), driven by YAML `filters:` and `modules:` per group.
+  - **Backlog item this consumes:** GEN-01/02 — migrating `ops_remediation` onto the module contract (would inherit chrome for free).
+  - **Cross-references:** `notes/operator-remediation-priority-model.md`, `seeds/threat-intel-tag-migration.md`, `research/questions.md` Q-001.
+
 ### 📋 Deferred to future milestones
 
 From the accumulated backlog (v1.0 + v1.1):
