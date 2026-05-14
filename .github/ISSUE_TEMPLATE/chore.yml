@@ -1,0 +1,90 @@
+name: Chore
+description: Maintenance task with no user-facing change (refactor, dep upgrade, test, docs, CI, janitorial cleanup).
+title: "[Chore] "
+labels: ["type: chore", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Chores are maintenance-only. If the work changes behavior, output, or any operator-visible surface, use Feature Request or Enhancement instead.
+
+  - type: checkboxes
+    id: pre-submission
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: This task has **no user-facing change** — no new behavior, no output difference, no YAML schema change.
+          required: true
+        - label: I have searched existing open issues for duplicates.
+          required: true
+        - label: I have read `CONTRIBUTING.md`.
+          required: true
+        - label: I have not included any real customer / vulnerability / asset data.
+          required: true
+
+  - type: textarea
+    id: task
+    attributes:
+      label: Maintenance task description
+      description: What needs to be done?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type of maintenance
+      options:
+        - Refactor (internal restructuring, behavior unchanged)
+        - Dependency upgrade
+        - Test coverage / smoke harness
+        - Documentation
+        - CI / build / packaging
+        - Janitorial (dead code, stale constants, deprecated aliases)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-state
+    attributes:
+      label: Current state
+      description: Cite specific file paths and line numbers if known.
+      placeholder: e.g., "`run_all.py:76,90` carries `_VALID_FREQUENCIES` / `_VALID_REPORTS` constants that duplicate the schema."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed work
+      description: Specific changes you plan to make.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How will we know it's done? Should reference test passes, lint clean, byte-unchanged diffs on adjacent files, etc.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area affected
+      options:
+        - Reports / modules
+        - Data fetchers
+        - Cache layer
+        - Delivery / email
+        - Scheduler
+        - Configuration / schema
+        - PDF chrome / styling
+        - Documentation
+        - Tests / smoke harness
+        - CI / build / packaging
+        - Project-wide
+    validations:
+      required: true

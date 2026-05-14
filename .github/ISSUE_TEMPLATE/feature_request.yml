@@ -1,0 +1,139 @@
+name: Feature Request
+description: Propose a new report, metric module, delivery channel, or other net-new capability.
+title: "[Feature] "
+labels: ["feature-request", "needs-review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a feature. Please complete every field below — incomplete submissions are auto-closed by the triage workflow. See `CONTRIBUTING.md` for the issue-first / approval-gate rule before opening a PR.
+
+  - type: checkboxes
+    id: pre-submission
+    attributes:
+      label: Pre-submission checklist
+      description: Confirm all four before submitting.
+      options:
+        - label: I have searched existing open and closed issues for duplicates.
+          required: true
+        - label: I have read `CONTRIBUTING.md` and understand the approval-gate rule (no PR before `approved-feature`).
+          required: true
+        - label: This proposal is **net-new** capability (use the Enhancement template for changes to an existing feature).
+          required: true
+        - label: I have not included any real customer, vulnerability, or asset data in this issue.
+          required: true
+
+  - type: input
+    id: feature-name
+    attributes:
+      label: Feature name
+      description: A short noun phrase that names the feature.
+      placeholder: e.g., "External-facing priority queue module"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: addition-type
+    attributes:
+      label: Type of addition
+      description: What kind of net-new surface area does this introduce?
+      options:
+        - New report slug
+        - New metric module (BaseModule subclass)
+        - New delivery channel (email / SMTP / other)
+        - New data fetcher (Tenable API call)
+        - New utility / shared helper
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What problem does this solve? Who is affected and how often?
+      placeholder: Describe the gap or pain point in the operator / analyst / executive workflow.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What is being added
+      description: Describe the proposed behavior with concrete examples (sample input → sample output).
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Full scope of changes
+      description: List the files / modules / systems you expect to create or modify.
+      placeholder: |
+        - `reports/<new_slug>.py` (new)
+        - `reports/modules/<new_module>_module.py` (new)
+        - `run_all.py` — register slug in `_VALID_REPORTS` / `_REPORT_MODULE_MAP`
+        - `CLAUDE.md` — slug index entry
+        - `delivery_config.schema.yaml` — extend `reports` enum
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-stories
+    attributes:
+      label: User stories
+      description: At least two "As a … I want … so that …" statements covering distinct user roles.
+      placeholder: |
+        - As an IT Operator, I want X so that Y.
+        - As an Analyst, I want A so that B.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Concrete, testable conditions a reviewer can verify.
+      placeholder: |
+        - [ ] When run with `filters: {}`, output PDF contains a `<section>` for module X
+        - [ ] When module X has zero matching findings, render returns the empty-data fallback
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: runtimes
+    attributes:
+      label: Applicable runtimes / platforms
+      description: Check every platform / Python version this feature must support.
+      options:
+        - label: Windows (operator dev environment)
+        - label: Linux (production scheduler host)
+        - label: macOS (developer machines)
+        - label: Python 3.10
+        - label: Python 3.11
+        - label: Python 3.12
+        - label: Python 3.13+
+
+  - type: textarea
+    id: breaking-changes
+    attributes:
+      label: Breaking changes
+      description: Will this change behavior for any existing `delivery_config.yaml` group, existing report output, or scheduler invocation? If "no", say so explicitly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: maintenance-burden
+    attributes:
+      label: Maintenance burden
+      description: How does this affect ongoing maintenance — new credentials, new external dependencies, new cache schema, new test surface?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you consider and why are they worse?
+    validations:
+      required: true

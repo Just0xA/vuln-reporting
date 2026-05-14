@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Generic question or operator help
+    url: https://github.com/Just0xA/vuln-reporting/discussions
+    about: For setup help, configuration questions, or anything that isn't a feature request, enhancement, bug report, or chore — please use Discussions.
