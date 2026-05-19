@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Server Update and Install
-status: planning
-last_updated: "2026-05-19T12:36:00.000Z"
-last_activity: 2026-05-19
+status: Phase 7 complete; ready for Phase 8
+stopped_at: Phase 7 (Foundations) shipped — .gitattributes + systemd unit updated.
+last_updated: "2026-05-19T13:30:00.000Z"
+last_activity: 2026-05-19 — Phase 7 Foundations complete (07-01 PLAN executed)
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 20
 ---
 
 # Project State
@@ -24,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-19)
 
 ## Current Position
 
-Phase: Phase 7 — Foundations (not started)
-Plan: —
-Status: Roadmap defined; ready for plan-phase
-Last activity: 2026-05-19 — v1.2 roadmap created (5 phases, 39 requirements mapped)
+Phase: Phase 7 — Foundations (complete)
+Plan: 07-01 (Foundations) — shipped
+Status: Phase 7 complete; ready for Phase 8 (Release infrastructure)
+Last activity: 2026-05-19 — Phase 7 Foundations complete (.gitattributes + systemd unit)
 
 ## Shipped Milestones
 
@@ -52,7 +53,7 @@ None at roadmap creation.
 
 - **Open decision (Phase 9 gate):** GitHub org/repo slug for the Releases API URL used by `update_from_github.sh --check`. Must be confirmed before Phase 9 tarball-content assertion step references it.
 - **Action version pins (Phase 9):** `actions/checkout@v4` and `softprops/action-gh-release@v2` major versions drawn from Aug 2025 training data. Verify with `gh release list -R actions/checkout --limit 5` and `gh release list -R softprops/action-gh-release --limit 5` before committing `release.yml`.
-- **`scripts/` per-file exclusion list (Phase 7):** Confirm exact list of smoke test files to exclude individually (`setup_github_labels.py`, `smoke_board_summary_cutover.py`, `smoke_email_phase2.py` — verify all `smoke_*` filenames before writing `.gitattributes`).
+- ~~**`scripts/` per-file exclusion list (Phase 7):** Confirm exact list of smoke test files to exclude individually.~~ **Resolved 2026-05-19** — `.gitattributes` uses `scripts/setup_github_labels.py` + `scripts/smoke_*` (forward-compatible pattern); verified by `git archive HEAD` preview that all three current smoke files are excluded.
 
 ## Quick Tasks Completed
 

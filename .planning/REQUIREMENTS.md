@@ -16,10 +16,10 @@
 
 ### Footprint / Release Artifacts
 
-- [ ] **FOOT-01**: Maintainer can produce a slim release tarball via `git archive` that excludes `.planning/`, `docs/`, `ref/`, `tests/`, `.github/`, `CLAUDE.md`, `RUNBOOK.md`, `CONTRIBUTING.md`.
-- [ ] **FOOT-02**: Dev-only scripts (`scripts/setup_github_labels.py`, `scripts/smoke_*` if applicable) are excluded individually; runtime scripts (`warm_cache.py`, `update_from_github.sh`) remain in the tarball.
-- [ ] **FOOT-03**: Belt-and-suspenders `export-ignore` lines for gitignored runtime paths (`data/trend/`, `data/cache/`, `output/`, `logs/`) prevent accidentally-staged files from leaking into a release tarball.
-- [ ] **FOOT-04**: Maintainer can preview tarball contents locally (`git archive --format=tar.gz HEAD | tar -tz`) before tagging a release.
+- [x] **FOOT-01**: Maintainer can produce a slim release tarball via `git archive` that excludes `.planning/`, `docs/`, `ref/`, `tests/`, `.github/`, `CLAUDE.md`, `RUNBOOK.md`, `CONTRIBUTING.md`.
+- [x] **FOOT-02**: Dev-only scripts (`scripts/setup_github_labels.py`, `scripts/smoke_*` if applicable) are excluded individually; runtime scripts (`warm_cache.py`, `update_from_github.sh`) remain in the tarball.
+- [x] **FOOT-03**: Belt-and-suspenders `export-ignore` lines for gitignored runtime paths (`data/trend/`, `data/cache/`, `output/`, `logs/`) prevent accidentally-staged files from leaking into a release tarball.
+- [x] **FOOT-04**: Maintainer can preview tarball contents locally (`git archive --format=tar.gz HEAD | tar -tz`) before tagging a release.
 
 ### Warm-Cache Job
 
@@ -55,7 +55,7 @@
 - [ ] **UPDATE-12**: Script supports an optional `GITHUB_TOKEN` env var for authenticated GitHub API calls (raises the rate limit from 60/hr to 5000/hr).
 - [ ] **UPDATE-13**: Each release directory contains its own `.venv` (per-release dependency isolation); the script runs `pip install -r requirements.txt` after extraction.
 - [ ] **UPDATE-14**: `/opt/vuln-reporting/shared/` paths (`.env`, `delivery_config.yaml`, `logs/`, `output/`, `data/cache/`, `data/trend/`) are symlinked into each release directory so configuration and runtime state survive upgrades.
-- [ ] **UPDATE-15**: `deploy/vuln-reports.service` is updated to reference `/opt/vuln-reporting/current/` and `/opt/vuln-reporting/shared/` paths; the obsolete `Documentation=` directive pointing to RUNBOOK.md is removed.
+- [x] **UPDATE-15**: `deploy/vuln-reports.service` is updated to reference `/opt/vuln-reporting/current/` and `/opt/vuln-reporting/shared/` paths; the obsolete `Documentation=` directive pointing to RUNBOOK.md is removed.
 
 ### Cron-Friendly Logging
 

@@ -36,7 +36,7 @@ Full archive: [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md). Requir
 
 ### v1.2 Server Update and Install (Phases 7-11)
 
-- [ ] **Phase 7: Foundations** — `.gitattributes` export-ignore rules + updated systemd service unit
+- [x] **Phase 7: Foundations** — `.gitattributes` export-ignore rules + updated systemd service unit (completed 2026-05-19)
 - [ ] **Phase 8: Warm Cache** — `scripts/warm_cache.py` standalone pre-fetch job with cron-friendly logging
 - [ ] **Phase 9: Release Automation** — `.github/workflows/release.yml` producing slim, validated release tarballs
 - [ ] **Phase 10: Update Script + Symlink Layout** — `scripts/update_from_github.sh` with full install/update/rollback lifecycle
@@ -80,7 +80,7 @@ From the accumulated backlog (v1.0 + v1.1 + v1.2):
   4. Gitignored runtime paths (`data/trend/`, `data/cache/`, `output/`, `logs/`) have belt-and-suspenders `export-ignore` lines so accidentally-staged files cannot enter a tarball
 **Plans**: 1 plan
 Plans:
-- [ ] 07-01-PLAN.md - Define release-tarball boundary (.gitattributes) and align systemd unit with symlink-based deploy layout
+- [x] 07-01-PLAN.md - Define release-tarball boundary (.gitattributes) and align systemd unit with symlink-based deploy layout
 
 ### Phase 8: Warm Cache
 **Goal**: Operators can decouple Tenable fetch latency from report-run wall time by running a pre-fetch job on a cron schedule
@@ -141,7 +141,7 @@ Plans:
 | 4. YAML Config and Regression Cutover | v1.0 | 4/4 | Complete | 2026-05-08 |
 | 5. PDF Chrome Foundation | v1.1 | 4/4 | Complete | 2026-05-13 |
 | 6. Cover Redesign + Board Summary Integration | v1.1 | 5/5 | Complete | 2026-05-13 |
-| 7. Foundations | v1.2 | 0/TBD | Not started | — |
+| 7. Foundations | v1.2 | 1/1 | Complete   | 2026-05-19 |
 | 8. Warm Cache | v1.2 | 0/TBD | Not started | — |
 | 9. Release Automation | v1.2 | 0/TBD | Not started | — |
 | 10. Update Script + Symlink Layout | v1.2 | 0/TBD | Not started | — |
