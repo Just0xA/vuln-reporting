@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Server Update and Install
 status: planning
-last_updated: "2026-05-19T12:06:55.141Z"
+last_updated: "2026-05-19T12:36:00.000Z"
 last_activity: 2026-05-19
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-13)
+See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** (none — between milestones)
+**Current focus:** v1.2 Server Update and Install — Phase 7: Foundations
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 7 — Foundations (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-19 — Milestone v1.2 started
+Status: Roadmap defined; ready for plan-phase
+Last activity: 2026-05-19 — v1.2 roadmap created (5 phases, 39 requirements mapped)
 
 ## Shipped Milestones
 
@@ -36,21 +36,23 @@ Last activity: 2026-05-19 — Milestone v1.2 started
 
 ## Performance Metrics
 
-(Reset at milestone boundary; accumulates as v1.1 phases ship.)
+(Reset at milestone boundary; accumulates as v1.2 phases ship.)
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions logged in PROJECT.md "Key Decisions" table. v1.0's full decision log is archived at `milestones/v1.0-ROADMAP.md` § Key Decisions.
+Decisions logged in PROJECT.md "Key Decisions" table. Prior milestone decision logs archived at `milestones/v1.0-ROADMAP.md` and `milestones/v1.1-ROADMAP.md`.
 
 ### Pending Todos
 
-None at milestone start.
+None at roadmap creation.
 
 ### Blockers/Concerns
 
-None at milestone start.
+- **Open decision (Phase 9 gate):** GitHub org/repo slug for the Releases API URL used by `update_from_github.sh --check`. Must be confirmed before Phase 9 tarball-content assertion step references it.
+- **Action version pins (Phase 9):** `actions/checkout@v4` and `softprops/action-gh-release@v2` major versions drawn from Aug 2025 training data. Verify with `gh release list -R actions/checkout --limit 5` and `gh release list -R softprops/action-gh-release --limit 5` before committing `release.yml`.
+- **`scripts/` per-file exclusion list (Phase 7):** Confirm exact list of smoke test files to exclude individually (`setup_github_labels.py`, `smoke_board_summary_cutover.py`, `smoke_email_phase2.py` — verify all `smoke_*` filenames before writing `.gitattributes`).
 
 ## Quick Tasks Completed
 
@@ -64,7 +66,7 @@ None at milestone start.
 
 ## Deferred Items
 
-Carried forward from v1.0; not in scope for v1.1.
+Carried forward from v1.0 + v1.1; not in scope for v1.2.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
@@ -78,7 +80,7 @@ Carried forward from v1.0; not in scope for v1.1.
 
 ## Session Continuity
 
-Last session: 2026-05-13T12:00:00.000Z
-Stopped at: Milestone v1.1 initialized; defining requirements next.
-Resume file: .planning/PROJECT.md (Current Milestone section)
-Next command: continue `/gsd-new-milestone` (requirements + roadmap), or `/gsd-plan-phase 5` after roadmap approval
+Last session: 2026-05-19T12:36:00.000Z
+Stopped at: v1.2 roadmap defined; 5 phases mapped to 39 requirements.
+Resume file: .planning/ROADMAP.md (Phase Details section)
+Next command: `/gsd:plan-phase 7`

@@ -101,13 +101,44 @@ Carried from prior milestones; not in scope for v1.2.
 
 ## Traceability
 
-To be filled in by the roadmapper.
-
 | REQ-ID | Phase | Plan | Status |
 |--------|-------|------|--------|
-| FOOT-01..04 | — | — | Open |
-| CACHE-01..05 | — | — | Open |
-| CI-01..07 | — | — | Open |
-| UPDATE-01..15 | — | — | Open |
-| LOG-01..03 | — | — | Open |
-| DOC-01..05 | — | — | Open |
+| FOOT-01 | Phase 7 | — | Open |
+| FOOT-02 | Phase 7 | — | Open |
+| FOOT-03 | Phase 7 | — | Open |
+| FOOT-04 | Phase 7 | — | Open |
+| UPDATE-15 | Phase 7 | — | Open |
+| CACHE-01 | Phase 8 | — | Open |
+| CACHE-02 | Phase 8 | — | Open |
+| CACHE-03 | Phase 8 | — | Open |
+| CACHE-04 | Phase 8 | — | Open |
+| CACHE-05 | Phase 8 | — | Open |
+| LOG-01 | Phase 8 | — | Open |
+| LOG-03 | Phase 8 | — | Open |
+| CI-01 | Phase 9 | — | Open |
+| CI-02 | Phase 9 | — | Open |
+| CI-03 | Phase 9 | — | Open |
+| CI-04 | Phase 9 | — | Open |
+| CI-05 | Phase 9 | — | Open |
+| CI-06 | Phase 9 | — | Open |
+| CI-07 | Phase 9 | — | Open |
+| UPDATE-01 | Phase 10 | — | Open |
+| UPDATE-02 | Phase 10 | — | Open |
+| UPDATE-03 | Phase 10 | — | Open |
+| UPDATE-04 | Phase 10 | — | Open |
+| UPDATE-05 | Phase 10 | — | Open |
+| UPDATE-06 | Phase 10 | — | Open |
+| UPDATE-07 | Phase 10 | — | Open |
+| UPDATE-08 | Phase 10 | — | Open |
+| UPDATE-09 | Phase 10 | — | Open |
+| UPDATE-10 | Phase 10 | — | Open |
+| UPDATE-11 | Phase 10 | — | Open |
+| UPDATE-12 | Phase 10 | — | Open |
+| UPDATE-13 | Phase 10 | — | Open |
+| UPDATE-14 | Phase 10 | — | Open |
+| LOG-02 | Phase 10 | — | Open |
+| DOC-01 | Phase 11 | — | Open |
+| DOC-02 | Phase 11 | — | Open |
+| DOC-03 | Phase 11 | — | Open |
+| DOC-04 | Phase 11 | — | Open |
+| DOC-05 | Phase 11 | — | Open |

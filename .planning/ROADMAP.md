@@ -4,6 +4,7 @@
 
 - ✅ **v1.0 Modular Reporting Framework** — Phases 1-4 (shipped 2026-05-08) — see [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md)
 - ✅ **v1.1 PDF Chrome Redesign** — Phases 5-6 (shipped 2026-05-13) — see [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md)
+- **v1.2 Server Update and Install** — Phases 7-11 (in progress)
 
 ## Phases
 
@@ -33,11 +34,27 @@ Full archive: [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md). Requir
 
 </details>
 
-### Next Milestone
+### v1.2 Server Update and Install (Phases 7-11)
 
-Next milestone not yet defined. Start with `/gsd-new-milestone` to capture goals, requirements, and roadmap.
+- [ ] **Phase 7: Foundations** — `.gitattributes` export-ignore rules + updated systemd service unit
+- [ ] **Phase 8: Warm Cache** — `scripts/warm_cache.py` standalone pre-fetch job with cron-friendly logging
+- [ ] **Phase 9: Release Automation** — `.github/workflows/release.yml` producing slim, validated release tarballs
+- [ ] **Phase 10: Update Script + Symlink Layout** — `scripts/update_from_github.sh` with full install/update/rollback lifecycle
+- [ ] **Phase 11: Documentation** — `README.md`, `DEPLOYMENT.md`, RUNBOOK rewrite, `deploy/crontab.example`
 
-**Candidate phase (awaiting milestone assignment):**
+### Deferred to future milestones
+
+From the accumulated backlog (v1.0 + v1.1 + v1.2):
+
+- **GEN-01/02** — Migrate `management_summary` and `ops_remediation` to the module render contract (they would inherit chrome for free once migrated, since chrome is wired through `ReportComposer`).
+- **GEN-03/04** — Broader YAML-driven module composition beyond the `composed_report` slug.
+- **PERF-01..04** — Per-batch `enrich_vulns_with_assets` cache, midnight cache crossover, log rotation, tag-typo detection.
+- **LEGACY-01** — Re-evaluate the 6 unbuilt reports in CLAUDE.md as candidate module bundles.
+- **composed_report output filename disambiguation** — per-group basenames (slugified `report_title`, `output_basename:` YAML field, or slugified group name). Captured during v1.1 once multiple composed groups became plausible.
+- **Cosmetic janitorial** — `_VALID_FREQUENCIES` / `_VALID_REPORTS` stale constants (`run_all.py:76,90`); Phase 3 deprecated aliases `_PDF_RAG_STRIP_TEMPLATE` / `_build_rag_strip_page`.
+- **pyTenable upgrade + `assets_v2()` migration** — pin is `pyTenable==1.5.2`; latest is `1.9.1` (2026-04-09). See [Backlog section](#backlog) for detail and recommended sequencing.
+
+**Candidate next phase (awaiting milestone assignment):**
 
 - **Phase: Operator Remediation Report v2 — Modular, Priority-Driven**
   Successor to (or replacement for) the current `ops_remediation` slug. Realized as a `composed_report`-style bundle of operator-focused metric modules driven by the priority model captured in [`notes/operator-remediation-priority-model.md`](notes/operator-remediation-priority-model.md). Each module renders into the four-channel contract (PDF section, Excel tab, email panel, analyst drill-down).
@@ -50,17 +67,67 @@ Next milestone not yet defined. Start with `/gsd-new-milestone` to capture goals
   - **Backlog item this consumes:** GEN-01/02 — migrating `ops_remediation` onto the module contract (would inherit chrome for free).
   - **Cross-references:** `notes/operator-remediation-priority-model.md`, `seeds/threat-intel-tag-migration.md`, `research/questions.md` Q-001.
 
-### 📋 Deferred to future milestones
+## Phase Details
 
-From the accumulated backlog (v1.0 + v1.1):
+### Phase 7: Foundations
+**Goal**: The repository correctly defines its release artifact boundary so no future tag can produce a tarball with dev-only content
+**Depends on**: Nothing (first phase of v1.2)
+**Requirements**: FOOT-01, FOOT-02, FOOT-03, FOOT-04, UPDATE-15
+**Success Criteria** (what must be TRUE):
+  1. Maintainer runs `git archive --format=tar.gz HEAD | tar -tz` and sees no `.planning/`, `docs/`, `ref/`, `tests/`, `.github/`, `CLAUDE.md`, `RUNBOOK.md`, `CONTRIBUTING.md` paths in the listing
+  2. Maintainer runs the same preview and confirms `scripts/warm_cache.py` and `scripts/update_from_github.sh` ARE present while `scripts/setup_github_labels.py` and `scripts/smoke_*` are absent
+  3. `deploy/vuln-reports.service` references `/opt/vuln-reporting/current/` as `WorkingDirectory` and `/opt/vuln-reporting/shared/.env` as `EnvironmentFile`; the obsolete `Documentation=` line pointing to `RUNBOOK.md` is removed
+  4. Gitignored runtime paths (`data/trend/`, `data/cache/`, `output/`, `logs/`) have belt-and-suspenders `export-ignore` lines so accidentally-staged files cannot enter a tarball
+**Plans**: TBD
 
-- **GEN-01/02** — Migrate `management_summary` and `ops_remediation` to the module render contract (they would inherit chrome for free once migrated, since chrome is wired through `ReportComposer`).
-- **GEN-03/04** — Broader YAML-driven module composition beyond the `composed_report` slug.
-- **PERF-01..04** — Per-batch `enrich_vulns_with_assets` cache, midnight cache crossover, log rotation, tag-typo detection.
-- **LEGACY-01** — Re-evaluate the 6 unbuilt reports in CLAUDE.md as candidate module bundles.
-- **composed_report output filename disambiguation** — per-group basenames (slugified `report_title`, `output_basename:` YAML field, or slugified group name). Captured during v1.1 once multiple composed groups became plausible.
-- **Cosmetic janitorial** — `_VALID_FREQUENCIES` / `_VALID_REPORTS` stale constants (`run_all.py:76,90`); Phase 3 deprecated aliases `_PDF_RAG_STRIP_TEMPLATE` / `_build_rag_strip_page`.
-- **pyTenable upgrade + `assets_v2()` migration** — pin is `pyTenable==1.5.2`; latest is `1.9.1` (2026-04-09). Recommend splitting into two units of work to separate platform-stability risk from new-feature risk. See [Backlog → pyTenable upgrade + asset export v2](#backlog) below for the detail and recommended sequencing.
+### Phase 8: Warm Cache
+**Goal**: Operators can decouple Tenable fetch latency from report-run wall time by running a pre-fetch job on a cron schedule
+**Depends on**: Nothing (independent of release infrastructure; can run against existing live install)
+**Requirements**: CACHE-01, CACHE-02, CACHE-03, CACHE-04, CACHE-05, LOG-01, LOG-03
+**Success Criteria** (what must be TRUE):
+  1. Operator runs `python -m scripts.warm_cache` and finds `data/cache/<YYYY-MM-DD>/*.parquet` files in the same shape `run_all.py` consumes, with no new Python dependencies required
+  2. Operator passes `--dry-run` and sees what would be written without any files being created; passes `--verbose` and sees fetch progress; passes `--prune-stale` and prior-day cache folders are removed; passes `--date YYYY-MM-DD` and the target date folder is written
+  3. A concurrent daemon + cron invocation cannot observe a partial parquet file (writes go to a temp file and are promoted via `os.replace`)
+  4. `logs/warm_cache.log` is written from the first run and rotates automatically; exit code is 0 on success and non-zero on auth or API failure
+  5. Every invocation produces at minimum a "started" line (with full argv) and a "completed" line (success or failure) in `logs/warm_cache.log`; usage errors log the real failure reason before exiting non-zero
+**Plans**: TBD
+
+### Phase 9: Release Automation
+**Goal**: Pushing a version tag produces a clean, validated slim release tarball on GitHub that the update script can download and trust
+**Depends on**: Phase 7 (correct `.gitattributes` must exist before any tag is pushed)
+**Requirements**: CI-01, CI-02, CI-03, CI-04, CI-05, CI-06, CI-07
+**Success Criteria** (what must be TRUE):
+  1. Maintainer pushes a `v*` tag and a GitHub Release is created with a `vuln-reporting-vX.Y.Z-slim.tar.gz` asset and a matching `*.sha256` checksum file as a second asset
+  2. Maintainer triggers the workflow via `workflow_dispatch` with a version input and the same release assets are produced
+  3. A tag with `-rc`, `-beta`, or `-alpha` in the suffix is automatically marked as prerelease on GitHub
+  4. The workflow's tarball content assertion step fails the build (no upload occurs) if forbidden paths (`.planning/`, `.env`, `data/trend/`) or non-placeholder credential values appear in the tarball
+  5. The workflow file declares `permissions: contents: write` explicitly so the default read-only `GITHUB_TOKEN` is not relied upon
+**Plans**: TBD
+
+### Phase 10: Update Script + Symlink Layout
+**Goal**: An operator on a fresh or existing server can install, update, and roll back the suite using a single shell script without hand-curating files
+**Depends on**: Phase 9 (real release tarball must exist for end-to-end testing)
+**Requirements**: UPDATE-01, UPDATE-02, UPDATE-03, UPDATE-04, UPDATE-05, UPDATE-06, UPDATE-07, UPDATE-08, UPDATE-09, UPDATE-10, UPDATE-11, UPDATE-12, UPDATE-13, UPDATE-14, LOG-02
+**Success Criteria** (what must be TRUE):
+  1. Operator runs `--check` and gets an exit code of 0 (up-to-date), 1 (update available), or 2 (error) without any files being downloaded or changed; operator runs `--list` and sees installed releases with the active one marked
+  2. Operator runs `--version vX.Y.Z` and the script downloads the tarball, validates its SHA256, extracts into `releases/vX.Y.Z/`, runs `pip install -r requirements.txt` into a per-release `.venv`, validates via `python run_all.py --dry-run`, atomically swaps the `current` symlink via `ln -sfn`, and restarts the systemd unit
+  3. After a successful upgrade the script prints the exact rollback one-liner the operator can paste; operator runs `--rollback` and the `current` symlink re-points to the previous release; the systemd unit restarts cleanly
+  4. A failed download, partial extraction, or failed `--dry-run` validation leaves no half-built release directory and does not swap the `current` symlink; if the unit is not active 10 seconds after a swap the script auto-rolls back
+  5. `shared/` paths (`.env`, `delivery_config.yaml`, `logs/`, `output/`, `data/cache/`, `data/trend/`) are symlinked into each release directory so configuration and runtime state survive the upgrade; the script refuses to operate when `current` is missing or does not point inside `releases/`
+  6. Every invocation writes a "started" line and a "completed/failed-because" line to `logs/update.log`; `GITHUB_TOKEN` env var is respected for authenticated API calls
+**Plans**: TBD
+
+### Phase 11: Documentation
+**Goal**: A non-author operator can deploy, operate, upgrade, and roll back the suite using only the shipped documentation
+**Depends on**: Phases 7-10 (describes final behavior, not provisional behavior)
+**Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05
+**Success Criteria** (what must be TRUE):
+  1. Root `README.md` exists and tells a first-time visitor what the suite does, who it is for, and where to find the quickstart (link to `DEPLOYMENT.md`)
+  2. `DEPLOYMENT.md` covers system requirements, tarball-only install path, credential configuration, `--dry-run` verification, the update procedure, a prominently-placed rollback one-liner, troubleshooting, an on-disk layout diagram, schema-migration note, and the D-04-08 sensitive-data pre-release checklist
+  3. `RUNBOOK.md` is narrowly scoped to day-to-day operations (scheduler management, log locations, common runtime errors); all install/deployment content has moved to `DEPLOYMENT.md`
+  4. `RUNBOOK.md` includes an "Operational cron schedule" section with ready-to-use cron lines for `warm_cache.py` and `scheduler.py --mode run-due` with rotation guidance
+  5. `deploy/crontab.example` ships a working cron schedule with `warm_cache.py` placed at least 30 minutes before the earliest report group and not near midnight
+**Plans**: TBD
 
 ## Progress
 
@@ -72,6 +139,11 @@ From the accumulated backlog (v1.0 + v1.1):
 | 4. YAML Config and Regression Cutover | v1.0 | 4/4 | Complete | 2026-05-08 |
 | 5. PDF Chrome Foundation | v1.1 | 4/4 | Complete | 2026-05-13 |
 | 6. Cover Redesign + Board Summary Integration | v1.1 | 5/5 | Complete | 2026-05-13 |
+| 7. Foundations | v1.2 | 0/TBD | Not started | — |
+| 8. Warm Cache | v1.2 | 0/TBD | Not started | — |
+| 9. Release Automation | v1.2 | 0/TBD | Not started | — |
+| 10. Update Script + Symlink Layout | v1.2 | 0/TBD | Not started | — |
+| 11. Documentation | v1.2 | 0/TBD | Not started | — |
 
 ## Backlog
 
