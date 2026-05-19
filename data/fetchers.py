@@ -18,6 +18,7 @@ Cache key convention:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -177,6 +178,25 @@ def _cache_path(cache_dir: Path, dataset: str) -> Path:
     return cache_dir / f"{dataset}.parquet"
 
 
+def _atomic_write_parquet(df: pd.DataFrame, path: Path) -> None:
+    """
+    Write ``df`` to ``path`` atomically via a sibling ``.tmp.<pid>`` file
+    and ``os.replace``. Concurrent readers see either the previous complete
+    parquet or the new complete parquet — never a torn write.
+
+    Raises any underlying write exception after best-effort tmp cleanup; the
+    caller (``_save_cache``) owns the non-fatal WARNING log surface.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    try:
+        df.to_parquet(tmp, index=False, engine="fastparquet")
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def _load_cache(path: Path) -> Optional[pd.DataFrame]:
     """Return cached DataFrame if the file exists, else None."""
     if path.exists():
@@ -188,8 +208,7 @@ def _load_cache(path: Path) -> Optional[pd.DataFrame]:
 def _save_cache(df: pd.DataFrame, path: Path) -> None:
     """Persist DataFrame to parquet, logging any write errors non-fatally."""
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(path, index=False, engine="fastparquet")
+        _atomic_write_parquet(df, path)
         logger.debug("Cached %d rows to %s", len(df), path)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not write cache file %s: %s", path, exc)
