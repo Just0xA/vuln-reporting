@@ -31,13 +31,13 @@
 
 ### Release Automation
 
-- [ ] **CI-01**: Pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds the slim tarball, uploads it as a release asset, and publishes the GitHub Release.
-- [ ] **CI-02**: Maintainer can manually trigger the release workflow via `workflow_dispatch` with a version input (for re-runs against an existing tag).
-- [ ] **CI-03**: Released tarball is named `vuln-reporting-vX.Y.Z-slim.tar.gz` (suffix avoids collision with GitHub's auto-generated source tarball).
-- [ ] **CI-04**: A SHA256 checksum file (`*.sha256`) is uploaded as a second asset on every release.
-- [ ] **CI-05**: Tags matching `-rc`, `-beta`, or `-alpha` suffixes are marked as prerelease on GitHub.
+- [x] **CI-01**: Pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds the slim tarball, uploads it as a release asset, and publishes the GitHub Release.
+- [x] **CI-02**: Maintainer can manually trigger the release workflow via `workflow_dispatch` with a version input (for re-runs against an existing tag).
+- [x] **CI-03**: Released tarball is named `vuln-reporting-vX.Y.Z-slim.tar.gz` (suffix avoids collision with GitHub's auto-generated source tarball).
+- [x] **CI-04**: A SHA256 checksum file (`*.sha256`) is uploaded as a second asset on every release.
+- [x] **CI-05**: Tags matching `-rc`, `-beta`, or `-alpha` suffixes are marked as prerelease on GitHub.
 - [ ] **CI-06**: Release workflow runs a tarball-content assertion step that fails the build if forbidden paths (`.planning/`, `.env`, `data/trend/`, etc.) or non-placeholder credential values are present.
-- [ ] **CI-07**: Workflow declares `permissions: contents: write` explicitly (default `GITHUB_TOKEN` is read-only).
+- [x] **CI-07**: Workflow declares `permissions: contents: write` explicitly (default `GITHUB_TOKEN` is read-only).
 
 ### Install / Update / Rollback
 

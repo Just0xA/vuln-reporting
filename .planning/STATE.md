@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: milestone
-status: completed
+status: executing
 stopped_at: v1.2 roadmap defined; 5 phases mapped to 39 requirements.
-last_updated: "2026-05-19T14:50:14.253Z"
-last_activity: 2026-05-19 -- Phase 08 marked complete
+last_updated: "2026-05-19T20:57:51.629Z"
+last_activity: 2026-05-19
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
+  total_plans: 4
+  completed_plans: 3
+  percent: 50
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-05-19)
 ## Current Position
 
 Phase: 08 — COMPLETE
-Plan: 1 of 2
-Status: Phase 08 complete
-Last activity: 2026-05-19 -- Phase 08 marked complete
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-05-19
 
 ## Shipped Milestones
 
@@ -64,6 +64,7 @@ None at roadmap creation.
 | 2026-05-14 | tenable-assets-compliance-reference-docs | Two field reference docs in `docs/`: `tenable_assets_api_reference.md` (v1+v2 with per-field version indicators and migration summary) and `tenable_compliance_api_reference.md` (single-version reference). Mirrors style of existing `tenable_vuln_api_reference.md`. No code changes. | 73510eb |
 | 2026-05-14 | github-contribution-templates | Scaffolded `.github/ISSUE_TEMPLATE/{config,feature_request,enhancement,bug_report,chore}.yml` + `.github/PULL_REQUEST_TEMPLATE/{feature,enhancement,fix}.md` + `CONTRIBUTING.md`. Tailored to project stack (Python + pyTenable + WeasyPrint); PII checklist enforced as required on bug reports; PR templates include issue-first gate notice. Required by `/gsd-inbox` triage. | 8ad2828 |
 | 2026-05-14 | stop-syncing-data-trend-to-github-and-sc (260514-mlk) | Untracked `data/trend/*.json` (3 files w/ aggregate severity counts + internal Owner tag names), added `data/trend/` to `.gitignore`, scrubbed all history via `git filter-repo` (230 commits rewritten), force-pushed `main` (29fddd0→5bdb866) + tags v1.0/v1.1. Backup at `origin/backup/pre-trend-scrub-2026-05-14`. **Outstanding:** backup branch still contains the sensitive data — delete after confidence window to complete scrub. | 5bdb866 |
+| Phase 09-ci-release-automation P01 | 2 | 1 tasks | 1 files |
 
 ## Deferred Items
 
@@ -81,7 +82,7 @@ Carried forward from v1.0 + v1.1; not in scope for v1.2.
 
 ## Session Continuity
 
-Last session: 2026-05-19T12:36:00.000Z
+Last session: 2026-05-19T20:57:51.623Z
 Stopped at: v1.2 roadmap defined; 5 phases mapped to 39 requirements.
-Resume file: .planning/ROADMAP.md (Phase Details section)
+Resume file: None
 Next command: `/gsd:plan-phase 7`

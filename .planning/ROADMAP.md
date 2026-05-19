@@ -10,7 +10,7 @@
   5. Workflow declares `permissions: contents: write` explicitly (no reliance on default repo settings); action versions are pinned to verified majors current as of 2026-05-19 (`actions/checkout@v6`, `softprops/action-gh-release@v3`)
 **Plans**: 2 plans
 Plans:
-- [ ] 09-01-PLAN.md — Core release workflow `.github/workflows/release.yml` (checkout, build slim tarball, SHA256 sidecar, publish release, prerelease detection) (CI-01, CI-02, CI-03, CI-04, CI-05, CI-07)
+- [x] 09-01-PLAN.md — Core release workflow `.github/workflows/release.yml` (checkout, build slim tarball, SHA256 sidecar, publish release, prerelease detection) (CI-01, CI-02, CI-03, CI-04, CI-05, CI-07)
 - [ ] 09-02-PLAN.md — Tarball-content assertion step: forbidden-path + credential-scan gate (CI-06)
 
 ### Phase 8: Warm Cache
