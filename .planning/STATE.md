@@ -1,11 +1,10 @@
 ---
 gsd_state_version: 1.0
-milestone: none
-milestone_name: (between milestones — v1.1 shipped 2026-05-13)
-status: idle
-stopped_at: Milestone v1.1 shipped and archived. Run /gsd-new-milestone to start the next cycle.
-last_updated: "2026-05-14T08:33:00.000Z"
-last_activity: 2026-05-14 -- quick task 260514-mlk: scrub data/trend from git history
+milestone: v1.2
+milestone_name: Server Update and Install
+status: planning
+last_updated: "2026-05-19T12:06:55.141Z"
+last_activity: 2026-05-19
 progress:
   total_phases: 0
   completed_phases: 0
@@ -25,11 +24,10 @@ See: .planning/PROJECT.md (updated 2026-05-13)
 
 ## Current Position
 
-Milestone: none active
-Status: v1.1 shipped 2026-05-13; awaiting next milestone definition
-Last activity: 2026-05-13 -- v1.1 milestone archived
-
-Progress: [          ] No active milestone
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-19 — Milestone v1.2 started
 
 ## Shipped Milestones
 

@@ -37,9 +37,24 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 **Codebase state (post-v1.1):** Five reports work end-to-end plus the YAML-driven `composed_report` slug. `board_summary` and `composed_report` are chrome-aware. `management_summary` + `ops_remediation` remain on legacy render paths (untouched); they will inherit chrome only after migration to the module contract (GEN-01/02 deferred).
 
-## Next Milestone
+## Current Milestone: v1.2 Server Update and Install
 
-Not yet defined. Run `/gsd-new-milestone` to capture goals, requirements, and roadmap. Candidates from the accumulated backlog:
+**Goal:** Make the suite cleanly server-deployable — slim release artifacts, scripted install/update/rollback, an operator runbook, an auto-release workflow, and a user-friendly README — so a non-author operator can deploy + upgrade without hand-curating files.
+
+**Target features:**
+- Slim release tarballs via `.gitattributes` `export-ignore` (excludes `.planning/`, `docs/`, `ref/`, `tests/`, `.github/`, top-level dev docs).
+- Standalone `scripts/warm_cache.py` decoupling Tenable fetch latency from report-run wall time.
+- `scripts/update_from_github.sh` with `--check` / `--version` / `--rollback` / `--list` on a `/opt/vuln-reporting/{current → releases/vX.Y.Z, shared/}` layout.
+- `.github/workflows/release.yml` triggered by `v*` tag push + `workflow_dispatch` — builds + uploads the slim tarball.
+- RUNBOOK additions: "Operational cron schedule" + "Updating from GitHub" with on-disk layout diagram.
+- User-friendly root `README.md` (what + who + quickstart) plus operator-focused `DEPLOYMENT.md`.
+
+**Key context:**
+- Single-server target; updates are operator-run on demand (only `--check` automates discovery).
+- `shared/` (`.env`, `delivery_config.yaml`, `logs/`, `output/`, `data/cache/`) survives upgrades via symlinks.
+- Deferred: `composed_report` output filename disambiguation (stays on backlog).
+
+## Backlog (deferred from prior milestones)
 
 - **GEN-01/02** — Migrate `management_summary` / `ops_remediation` to the module render contract (would automatically inherit chrome once added to `_CHROME_AWARE_SLUGS`).
 - **GEN-03/04** — Broader YAML-driven module composition beyond the `composed_report` slug.
@@ -100,4 +115,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-13 — milestone v1.1 PDF Chrome Redesign started*
+*Last updated: 2026-05-19 — milestone v1.2 Server Update and Install started*
