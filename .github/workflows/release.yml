@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to release (e.g. v1.2.0)'
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
+          if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta|alpha)[0-9.]*)?$'; then
+            echo "ERROR: '$VERSION' does not match expected semver format ^v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta|alpha)[0-9.]*)?$" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Detect prerelease
+        id: prerelease
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          if echo "$VERSION" | grep -qE '\-(rc|beta|alpha)'; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build slim tarball
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          git archive \
+            --format=tar.gz \
+            --prefix="vuln-reporting-${VERSION}/" \
+            -o "vuln-reporting-${VERSION}-slim.tar.gz" \
+            "${VERSION}"
+
+      - name: Compute SHA256 sidecar
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          sha256sum "vuln-reporting-${VERSION}-slim.tar.gz" > "vuln-reporting-${VERSION}-slim.tar.gz.sha256"
+
+# Tarball-content assertion step inserted by Plan 09-02
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          prerelease: ${{ steps.prerelease.outputs.prerelease == 'true' }}
+          files: |
+            vuln-reporting-${{ steps.version.outputs.version }}-slim.tar.gz
+            vuln-reporting-${{ steps.version.outputs.version }}-slim.tar.gz.sha256
+          fail_on_unmatched_files: true
