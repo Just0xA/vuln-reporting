@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-05-19)
 
 ## Current Position
 
-Phase: 08 — COMPLETE
+Phase: 09 — COMPLETE
 Plan: 2 of 2
-Status: Ready to execute
-Last activity: 2026-05-19
+Status: Verified — VERIFICATION.md status: passed; one post-merge smoke-tag run (`v0.0.0-alpha1`) remains as documented human-check
+Last activity: 2026-05-19 — Phase 09 verified passed
 
 ## Shipped Milestones
 
