@@ -78,7 +78,9 @@ From the accumulated backlog (v1.0 + v1.1 + v1.2):
   2. Maintainer runs the same preview and confirms `scripts/warm_cache.py` and `scripts/update_from_github.sh` ARE present while `scripts/setup_github_labels.py` and `scripts/smoke_*` are absent
   3. `deploy/vuln-reports.service` references `/opt/vuln-reporting/current/` as `WorkingDirectory` and `/opt/vuln-reporting/shared/.env` as `EnvironmentFile`; the obsolete `Documentation=` line pointing to `RUNBOOK.md` is removed
   4. Gitignored runtime paths (`data/trend/`, `data/cache/`, `output/`, `logs/`) have belt-and-suspenders `export-ignore` lines so accidentally-staged files cannot enter a tarball
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 07-01-PLAN.md - Define release-tarball boundary (.gitattributes) and align systemd unit with symlink-based deploy layout
 
 ### Phase 8: Warm Cache
 **Goal**: Operators can decouple Tenable fetch latency from report-run wall time by running a pre-fetch job on a cron schedule
