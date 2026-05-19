@@ -11,7 +11,7 @@
 **Plans**: 2 plans
 Plans:
 - [x] 09-01-PLAN.md — Core release workflow `.github/workflows/release.yml` (checkout, build slim tarball, SHA256 sidecar, publish release, prerelease detection) (CI-01, CI-02, CI-03, CI-04, CI-05, CI-07)
-- [ ] 09-02-PLAN.md — Tarball-content assertion step: forbidden-path + credential-scan gate (CI-06)
+- [x] 09-02-PLAN.md — Tarball-content assertion step: forbidden-path + credential-scan gate (CI-06)
 
 ### Phase 8: Warm Cache
 **Goal**: Operators can decouple Tenable fetch latency from report-run wall time by running a pre-fetch job on a cron schedule
