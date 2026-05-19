@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.2
-milestone_name: Server Update and Install
-status: Phase 7 complete; ready for Phase 8
-stopped_at: Phase 7 (Foundations) shipped — .gitattributes + systemd unit updated.
-last_updated: "2026-05-19T13:30:00.000Z"
-last_activity: 2026-05-19 — Phase 7 Foundations complete (07-01 PLAN executed)
+milestone_name: milestone
+status: completed
+stopped_at: v1.2 roadmap defined; 5 phases mapped to 39 requirements.
+last_updated: "2026-05-19T14:50:14.253Z"
+last_activity: 2026-05-19 -- Phase 08 marked complete
 progress:
-  total_phases: 5
+  total_phases: 1
   completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 20
+  total_plans: 2
+  completed_plans: 2
+  percent: 100
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-19)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** v1.2 Server Update and Install — Phase 7: Foundations
+**Current focus:** Phase 08 — warm-cache
 
 ## Current Position
 
-Phase: Phase 7 — Foundations (complete)
-Plan: 07-01 (Foundations) — shipped
-Status: Phase 7 complete; ready for Phase 8 (Release infrastructure)
-Last activity: 2026-05-19 — Phase 7 Foundations complete (.gitattributes + systemd unit)
+Phase: 08 — COMPLETE
+Plan: 1 of 2
+Status: Phase 08 complete
+Last activity: 2026-05-19 -- Phase 08 marked complete
 
 ## Shipped Milestones
 

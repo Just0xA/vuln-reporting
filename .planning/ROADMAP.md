@@ -10,5 +10,5 @@
   5. Every invocation produces at minimum a "started" line (with full argv) and a "completed" line (success or failure) in `logs/warm_cache.log`; usage errors log the real failure reason before exiting non-zero
 **Plans**: 2 plans
 Plans:
-- [ ] 08-01-PLAN.md — Atomic parquet-write helper in data/fetchers.py (CACHE-04)
-- [ ] 08-02-PLAN.md — scripts/warm_cache.py with rotating log, dry-run/verbose/prune-stale/date flags (CACHE-01, CACHE-02, CACHE-03, CACHE-05, LOG-01, LOG-03)
+- [x] 08-01-PLAN.md — Atomic parquet-write helper in data/fetchers.py (CACHE-04)
+- [x] 08-02-PLAN.md — scripts/warm_cache.py with rotating log, dry-run/verbose/prune-stale/date flags (CACHE-01, CACHE-02, CACHE-03, CACHE-05, LOG-01, LOG-03)
