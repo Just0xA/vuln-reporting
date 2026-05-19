@@ -69,7 +69,86 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           sha256sum "vuln-reporting-${VERSION}-slim.tar.gz" > "vuln-reporting-${VERSION}-slim.tar.gz.sha256"
 
-# Tarball-content assertion step inserted by Plan 09-02
+      - name: Assert tarball contents
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          TARBALL="vuln-reporting-${VERSION}-slim.tar.gz"
+
+          if [[ ! -f "$TARBALL" ]]; then
+            echo "FAIL: tarball $TARBALL not found"
+            exit 1
+          fi
+
+          EXTRACT_DIR=$(mktemp -d)
+          tar -xzf "$TARBALL" -C "$EXTRACT_DIR"
+          ROOT="${EXTRACT_DIR}/vuln-reporting-${VERSION}"
+
+          if [[ ! -d "$ROOT" ]]; then
+            echo "FAIL: expected extracted root $ROOT is not a directory"
+            exit 1
+          fi
+
+          # --- Forbidden-path check ---
+          FORBIDDEN=(
+            ".planning"
+            ".env"
+            ".env.local"
+            "data/trend"
+            ".git"
+            "tests"
+            "docs"
+            "ref"
+            "CLAUDE.md"
+            "RUNBOOK.md"
+            "CONTRIBUTING.md"
+            ".github"
+          )
+          FOUND=()
+          for entry in "${FORBIDDEN[@]}"; do
+            if [[ -e "$ROOT/$entry" ]]; then
+              if [[ -d "$ROOT/$entry" ]]; then
+                echo "FAIL: forbidden directory present: $entry"
+              else
+                echo "FAIL: forbidden file present: $entry"
+              fi
+              FOUND+=("$entry")
+            fi
+          done
+
+          # --- Credential scan ---
+          LEAK=()
+          while IFS= read -r -d '' filepath; do
+            while IFS= read -r match_line; do
+              # Strip path:lineno: prefix to get VARNAME=value
+              kv=$(echo "$match_line" | sed -E 's/^[^:]+:[0-9]+://')
+              value=$(echo "$kv" | cut -d= -f2-)
+              case "$kv" in
+                TVM_ACCESS_KEY=*)
+                  [[ "$value" == "your_access_key_here" ]] && continue
+                  echo "FAIL: credential leak in $match_line"
+                  LEAK+=("$match_line")
+                  ;;
+                TVM_SECRET_KEY=*)
+                  [[ "$value" == "your_secret_key_here" ]] && continue
+                  echo "FAIL: credential leak in $match_line"
+                  LEAK+=("$match_line")
+                  ;;
+                SMTP_PASSWORD=*)
+                  [[ "$value" == "your_smtp_password" ]] && continue
+                  echo "FAIL: credential leak in $match_line"
+                  LEAK+=("$match_line")
+                  ;;
+              esac
+            done < <(grep -HnE '^(TVM_ACCESS_KEY|TVM_SECRET_KEY|SMTP_PASSWORD)=' "$filepath" || true)
+          done < <(find "$ROOT" -type f -print0)
+
+          # --- Final disposition ---
+          if [[ ${#FOUND[@]} -gt 0 || ${#LEAK[@]} -gt 0 ]]; then
+            echo "ASSERTION FAILED: ${#FOUND[@]} forbidden path(s), ${#LEAK[@]} credential leak(s)"
+            exit 1
+          fi
+          echo "Tarball assertion passed: no forbidden paths, no credential leaks"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
