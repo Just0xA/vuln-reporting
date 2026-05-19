@@ -51,8 +51,8 @@ None at roadmap creation.
 
 ### Blockers/Concerns
 
-- **Open decision (Phase 9 gate):** GitHub org/repo slug for the Releases API URL used by `update_from_github.sh --check`. Must be confirmed before Phase 9 tarball-content assertion step references it.
-- **Action version pins (Phase 9):** `actions/checkout@v4` and `softprops/action-gh-release@v2` major versions drawn from Aug 2025 training data. Verify with `gh release list -R actions/checkout --limit 5` and `gh release list -R softprops/action-gh-release --limit 5` before committing `release.yml`.
+- ~~**Open decision (Phase 9 gate):** GitHub org/repo slug for the Releases API URL.~~ **Resolved 2026-05-19** — slug is not a Phase 9 concern. `release.yml` runs inside GitHub Actions and uses `$GITHUB_REPOSITORY` automatically. The configurable slug belongs to Phase 10 via `GITHUB_RELEASE_REPO` in `.env`, consumed by `update_from_github.sh --check`.
+- ~~**Action version pins (Phase 9):** `actions/checkout@v4`, `softprops/action-gh-release@v2`.~~ **Verified 2026-05-19** via GitHub REST API (`/repos/{org}/{repo}/releases`): current stable majors are `actions/checkout@v6` (latest v6.0.2) and `softprops/action-gh-release@v3` (latest v3.0.0). Phase 9 plans pin to v6 / v3.
 - ~~**`scripts/` per-file exclusion list (Phase 7):** Confirm exact list of smoke test files to exclude individually.~~ **Resolved 2026-05-19** — `.gitattributes` uses `scripts/setup_github_labels.py` + `scripts/smoke_*` (forward-compatible pattern); verified by `git archive HEAD` preview that all three current smoke files are excluded.
 
 ## Quick Tasks Completed
