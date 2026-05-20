@@ -43,15 +43,15 @@
 
 - [x] **UPDATE-01**: Operator can run `scripts/update_from_github.sh --check` to compare the latest GitHub release against the currently-active version without downloading or changing anything (exit codes signal up-to-date vs update-available vs error).
 - [x] **UPDATE-02**: Operator can run `scripts/update_from_github.sh --version vX.Y.Z` to download, validate (SHA256), extract, validate via `python run_all.py --dry-run`, atomically swap the `current` symlink, and restart the systemd unit.
-- [ ] **UPDATE-03**: Operator can run `scripts/update_from_github.sh --rollback` to re-point `current` to the previous release directory (read from `releases/.last` breadcrumb) and restart the unit.
+- [x] **UPDATE-03**: Operator can run `scripts/update_from_github.sh --rollback` to re-point `current` to the previous release directory (read from `releases/.last` breadcrumb) and restart the unit.
 - [x] **UPDATE-04**: Operator can run `scripts/update_from_github.sh --list` to see installed releases and which is active.
-- [ ] **UPDATE-05**: Operator can pass `--force` to re-extract over an existing release directory and `--skip-restart` to skip the systemd restart (with a warning in the log).
+- [x] **UPDATE-05**: Operator can pass `--force` to re-extract over an existing release directory and `--skip-restart` to skip the systemd restart (with a warning in the log).
 - [x] **UPDATE-06**: Symlink swap is atomic (`ln -sfn` only; `rm` + `ln` is forbidden in the script).
 - [x] **UPDATE-07**: `.last` rollback breadcrumb is captured BEFORE the swap (`PREV=$(readlink current)`) and written AFTER the swap succeeds.
-- [ ] **UPDATE-08**: Post-swap, the script runs `systemctl is-active vuln-reports` after a 10-second settle and auto-rolls-back if the unit is not active.
+- [x] **UPDATE-08**: Post-swap, the script runs `systemctl is-active vuln-reports` after a 10-second settle and auto-rolls-back if the unit is not active.
 - [x] **UPDATE-09**: Script uses `set -euo pipefail` and `trap`-on-exit cleanup so a failed download or partial extraction never leaves a half-built release directory.
 - [x] **UPDATE-10**: Script refuses to operate when `current` is missing or does not point inside `releases/` (refuse-if-unknown-layout safety on hand-built installs).
-- [ ] **UPDATE-11**: On every successful upgrade, the script prints the exact rollback one-liner the operator can paste into their next prompt.
+- [x] **UPDATE-11**: On every successful upgrade, the script prints the exact rollback one-liner the operator can paste into their next prompt.
 - [x] **UPDATE-12**: Script supports an optional `GITHUB_TOKEN` env var for authenticated GitHub API calls (raises the rate limit from 60/hr to 5000/hr).
 - [x] **UPDATE-13**: Each release directory contains its own `.venv` (per-release dependency isolation); the script runs `pip install -r requirements.txt` after extraction.
 - [x] **UPDATE-14**: `/opt/vuln-reporting/shared/` paths (`.env`, `delivery_config.yaml`, `logs/`, `output/`, `data/cache/`, `data/trend/`) are symlinked into each release directory so configuration and runtime state survive upgrades.

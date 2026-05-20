@@ -13,7 +13,7 @@
 Plans:
 - [x] 10-01-PLAN.md — Skeleton + safety guards + `--check` / `--list` discovery (UPDATE-09, UPDATE-10, UPDATE-04, UPDATE-01, UPDATE-12, LOG-02) — also adds `GITHUB_RELEASE_REPO` to `.env.example`
 - [x] 10-02-PLAN.md — `--version vX.Y.Z` install flow: download + SHA256 verify + extract + per-release venv + shared-path symlinks + dry-run + atomic swap + breadcrumb (UPDATE-02, UPDATE-06, UPDATE-07, UPDATE-13, UPDATE-14)
-- [ ] 10-03-PLAN.md — `--rollback`, `--force`, `--skip-restart`, post-swap health check with auto-rollback, rollback one-liner print on success (UPDATE-03, UPDATE-05, UPDATE-08, UPDATE-11)
+- [x] 10-03-PLAN.md — `--rollback`, `--force`, `--skip-restart`, post-swap health check with auto-rollback, rollback one-liner print on success (UPDATE-03, UPDATE-05, UPDATE-08, UPDATE-11)
 
 ### Phase 9: CI/Release Automation
 **Goal**: Pushing a `v*` tag publishes a slim, validated release tarball + SHA256 checksum to GitHub Releases automatically, with prerelease tags marked and forbidden paths blocked at build time
