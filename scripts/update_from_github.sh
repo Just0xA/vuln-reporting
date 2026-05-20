@@ -19,7 +19,10 @@
 #   9   post-extraction data/ dir missing
 #   10  dry-run smoke test failed
 #   11  atomic swap post-condition failed
-#   (12–15 reserved for plan 10-03)
+#   12  post-swap health check failed AND auto-rollback succeeded (investigate new release)
+#   13  post-swap health check failed AND auto-rollback ALSO failed (critical; manual recovery)
+#   14  --rollback: .last missing/empty/invalid (no rollback history; use --list + --version)
+#   15  --rollback: atomic swap or systemctl restart failed
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -30,6 +33,11 @@ IFS=$'\n\t'
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/vuln-reporting}"
 LOG_FILE="${INSTALL_ROOT}/shared/logs/update.log"
 SCRIPT_NAME="$(basename "$0")"
+
+# Recursion guard for auto_rollback — set to 1 on entry to auto_rollback so
+# health_check short-circuits instead of triggering another rollback cycle
+# (UPDATE-08, T-10-13: infinite-loop DoS mitigation).
+IN_AUTO_ROLLBACK=0
 
 # ---------------------------------------------------------------------------
 # Logger
@@ -115,18 +123,33 @@ Flags:
                      and exit 0 (up-to-date) or 1 (update available).
   --list             List all installed releases; mark the active one with * (active).
   --version <TAG>    Download and install release TAG (e.g. v1.2.0).
-                     [not yet implemented — plan 10-02]
-  --rollback         Roll back to the previous release recorded in .last.
-                     [not yet implemented — plan 10-03]
-  --force            (With --version) overwrite an already-installed release dir.
-  --skip-restart     (With --version or --rollback) skip systemctl restart and
-                     post-swap health check.
+                     After install, performs a post-swap health check (10-second settle
+                     then systemctl is-active). On failure, auto-rolls back to the
+                     previous release and exits 12 (or 13 if rollback also fails).
+                     Prints a Rollback one-liner to stdout on every successful upgrade.
+  --rollback         Re-points current to whatever the script previously displaced
+                     (read from \${INSTALL_ROOT}/releases/.last). Refuses with exit 14
+                     if no breadcrumb exists — use --list and --version to recover by
+                     hand. Does NOT run the post-swap health check (the rollback target
+                     is by definition the previously-trusted release).
+  --force            (Only meaningful with --version) overwrite an already-installed
+                     release dir. Passing --force without --version is a usage error.
+  --skip-restart     (With --version or --rollback) skip both the systemctl restart and
+                     the post-swap health check; logs a WARNING line to update.log.
+                     The next invocation still runs the health check normally.
   --help, -h         Print this help and exit (no log entry written).
+
+Notes:
+  On every successful --version upgrade, the script prints a single Rollback: line
+  to stdout showing exactly how to revert. You can also run --rollback at any time;
+  the rollback target is whatever current pointed at before the most recent successful
+  upgrade (forward or backward).
 
 Examples:
   ${SCRIPT_NAME} --check
   ${SCRIPT_NAME} --list
   ${SCRIPT_NAME} --version v1.2.0
+  ${SCRIPT_NAME} --rollback
 
 Log: ${LOG_FILE}
 EOF
@@ -480,6 +503,55 @@ write_breadcrumb() {
 }
 
 # ---------------------------------------------------------------------------
+# Post-swap health check (plan 10-03, UPDATE-08)
+# ---------------------------------------------------------------------------
+
+# health_check
+# Returns 0 if the service is active, non-zero otherwise.
+# Short-circuits to return 0 when called inside auto_rollback (IN_AUTO_ROLLBACK=1)
+# to prevent infinite rollback recursion on a permanently-broken host (T-10-13).
+health_check() {
+  if [[ "${IN_AUTO_ROLLBACK:-0}" == "1" ]]; then
+    # Recursion guard: trust that the rollback target is known-good; do not
+    # trigger another rollback if the rollback's own restart also looks unhealthy.
+    return 0
+  fi
+  sleep 10
+  systemctl is-active --quiet vuln-reports.service
+}
+
+# auto_rollback PREV_TARGET
+# Reuses atomic_swap + write_breadcrumb to swap back to PREV_TARGET, then
+# restarts the service.  Never returns to its caller — always exits 12 or 13.
+# PREV_TARGET must be an absolute path captured before the forward swap.
+auto_rollback() {
+  local prev="$1"
+  IN_AUTO_ROLLBACK=1  # Recursion guard — health_check will short-circuit if called again.
+  log_line "AUTO-ROLLBACK: health check failed; reverting current → $prev"
+
+  if ! atomic_swap "$prev"; then
+    log_completed "failed: post-swap health check failed AND auto-rollback swap failed (manual recovery required; current may be in an inconsistent state)"
+    exit 13
+  fi
+
+  # Rewrite .last to the broken release dir so the operator can inspect or
+  # manually re-attempt it later.  We deliberately do NOT abort if this fails —
+  # the service recovery (restart below) is more important than the breadcrumb.
+  write_breadcrumb "$TARGET_DIR"
+
+  if ! sudo systemctl restart vuln-reports.service; then
+    log_completed "failed: post-swap health check failed AND auto-rollback restart failed (service may be down; manual recovery required)"
+    exit 13
+  fi
+
+  log_completed "failed: post-swap health check failed; auto-rolled-back to $prev (service restarted on previous release)"
+  echo "warning: new release failed health check; auto-rolled-back to $prev" >&2
+  echo "         the broken release dir is preserved at $TARGET_DIR for inspection" >&2
+  exit 12
+  # auto_rollback never returns to its caller — the exit above is reached on all paths.
+}
+
+# ---------------------------------------------------------------------------
 # --check (UPDATE-01)
 # ---------------------------------------------------------------------------
 cmd_check() {
@@ -607,32 +679,128 @@ cmd_install() {
   write_breadcrumb "$PREV"
 
   # -------------------------------------------------------------------------
-  # Restart service (Plan 10-03 will wrap this block with the health-check
-  # + auto-rollback; for now we invoke restart directly).
-  # PARTIAL_RELEASE_DIR is already "" so a restart failure will NOT delete the
-  # now-active release dir.
+  # Restart, health check, and auto-rollback (plan 10-03, UPDATE-05, UPDATE-08).
+  # PARTIAL_RELEASE_DIR is already "" so neither a restart failure nor a health
+  # check failure will delete the now-active (or just-rolled-back) release dir.
   # -------------------------------------------------------------------------
-  if [[ "${SKIP_RESTART:-0}" != "1" ]]; then
-    log_line "restarting vuln-reports.service"
-    sudo systemctl restart vuln-reports.service
+  if [[ "${SKIP_RESTART:-0}" == "1" ]]; then
+    log_line "WARNING: SKIP_RESTART=1 — skipping systemctl restart AND post-swap health check"
+    echo "warning: --skip-restart was passed; service has NOT been restarted." >&2
+    echo "         the next invocation of this script will run a health check normally." >&2
   else
-    log_line "SKIP_RESTART=1: not restarting vuln-reports.service"
+    log_line "restarting vuln-reports.service"
+    if ! sudo systemctl restart vuln-reports.service; then
+      log_line "ERROR: systemctl restart returned non-zero; running auto-rollback"
+      auto_rollback "$PREV"
+      # auto_rollback never returns — exits 12 or 13.
+    fi
+
+    if ! health_check; then
+      log_line "ERROR: post-swap health check failed (service not active after 10s settle); running auto-rollback"
+      auto_rollback "$PREV"
+      # auto_rollback never returns — exits 12 or 13.
+    fi
   fi
 
+  # Rollback one-liner (UPDATE-11) — printed on every successful upgrade so the
+  # operator has a copy-paste-ready command immediately after the upgrade.
+  # Uses ${INSTALL_ROOT}/current/ (the symlink) so it always points at the
+  # just-installed version's script without needing to know the version tag.
+  echo
+  echo "Rollback: sudo ${INSTALL_ROOT}/current/scripts/update_from_github.sh --rollback"
+
   # Clean up download tempdir on the happy path (the EXIT trap covers failures).
-  mktemp_cleanup "$TMPDIR_TO_CLEAN"
+  rm -rf "$TMPDIR_TO_CLEAN"
   TMPDIR_TO_CLEAN=""
 
   log_completed "success"
 }
 
 # ---------------------------------------------------------------------------
-# --rollback stub (plan 10-03 will replace this function body)
+# --rollback (plan 10-03, UPDATE-03)
+# Reads .last breadcrumb, validates the target, swaps current back, rewrites
+# .last, and restarts the service.  Deliberately does NOT run health_check —
+# the rollback target is by definition a previously-trusted release; if it is
+# also broken, the operator escalates by hand (exit 15 on restart failure).
+# Reuses atomic_swap + write_breadcrumb from Plan 10-02 (same swap semantics).
 # ---------------------------------------------------------------------------
 cmd_rollback() {
-  printf 'error: --rollback flow not yet implemented (plan 10-03 will land it)\n' >&2
-  log_completed "failed: cmd_rollback not implemented in plan 10-01"
-  exit 3
+  local last_file="${INSTALL_ROOT}/releases/.last"
+
+  # UPDATE-03: refuse cleanly if no breadcrumb history exists.
+  if [[ ! -f "$last_file" ]]; then
+    log_completed "failed: $last_file does not exist (no rollback history — use --list and --version to recover by hand)"
+    echo "error: no rollback history; nothing to roll back to" >&2
+    echo "       run --list to see installed releases and --version vX.Y.Z to switch to one" >&2
+    exit 14
+  fi
+
+  local target
+  target="$(cat "$last_file" 2>/dev/null || true)"
+  if [[ -z "$target" ]]; then
+    log_completed "failed: $last_file is empty"
+    echo "error: rollback breadcrumb is empty; nothing to roll back to" >&2
+    exit 14
+  fi
+
+  # Promote a bare basename to an absolute path (readlink may produce either).
+  case "$target" in
+    /*) ;;
+    *)  target="${INSTALL_ROOT}/releases/${target}" ;;
+  esac
+
+  if [[ ! -d "$target" ]]; then
+    log_completed "failed: $last_file points to $target which does not exist"
+    echo "error: rollback target $target no longer exists" >&2
+    echo "       run --list to see available releases and --version vX.Y.Z to switch manually" >&2
+    exit 14
+  fi
+
+  # T-10-12: sanity check — target must be inside releases/ to prevent a
+  # tampered .last from pointing current at /etc/ or another sensitive path.
+  case "$target" in
+    "${INSTALL_ROOT}/releases/"*) ;;
+    *)
+      log_completed "failed: $last_file points to $target which is outside ${INSTALL_ROOT}/releases/"
+      echo "error: rollback target outside expected releases/ directory; refusing" >&2
+      exit 14
+      ;;
+  esac
+
+  # Capture current symlink target BEFORE the swap so we can write it as the
+  # new breadcrumb — enabling a "roll forward again" after this rollback.
+  local prev_current
+  prev_current="$(readlink "${INSTALL_ROOT}/current")"
+  case "$prev_current" in
+    /*) ;;
+    *)  prev_current="${INSTALL_ROOT}/releases/${prev_current}" ;;
+  esac
+
+  log_line "rolling back: current → $target (displaced: $prev_current)"
+
+  # Reuse Plan 10-02's atomic swap — same ln -sfn semantics, same post-condition check.
+  if ! atomic_swap "$target"; then
+    log_completed "failed: atomic swap to $target during --rollback"
+    exit 15
+  fi
+
+  # Rewrite .last with the displaced target so "roll forward again" is possible
+  # and audit trail is maintained (T-10-14 repudiation mitigation).
+  write_breadcrumb "$prev_current"
+
+  # Honor --skip-restart symmetrically with --version (staged maintenance windows).
+  if [[ "${SKIP_RESTART:-0}" == "1" ]]; then
+    log_line "WARNING: SKIP_RESTART=1 during --rollback — skipping systemctl restart"
+    echo "warning: --skip-restart passed; service has NOT been restarted." >&2
+  else
+    if ! sudo systemctl restart vuln-reports.service; then
+      log_completed "failed: systemctl restart after --rollback swap (current is now $target; service may be down)"
+      exit 15
+    fi
+  fi
+
+  echo "rolled back: current → $target"
+  log_completed "success"
 }
 
 # ---------------------------------------------------------------------------
