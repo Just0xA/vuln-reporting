@@ -1,0 +1,82 @@
+# crontab.example — Vulnerability Management Reporting Suite
+#
+# Drop-in crontab for the vuln-reports service account.
+# Install as:
+#   sudo -u vuln-reports crontab - < /opt/vuln-reporting/current/deploy/crontab.example
+#
+# Assumed install path: /opt/vuln-reporting/current  (v1.2 symlink layout)
+# Runs as user: vuln-reports
+#
+# This is the ALTERNATIVE to the systemd daemon (deploy/vuln-reports.service).
+# Use cron OR the daemon for scheduled delivery — not both at the same time.
+# The daemon (systemd) hot-reloads config and manages the process; cron is simpler
+# but requires the two entries below to replicate equivalent behaviour.
+#
+# Venv note: the lines below use the per-release venv that the updater creates
+# under current/.venv/. Operators on an older hand-built install may need
+# /opt/vuln-reporting/.venv/bin/python instead.
+#
+# After editing, verify your delivery_config.yaml with:
+#   cd /opt/vuln-reporting/current && .venv/bin/python run_all.py --dry-run
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# 1. CACHE PRE-WARMER — run before any report group fires
+# ---------------------------------------------------------------------------
+#
+# warm_cache.py pre-fetches vulnerabilities, fixed vulnerabilities, assets,
+# and recast rules into parquet files so that report runs hit [CACHE HIT]
+# instead of fetching live from Tenable.
+#
+# TIMING RULE A — schedule >=30 minutes before your earliest report group.
+#   The fetch must finish before the report run starts.  If your earliest group
+#   fires at 07:00 (matching the sample delivery_config.yaml), schedule this at
+#   06:15 or earlier.  Adjust both times to match your actual earliest group.
+#
+# TIMING RULE B — NEVER schedule near midnight.
+#   Cache folders are named by server LOCAL DATE (YYYY-MM-DD), not UTC.
+#   If warm_cache.py fires at 23:55 and the report run fires at 00:05, the
+#   date rolls over between the two and the report run will not find the cache
+#   — it will re-fetch everything from Tenable, defeating the point of pre-warming.
+#   Keeping this line at 06:15 satisfies both rules with comfortable margins.
+#
+# Adjust 06:15 to >=30 minutes before YOUR earliest delivery group.
+15 6 * * * /opt/vuln-reporting/current/.venv/bin/python -m scripts.warm_cache --prune-stale >> /opt/vuln-reporting/shared/logs/warm_cache.cron.log 2>&1
+
+
+# ---------------------------------------------------------------------------
+# 2. REPORT SCHEDULER — cron alternative to the systemd daemon
+# ---------------------------------------------------------------------------
+#
+# scheduler.py --mode run-due reads delivery_config.yaml, finds all groups
+# whose schedule matches the current time within a +-10-minute window, runs
+# those groups, then exits.  It must be called every 5-10 minutes so no
+# scheduled group is missed within the matching window.
+#
+# This replaces the always-on systemd daemon.  Do NOT run both at the same time.
+*/5 * * * * /opt/vuln-reporting/current/.venv/bin/python /opt/vuln-reporting/current/scheduler.py --mode run-due >> /opt/vuln-reporting/shared/logs/run-due.cron.log 2>&1
+
+
+# ---------------------------------------------------------------------------
+# 3. LOG ROTATION NOTE
+# ---------------------------------------------------------------------------
+#
+# warm_cache.py and scheduler.py write their own rotating logs to
+# shared/logs/ (warm_cache.log, scheduler.log).  The >> redirects above
+# capture cron-level stdout/stderr into separate .cron.log files, which are
+# NOT auto-rotated.  Add a logrotate config for them, for example:
+#
+#   /etc/logrotate.d/vuln-reports-cron:
+#     /opt/vuln-reporting/shared/logs/warm_cache.cron.log
+#     /opt/vuln-reporting/shared/logs/run-due.cron.log {
+#         daily
+#         rotate 14
+#         compress
+#         missingok
+#         notifempty
+#         copytruncate
+#     }
+#
+# Reminder: adjust the warm-cache time above (06:15) and verify it is
+# >=30 minutes before your earliest group in shared/delivery_config.yaml.
