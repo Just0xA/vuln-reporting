@@ -15,7 +15,7 @@
 ## Runtime
 
 **Environment:**
-- CPython, expected to be invoked from a project-local virtualenv. The systemd unit at `deploy/vuln-reports.service:43` hard-codes the interpreter path `ExecStart=/opt/vuln-reporting/.venv/bin/python scheduler.py --mode daemon`, and the dev workstation copy of `.venv/` lives at the repo root.
+- CPython, expected to be invoked from a project-local virtualenv. The systemd unit at `deploy/vuln-reports.service:42` hard-codes the interpreter path `ExecStart=/opt/vuln-reporting/current/.venv/bin/python scheduler.py --mode daemon` (the per-release venv built by `update_from_github.sh`, reached via the `current` symlink), and the dev workstation copy of `.venv/` lives at the repo root.
 
 **Package Manager:**
 - pip with a flat, fully-pinned `requirements.txt` (no Poetry/PDM/uv lockfile present).

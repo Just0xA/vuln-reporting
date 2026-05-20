@@ -39,7 +39,7 @@ EnvironmentFile=/opt/vuln-reporting/shared/.env
 # -----------------------------------------------------------------------
 # Execution
 # -----------------------------------------------------------------------
-ExecStart=/opt/vuln-reporting/.venv/bin/python scheduler.py --mode daemon
+ExecStart=/opt/vuln-reporting/current/.venv/bin/python scheduler.py --mode daemon
 
 # Attempt a clean reload by sending SIGTERM and waiting for the process
 # to exit gracefully (scheduler.py catches SIGTERM and waits for any
