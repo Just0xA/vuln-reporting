@@ -67,9 +67,9 @@
 
 - [x] **DOC-01**: Repo has a new root `README.md` covering what the suite does, who it's for, a quickstart pointer, and a link to `DEPLOYMENT.md`.
 - [x] **DOC-02**: Repo has a new `DEPLOYMENT.md` covering: system requirements, install from release tarball, configure credentials, verify (`run_all.py --dry-run`), update procedure, rollback one-liner (prominently placed), troubleshooting, on-disk layout diagram, schema-migration note, and the D-04-08 sensitive-data pre-release checklist.
-- [ ] **DOC-03**: `RUNBOOK.md` is rewritten from scratch and scoped narrowly to "how to run and use the tool" (day-to-day operations, scheduler management, log locations, troubleshooting common runtime errors). All install/deployment content moves out to `DEPLOYMENT.md`.
-- [ ] **DOC-04**: `RUNBOOK.md` includes an "Operational cron schedule" section with `warm_cache.py` and `scheduler.py --mode run-due` cron lines and rotation guidance.
-- [ ] **DOC-05**: `deploy/crontab.example` ships a working cron schedule the operator can drop in (warm-cache job placed ≥30 min before the earliest report group, never near midnight).
+- [x] **DOC-03**: `RUNBOOK.md` is rewritten from scratch and scoped narrowly to "how to run and use the tool" (day-to-day operations, scheduler management, log locations, troubleshooting common runtime errors). All install/deployment content moves out to `DEPLOYMENT.md`.
+- [x] **DOC-04**: `RUNBOOK.md` includes an "Operational cron schedule" section with `warm_cache.py` and `scheduler.py --mode run-due` cron lines and rotation guidance.
+- [x] **DOC-05**: `deploy/crontab.example` ships a working cron schedule the operator can drop in (warm-cache job placed ≥30 min before the earliest report group, never near midnight).
 
 ---
 
