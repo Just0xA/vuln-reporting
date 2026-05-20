@@ -11,7 +11,7 @@
 **Plans**: 2 plans
 Plans:
 - [x] 11-01-PLAN.md — Root `README.md` + authoritative `DEPLOYMENT.md` for the v1.2 tarball install/update/rollback workflow (DOC-01, DOC-02)
-- [ ] 11-02-PLAN.md — Rewrite `RUNBOOK.md` scoped to operations + "Operational cron schedule" section + `deploy/crontab.example` (DOC-03, DOC-04, DOC-05)
+- [x] 11-02-PLAN.md — Rewrite `RUNBOOK.md` scoped to operations + "Operational cron schedule" section + `deploy/crontab.example` (DOC-03, DOC-04, DOC-05)
 
 ### Phase 10: Install / Update / Rollback Infrastructure
 **Goal**: A non-author operator can install, upgrade, and roll back the suite on a single Linux server using only `scripts/update_from_github.sh` — release tarball download is validated against its SHA256 sidecar, swaps are atomic, every upgrade leaves a one-liner rollback path, and a failed restart auto-reverts
