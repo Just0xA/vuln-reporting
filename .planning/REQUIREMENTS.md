@@ -41,18 +41,18 @@
 
 ### Install / Update / Rollback
 
-- [ ] **UPDATE-01**: Operator can run `scripts/update_from_github.sh --check` to compare the latest GitHub release against the currently-active version without downloading or changing anything (exit codes signal up-to-date vs update-available vs error).
+- [x] **UPDATE-01**: Operator can run `scripts/update_from_github.sh --check` to compare the latest GitHub release against the currently-active version without downloading or changing anything (exit codes signal up-to-date vs update-available vs error).
 - [ ] **UPDATE-02**: Operator can run `scripts/update_from_github.sh --version vX.Y.Z` to download, validate (SHA256), extract, validate via `python run_all.py --dry-run`, atomically swap the `current` symlink, and restart the systemd unit.
 - [ ] **UPDATE-03**: Operator can run `scripts/update_from_github.sh --rollback` to re-point `current` to the previous release directory (read from `releases/.last` breadcrumb) and restart the unit.
-- [ ] **UPDATE-04**: Operator can run `scripts/update_from_github.sh --list` to see installed releases and which is active.
+- [x] **UPDATE-04**: Operator can run `scripts/update_from_github.sh --list` to see installed releases and which is active.
 - [ ] **UPDATE-05**: Operator can pass `--force` to re-extract over an existing release directory and `--skip-restart` to skip the systemd restart (with a warning in the log).
 - [ ] **UPDATE-06**: Symlink swap is atomic (`ln -sfn` only; `rm` + `ln` is forbidden in the script).
 - [ ] **UPDATE-07**: `.last` rollback breadcrumb is captured BEFORE the swap (`PREV=$(readlink current)`) and written AFTER the swap succeeds.
 - [ ] **UPDATE-08**: Post-swap, the script runs `systemctl is-active vuln-reports` after a 10-second settle and auto-rolls-back if the unit is not active.
-- [ ] **UPDATE-09**: Script uses `set -euo pipefail` and `trap`-on-exit cleanup so a failed download or partial extraction never leaves a half-built release directory.
-- [ ] **UPDATE-10**: Script refuses to operate when `current` is missing or does not point inside `releases/` (refuse-if-unknown-layout safety on hand-built installs).
+- [x] **UPDATE-09**: Script uses `set -euo pipefail` and `trap`-on-exit cleanup so a failed download or partial extraction never leaves a half-built release directory.
+- [x] **UPDATE-10**: Script refuses to operate when `current` is missing or does not point inside `releases/` (refuse-if-unknown-layout safety on hand-built installs).
 - [ ] **UPDATE-11**: On every successful upgrade, the script prints the exact rollback one-liner the operator can paste into their next prompt.
-- [ ] **UPDATE-12**: Script supports an optional `GITHUB_TOKEN` env var for authenticated GitHub API calls (raises the rate limit from 60/hr to 5000/hr).
+- [x] **UPDATE-12**: Script supports an optional `GITHUB_TOKEN` env var for authenticated GitHub API calls (raises the rate limit from 60/hr to 5000/hr).
 - [ ] **UPDATE-13**: Each release directory contains its own `.venv` (per-release dependency isolation); the script runs `pip install -r requirements.txt` after extraction.
 - [ ] **UPDATE-14**: `/opt/vuln-reporting/shared/` paths (`.env`, `delivery_config.yaml`, `logs/`, `output/`, `data/cache/`, `data/trend/`) are symlinked into each release directory so configuration and runtime state survive upgrades.
 - [x] **UPDATE-15**: `deploy/vuln-reports.service` is updated to reference `/opt/vuln-reporting/current/` and `/opt/vuln-reporting/shared/` paths; the obsolete `Documentation=` directive pointing to RUNBOOK.md is removed.
@@ -60,7 +60,7 @@
 ### Cron-Friendly Logging
 
 - [ ] **LOG-01**: `scripts/warm_cache.py` catches argparse usage errors (unknown args, missing `--`) and logs `"Started at <T> with argv=<X>; failed because <Y>"` to `logs/warm_cache.log` before exiting non-zero — so the cron log records the real reason, not just `"type -h for help"`.
-- [ ] **LOG-02**: `scripts/update_from_github.sh` writes the same shape of "started + failed-because" line to its log (e.g. `logs/update.log`) on usage errors, mid-run failures, and successful completions.
+- [x] **LOG-02**: `scripts/update_from_github.sh` writes the same shape of "started + failed-because" line to its log (e.g. `logs/update.log`) on usage errors, mid-run failures, and successful completions.
 - [ ] **LOG-03**: Both scripts log a single "started" line at process start (with full argv) and a single "completed" line at process end (success or failure) — minimum two log lines per invocation.
 
 ### Documentation

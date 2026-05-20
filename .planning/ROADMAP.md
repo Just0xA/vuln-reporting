@@ -11,7 +11,7 @@
   6. GitHub Releases API URL is sourced from `GITHUB_RELEASE_REPO` in `.env` (e.g., `GITHUB_RELEASE_REPO=owner/repo`) — operators forking into their own org point the updater at their fork without code changes.
 **Plans**: 3 plans
 Plans:
-- [ ] 10-01-PLAN.md — Skeleton + safety guards + `--check` / `--list` discovery (UPDATE-09, UPDATE-10, UPDATE-04, UPDATE-01, UPDATE-12, LOG-02) — also adds `GITHUB_RELEASE_REPO` to `.env.example`
+- [x] 10-01-PLAN.md — Skeleton + safety guards + `--check` / `--list` discovery (UPDATE-09, UPDATE-10, UPDATE-04, UPDATE-01, UPDATE-12, LOG-02) — also adds `GITHUB_RELEASE_REPO` to `.env.example`
 - [ ] 10-02-PLAN.md — `--version vX.Y.Z` install flow: download + SHA256 verify + extract + per-release venv + shared-path symlinks + dry-run + atomic swap + breadcrumb (UPDATE-02, UPDATE-06, UPDATE-07, UPDATE-13, UPDATE-14)
 - [ ] 10-03-PLAN.md — `--rollback`, `--force`, `--skip-restart`, post-swap health check with auto-rollback, rollback one-liner print on success (UPDATE-03, UPDATE-05, UPDATE-08, UPDATE-11)
 
