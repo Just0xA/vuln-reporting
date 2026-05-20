@@ -10,7 +10,7 @@
   5. `deploy/crontab.example` ships a working, drop-in cron schedule with the warm-cache job placed ≥30 minutes before the earliest report group and never near midnight (cache-folder date-rollover hazard)
 **Plans**: 2 plans
 Plans:
-- [ ] 11-01-PLAN.md — Root `README.md` + authoritative `DEPLOYMENT.md` for the v1.2 tarball install/update/rollback workflow (DOC-01, DOC-02)
+- [x] 11-01-PLAN.md — Root `README.md` + authoritative `DEPLOYMENT.md` for the v1.2 tarball install/update/rollback workflow (DOC-01, DOC-02)
 - [ ] 11-02-PLAN.md — Rewrite `RUNBOOK.md` scoped to operations + "Operational cron schedule" section + `deploy/crontab.example` (DOC-03, DOC-04, DOC-05)
 
 ### Phase 10: Install / Update / Rollback Infrastructure
