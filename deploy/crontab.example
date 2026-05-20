@@ -42,7 +42,10 @@
 #   Keeping this line at 06:15 satisfies both rules with comfortable margins.
 #
 # Adjust 06:15 to >=30 minutes before YOUR earliest delivery group.
-15 6 * * * /opt/vuln-reporting/current/.venv/bin/python -m scripts.warm_cache --prune-stale >> /opt/vuln-reporting/shared/logs/warm_cache.cron.log 2>&1
+# The `cd` is required: warm_cache imports project-root modules (config, data,
+# tenable_client) and `python -m` only puts the CWD on sys.path — cron's default
+# CWD is the user's home, not the project root.
+15 6 * * * cd /opt/vuln-reporting/current && /opt/vuln-reporting/current/.venv/bin/python -m scripts.warm_cache --prune-stale >> /opt/vuln-reporting/shared/logs/warm_cache.cron.log 2>&1
 
 
 # ---------------------------------------------------------------------------
