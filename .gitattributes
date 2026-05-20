@@ -37,6 +37,7 @@ CONTRIBUTING.md export-ignore
 # -----------------------------------------------------------------------
 scripts/setup_github_labels.py  export-ignore
 scripts/smoke_*                 export-ignore
+deploy/smoke_*.sh               export-ignore
 
 # -----------------------------------------------------------------------
 # Belt-and-suspenders for gitignored runtime paths
