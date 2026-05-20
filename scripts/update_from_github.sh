@@ -2,15 +2,24 @@
 # scripts/update_from_github.sh — Vuln Reporting Suite update / rollback helper
 #
 # Plans:
-#   10-01  skeleton: --check, --list, safety guards, LOG-02 logging  (this plan)
-#   10-02  --version vX.Y.Z install flow
+#   10-01  skeleton: --check, --list, safety guards, LOG-02 logging
+#   10-02  --version vX.Y.Z install flow  (this plan)
 #   10-03  --rollback, --force, --skip-restart, post-swap health check
 #
-# Exit codes (10-01 owns 0–3; see SUMMARY.md for full table):
-#   0  success (or --check: already up-to-date)
-#   1  --check: update available
-#   2  usage error OR layout-guard failure
-#   3  upstream GitHub API failure OR stubbed-not-yet-implemented command
+# Exit codes:
+#   0   success (or --check: already up-to-date)
+#   1   --check: update available
+#   2   usage error OR layout-guard failure
+#   3   upstream GitHub API failure
+#   4   release-asset download failure
+#   5   SHA256 mismatch
+#   6   tarball extraction failure
+#   7   release dir already exists (without --force)
+#   8   venv provisioning failure
+#   9   post-extraction data/ dir missing
+#   10  dry-run smoke test failed
+#   11  atomic swap post-condition failed
+#   (12–15 reserved for plan 10-03)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -55,14 +64,33 @@ log_completed() {
   COMPLETED=1
 }
 
+# Trap-tracked globals for release-dir and tempdir cleanup (set by cmd_install).
+# Initialized empty so the trap is a no-op when cmd_install hasn't run.
+PARTIAL_RELEASE_DIR=""
+TMPDIR_TO_CLEAN=""
+
 # ---------------------------------------------------------------------------
 # EXIT trap (UPDATE-09)
 # Catches uncaught errors (set -e exits, unexpected signals, etc.).
 # Does NOT double-log if log_completed was already called by a handler.
-# Plan 10-02 will extend this trap with release-dir cleanup.
+# Cleans up partial release dirs and tempdirs on pre-swap failures.
 # ---------------------------------------------------------------------------
 on_exit() {
   local rc="$1"
+
+  # Remove a partial release dir only when the exit is a failure AND before the
+  # atomic swap (after swap, PARTIAL_RELEASE_DIR is cleared so this branch is
+  # inert — the now-active release dir is intentionally left alone).
+  if [[ "$rc" -ne 0 && -n "$PARTIAL_RELEASE_DIR" && -d "$PARTIAL_RELEASE_DIR" ]]; then
+    rm -rf "$PARTIAL_RELEASE_DIR" || true
+    log_line "cleaned up partial release dir ${PARTIAL_RELEASE_DIR}"
+  fi
+
+  # Always clean up the download tempdir if it is still set.
+  if [[ -n "$TMPDIR_TO_CLEAN" && -d "$TMPDIR_TO_CLEAN" ]]; then
+    rm -rf "$TMPDIR_TO_CLEAN" || true
+  fi
+
   if [[ "$COMPLETED" -eq 0 ]]; then
     log_line "completed at $(date -u +%Y-%m-%dT%H:%M:%SZ) status=failed: trap-on-exit (rc=${rc})"
   fi
@@ -262,6 +290,196 @@ gh_api_get() {
 }
 
 # ---------------------------------------------------------------------------
+# Release asset download (plan 10-02, UPDATE-02)
+# ---------------------------------------------------------------------------
+
+# download_release_assets VERSION TMPDIR
+# Downloads the slim tarball and its .sha256 sidecar to TMPDIR.
+# Uses the gh_api_get bearer-auth pattern — delegates to curl directly with the
+# same conditional-header logic rather than going through gh_api_get (which
+# targets api.github.com paths, not the release CDN).
+download_release_assets() {
+  local ver="$1"
+  local tmpdir="$2"
+  local base="vuln-reporting-${ver}-slim.tar.gz"
+  local base_url="https://github.com/${GITHUB_RELEASE_REPO}/releases/download/${ver}"
+
+  local -a curl_args=(
+    -fsSL
+    --retry 2
+    --retry-delay 2
+  )
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    curl_args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+
+  log_line "downloading ${base} from ${base_url}"
+  if ! curl "${curl_args[@]}" -o "${tmpdir}/${base}" "${base_url}/${base}"; then
+    log_completed "failed: download of ${base_url}/${base} returned non-zero"
+    exit 4
+  fi
+
+  log_line "downloading ${base}.sha256"
+  if ! curl "${curl_args[@]}" -o "${tmpdir}/${base}.sha256" "${base_url}/${base}.sha256"; then
+    log_completed "failed: download of ${base_url}/${base}.sha256 returned non-zero"
+    exit 4
+  fi
+}
+
+# verify_sha256 TMPDIR VERSION
+# Verifies the downloaded tarball against the GNU-format sidecar.
+# The cd is mandatory: the sidecar contains a bare filename (no path prefix),
+# so sha256sum -c must run with the tarball in the working directory.
+verify_sha256() {
+  local tmpdir="$1"
+  local ver="$2"
+  local sidecar="vuln-reporting-${ver}-slim.tar.gz.sha256"
+
+  log_line "verifying SHA256 for ${ver}"
+  if ! (cd "$tmpdir" && sha256sum -c "$sidecar"); then
+    log_completed "failed: SHA256 mismatch for ${ver}"
+    exit 5
+  fi
+}
+
+# extract_release TMPDIR VERSION TARGET_DIR
+# Creates TARGET_DIR and extracts the tarball into it, stripping the top-level
+# vuln-reporting-${VERSION}/ prefix that git archive inserts (Phase 9).
+# Sets PARTIAL_RELEASE_DIR so the EXIT trap knows to clean up on failure.
+extract_release() {
+  local tmpdir="$1"
+  local ver="$2"
+  local target_dir="$3"
+  local tarball="${tmpdir}/vuln-reporting-${ver}-slim.tar.gz"
+
+  mkdir -p "$target_dir"
+  # Record for the EXIT trap — cleared after atomic_swap succeeds.
+  PARTIAL_RELEASE_DIR="$target_dir"
+
+  log_line "extracting ${tarball} to ${target_dir}"
+  if ! tar -xzf "$tarball" --strip-components=1 -C "$target_dir"; then
+    log_completed "failed: extraction of ${tarball} into ${target_dir} failed"
+    exit 6
+  fi
+}
+
+# mktemp_cleanup TMPDIR
+# Removes a tempdir; wrapped in || true so a cleanup failure does not mask
+# the real exit code.
+mktemp_cleanup() {
+  local tmpdir="$1"
+  rm -rf "$tmpdir" || true
+}
+
+# ---------------------------------------------------------------------------
+# Venv provisioning (plan 10-02, UPDATE-13)
+# ---------------------------------------------------------------------------
+
+# provision_venv TARGET_DIR
+# Creates a per-release venv and installs requirements.txt.
+# Always runs in full — no skip-if-unchanged optimisation (UPDATE-13).
+provision_venv() {
+  local target_dir="$1"
+
+  log_line "provisioning venv in ${target_dir}/.venv"
+  if ! python3 -m venv "${target_dir}/.venv"; then
+    log_completed "failed: venv provisioning for ${VERSION} (python3 -m venv returned non-zero)"
+    exit 8
+  fi
+  if ! "${target_dir}/.venv/bin/pip" install --upgrade pip; then
+    log_completed "failed: venv provisioning for ${VERSION} (pip upgrade returned non-zero)"
+    exit 8
+  fi
+  if ! "${target_dir}/.venv/bin/pip" install -r "${target_dir}/requirements.txt"; then
+    log_completed "failed: venv provisioning for ${VERSION} (pip install -r requirements.txt returned non-zero)"
+    exit 8
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Shared-path symlinks (plan 10-02, UPDATE-14)
+# ---------------------------------------------------------------------------
+
+# symlink_shared TARGET_DIR
+# Places the six shared-path symlinks inside the new release dir.
+# Uses ln -sfn throughout: the -n flag prevents the "follow-then-nest" trap
+# when the target is itself a symlink to a directory (re-extract with --force).
+symlink_shared() {
+  local target_dir="$1"
+
+  # data/cache and data/trend are nested; assert data/ was extracted.
+  if [[ ! -d "${target_dir}/data" ]]; then
+    log_completed "failed: ${target_dir}/data/ missing; cannot place data/cache + data/trend symlinks"
+    exit 9
+  fi
+
+  ln -sfn "${INSTALL_ROOT}/shared/.env"                 "${target_dir}/.env"
+  ln -sfn "${INSTALL_ROOT}/shared/delivery_config.yaml" "${target_dir}/delivery_config.yaml"
+  ln -sfn "${INSTALL_ROOT}/shared/logs"                 "${target_dir}/logs"
+  ln -sfn "${INSTALL_ROOT}/shared/output"               "${target_dir}/output"
+  ln -sfn "${INSTALL_ROOT}/shared/data/cache"           "${target_dir}/data/cache"
+  ln -sfn "${INSTALL_ROOT}/shared/data/trend"           "${target_dir}/data/trend"
+
+  log_line "shared-path symlinks placed in ${target_dir}"
+}
+
+# ---------------------------------------------------------------------------
+# Smoke dry-run (plan 10-02, UPDATE-02)
+# ---------------------------------------------------------------------------
+
+# smoke_dry_run TARGET_DIR
+# Runs run_all.py --dry-run inside the new release dir.
+# Called AFTER PARTIAL_RELEASE_DIR is cleared so that a dry-run failure
+# leaves the release dir intact for operator inspection (intentional: the
+# operator needs to inspect a failing dir, so the trap must not delete it).
+smoke_dry_run() {
+  local target_dir="$1"
+
+  log_line "running smoke dry-run in ${target_dir}"
+  if ! (cd "$target_dir" && "${target_dir}/.venv/bin/python" run_all.py --dry-run); then
+    log_completed "failed: dry-run smoke test failed for ${VERSION}; leaving ${target_dir} intact for inspection"
+    exit 10
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Atomic swap + breadcrumb (plan 10-02, UPDATE-06, UPDATE-07)
+# These helpers are CONTRACT for plan 10-03, which reuses them in
+# cmd_rollback and auto_rollback.  Do not inline the logic.
+# ---------------------------------------------------------------------------
+
+# atomic_swap TARGET_DIR
+# Atomically points ${INSTALL_ROOT}/current at TARGET_DIR via ln -sfn.
+# rm + ln sequences on 'current' are FORBIDDEN (UPDATE-06).
+atomic_swap() {
+  local target_dir="$1"
+
+  ln -sfn "$target_dir" "${INSTALL_ROOT}/current"
+
+  # Post-condition check — ln -sfn is atomic on POSIX; a failure here indicates
+  # a permissions or filesystem problem rather than a half-written symlink.
+  if [[ "$(readlink "${INSTALL_ROOT}/current")" != "$target_dir" ]]; then
+    log_completed "failed: atomic swap post-condition check failed for ${VERSION}"
+    exit 11
+  fi
+
+  log_line "current swapped to ${target_dir}"
+}
+
+# write_breadcrumb PREV
+# Atomically writes the previous release path to ${INSTALL_ROOT}/releases/.last.
+# Temp-file + mv makes the write atomic across a crash mid-write (UPDATE-07 step 2).
+write_breadcrumb() {
+  local prev="$1"
+  local last_tmp="${INSTALL_ROOT}/releases/.last.tmp"
+  local last="${INSTALL_ROOT}/releases/.last"
+
+  printf '%s\n' "$prev" > "$last_tmp"
+  mv "$last_tmp" "$last"
+  log_line "breadcrumb written: ${prev}"
+}
+
+# ---------------------------------------------------------------------------
 # --check (UPDATE-01)
 # ---------------------------------------------------------------------------
 cmd_check() {
@@ -334,12 +552,78 @@ cmd_list() {
 }
 
 # ---------------------------------------------------------------------------
-# --version stub (plan 10-02 will replace this function body)
+# --version (plan 10-02)
+# Full pipeline: download → SHA256 verify → extract → venv → symlinks →
+# dry-run → breadcrumb-before → atomic swap → breadcrumb-after → restart.
 # ---------------------------------------------------------------------------
 cmd_install() {
-  printf 'error: --version flow not yet implemented (plan 10-02 will land it)\n' >&2
-  log_completed "failed: cmd_install not implemented in plan 10-01"
-  exit 3
+  local TARGET_DIR="${INSTALL_ROOT}/releases/${VERSION}"
+
+  # Set up download tempdir; EXIT trap will clean it unconditionally.
+  TMPDIR_TO_CLEAN="$(mktemp -d)"
+
+  # Refuse if target release dir already exists, unless FORCE is set.
+  if [[ -d "$TARGET_DIR" && "${FORCE:-0}" != "1" ]]; then
+    log_completed "failed: release dir ${TARGET_DIR} already exists (pass --force to overwrite)"
+    printf 'error: release dir already exists; use --force to overwrite\n' >&2
+    exit 7
+  fi
+
+  # FORCE + existing dir: remove before extraction so --strip-components=1 does
+  # not merge into a dirty tree.
+  if [[ -d "$TARGET_DIR" && "${FORCE:-0}" == "1" ]]; then
+    log_line "FORCE: removing existing ${TARGET_DIR} before re-extraction"
+    rm -rf "$TARGET_DIR"
+  fi
+
+  download_release_assets "$VERSION" "$TMPDIR_TO_CLEAN"
+  verify_sha256 "$TMPDIR_TO_CLEAN" "$VERSION"
+  extract_release "$TMPDIR_TO_CLEAN" "$VERSION" "$TARGET_DIR"
+  # PARTIAL_RELEASE_DIR is now set to $TARGET_DIR; EXIT trap will rm -rf it on
+  # any failure until atomic_swap() clears it below.
+
+  provision_venv "$TARGET_DIR"
+  symlink_shared "$TARGET_DIR"
+
+  # Disarm partial-dir trap BEFORE the smoke test so that a dry-run failure
+  # leaves the release dir intact for operator inspection.  The operator needs
+  # to look at the dir; the trap must not destroy it on a smoke failure.
+  PARTIAL_RELEASE_DIR=""
+  smoke_dry_run "$TARGET_DIR"
+
+  # Capture current symlink target BEFORE the swap (UPDATE-07 step 1).
+  # Normalize to an absolute path so .last is always absolute — Plan 10-03's
+  # cmd_rollback can feed it directly to ln -sfn without re-resolving.
+  local PREV
+  PREV="$(readlink "${INSTALL_ROOT}/current")"
+  case "$PREV" in
+    /*)  ;;                                        # already absolute
+    *)   PREV="${INSTALL_ROOT}/releases/${PREV}";;  # bare basename → absolute
+  esac
+
+  atomic_swap "$TARGET_DIR"
+
+  # Write breadcrumb AFTER swap succeeds (UPDATE-07 step 2).
+  write_breadcrumb "$PREV"
+
+  # -------------------------------------------------------------------------
+  # Restart service (Plan 10-03 will wrap this block with the health-check
+  # + auto-rollback; for now we invoke restart directly).
+  # PARTIAL_RELEASE_DIR is already "" so a restart failure will NOT delete the
+  # now-active release dir.
+  # -------------------------------------------------------------------------
+  if [[ "${SKIP_RESTART:-0}" != "1" ]]; then
+    log_line "restarting vuln-reports.service"
+    sudo systemctl restart vuln-reports.service
+  else
+    log_line "SKIP_RESTART=1: not restarting vuln-reports.service"
+  fi
+
+  # Clean up download tempdir on the happy path (the EXIT trap covers failures).
+  mktemp_cleanup "$TMPDIR_TO_CLEAN"
+  TMPDIR_TO_CLEAN=""
+
+  log_completed "success"
 }
 
 # ---------------------------------------------------------------------------
