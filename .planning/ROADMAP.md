@@ -1,3 +1,18 @@
+### Phase 11: Documentation
+**Goal**: A non-author operator can find everything they need to deploy, upgrade, and run the suite — a root README orients newcomers, DEPLOYMENT.md is the authoritative install/upgrade/rollback guide for the v1.2 tarball workflow, and RUNBOOK.md is rescoped to day-to-day operations with a ready-to-use cron schedule
+**Depends on**: Phase 7 (symlink layout), Phase 9 (release tarball), Phase 10 (`update_from_github.sh` install/update/rollback commands) — all three are documented here, so docs come last
+**Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05
+**Success Criteria** (what must be TRUE):
+  1. Repo root has a new `README.md` covering what the suite does, who it's for, a quickstart pointer, and a prominent link to `DEPLOYMENT.md`
+  2. New `DEPLOYMENT.md` is the single authoritative install/upgrade guide for the v1.2 release-tarball workflow: system requirements, install from a release tarball (NOT git clone — that's explicitly out of scope as a production path), configure credentials in `shared/.env` (including `GITHUB_RELEASE_REPO`), verify via `run_all.py --dry-run`, the `update_from_github.sh` update procedure, a prominently-placed rollback one-liner, troubleshooting, an on-disk `/opt/vuln-reporting/{current,releases,shared}` layout diagram, a schema-migration note, and the D-04-08 sensitive-data pre-release checklist
+  3. `RUNBOOK.md` is rewritten from scratch, scoped narrowly to "how to run and use the tool" (day-to-day operations, scheduler management, log locations, runtime troubleshooting). All install/deployment content (current Sections 1–2: RHEL fresh-install, git-clone/scp deploy) is removed and replaced with a pointer to `DEPLOYMENT.md`
+  4. `RUNBOOK.md` includes an "Operational cron schedule" section with `warm_cache.py` and `scheduler.py --mode run-due` cron lines plus log-rotation guidance
+  5. `deploy/crontab.example` ships a working, drop-in cron schedule with the warm-cache job placed ≥30 minutes before the earliest report group and never near midnight (cache-folder date-rollover hazard)
+**Plans**: 2 plans
+Plans:
+- [ ] 11-01-PLAN.md — Root `README.md` + authoritative `DEPLOYMENT.md` for the v1.2 tarball install/update/rollback workflow (DOC-01, DOC-02)
+- [ ] 11-02-PLAN.md — Rewrite `RUNBOOK.md` scoped to operations + "Operational cron schedule" section + `deploy/crontab.example` (DOC-03, DOC-04, DOC-05)
+
 ### Phase 10: Install / Update / Rollback Infrastructure
 **Goal**: A non-author operator can install, upgrade, and roll back the suite on a single Linux server using only `scripts/update_from_github.sh` — release tarball download is validated against its SHA256 sidecar, swaps are atomic, every upgrade leaves a one-liner rollback path, and a failed restart auto-reverts
 **Depends on**: Phase 7 (`/opt/vuln-reporting/current` + `/opt/vuln-reporting/shared/` symlink layout in `deploy/vuln-reports.service`), Phase 9 (release tarball + `.sha256` sidecar on GitHub Releases)
