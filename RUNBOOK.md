@@ -27,7 +27,10 @@ This runbook covers **running and operating** an already-installed suite.
 To install the suite from scratch, upgrade to a new release, or roll back to a
 previous release, see **[DEPLOYMENT.md](DEPLOYMENT.md)**. That document owns
 all server setup, tarball install, venv build, systemd unit installation, and
-update procedures.
+update procedures — including the scoped **sudoers entry** the updater needs to
+restart the service (see DEPLOYMENT.md → "Allow the updater to restart the
+service") and how to **relocate the install base** off the `/opt/vuln-reporting`
+default.
 
 ---
 

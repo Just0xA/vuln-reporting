@@ -13,6 +13,18 @@
 # Logs:
 #   sudo journalctl -u vuln-reports -f
 #   sudo journalctl -u vuln-reports --since "1 hour ago"
+#
+# Install base path:
+#   This unit assumes the install base is /opt/vuln-reporting. systemd cannot
+#   expand environment variables in WorkingDirectory, EnvironmentFile, or
+#   ReadWritePaths (they are parsed before any environment is loaded), so the
+#   base path is hard-coded below. To relocate the install (e.g. to
+#   /opt/storage/vuln-reporting), rewrite every base path in this file
+#   consistently before installing it, for example:
+#     sudo sed -i 's#/opt/vuln-reporting#/opt/storage/vuln-reporting#g' \
+#       /etc/systemd/system/vuln-reports.service
+#   and set INSTALL_ROOT to the same base when invoking update_from_github.sh
+#   (see DEPLOYMENT.md "Relocating the install base").
 
 [Unit]
 Description=Vulnerability Management Report Scheduler
@@ -78,7 +90,7 @@ PrivateTmp=true
 # These are the persistent directories under /opt/vuln-reporting/shared/
 # (the release-agnostic side of the symlink-based deploy layout) — the
 # release tree under /opt/vuln-reporting/current/ is intentionally read-only.
-ReadWritePaths=/opt/vuln-reporting/shared/output /opt/vuln-reporting/shared/logs /opt/vuln-reporting/shared/data/cache
+ReadWritePaths=/opt/vuln-reporting/shared/output /opt/vuln-reporting/shared/logs /opt/vuln-reporting/shared/data/cache /opt/vuln-reporting/shared/data/trend
 
 [Install]
 WantedBy=multi-user.target

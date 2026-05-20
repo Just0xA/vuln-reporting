@@ -263,6 +263,26 @@ Check live logs:
 sudo journalctl -u vuln-reports -f
 ```
 
+### Allow the updater to restart the service
+
+`update_from_github.sh` calls `sudo systemctl restart vuln-reports.service` after every
+swap and rollback. You must either:
+
+- **Run the updater as root** — always invoke it with `sudo` (as shown throughout this
+  guide), or
+- **Grant the service account a scoped sudoers entry** — required if you automate updates
+  as the `vuln-reports` account (e.g. from cron). Without it the restart fails silently
+  for the non-interactive account and the post-swap health check auto-rolls-back **every**
+  upgrade regardless of release health:
+
+  ```bash
+  # /etc/sudoers.d/vuln-reports-restart  (validate with: sudo visudo -c)
+  vuln-reports ALL=(root) NOPASSWD: /bin/systemctl restart vuln-reports.service
+  ```
+
+  Confirm the `systemctl` path with `command -v systemctl` — some distros use
+  `/usr/bin/systemctl`; the sudoers path must match exactly.
+
 ---
 
 ## Update Procedure
@@ -302,8 +322,8 @@ The script performs this sequence automatically:
 4. Creates `releases/v1.2.1/.venv` and runs `pip install -r requirements.txt`
 5. Symlinks shared paths (`.env`, `delivery_config.yaml`, `logs/`, `output/`, `data/cache/`, `data/trend/`) into the new release directory
 6. Runs `run_all.py --dry-run` as a smoke test
-7. Captures the current symlink target as `releases/.last` (rollback breadcrumb)
-8. Atomically swaps `current` to `releases/v1.2.1/` via `ln -sfn`
+7. Atomically swaps `current` to `releases/v1.2.1/` via `ln -sfn`
+8. Writes the previous release as the `releases/.last` rollback breadcrumb — *after* the swap succeeds, so `.last` only ever points at a release that was actually displaced (crash-safe ordering)
 9. Restarts `vuln-reports.service`
 10. Waits 10 seconds, then checks `systemctl is-active` — auto-rolls back to the previous release and exits 12 if the service is not active
 11. Prints the rollback one-liner on success:
@@ -458,6 +478,43 @@ The `current` symlink is the sole indirection point. Every path that the service
 cron jobs, and manual CLI invocations use goes through `current/` — so a rollback
 (re-pointing `current`) takes effect for all callers simultaneously with no
 configuration changes.
+
+---
+
+## Relocating the install base
+
+The default install base is `/opt/vuln-reporting`. To install somewhere else
+(e.g. `/opt/storage/vuln-reporting` on a host where `/opt` is small and a separate
+volume is mounted at `/opt/storage`), two independent pieces must agree on the base:
+
+**1. The updater script — set `INSTALL_ROOT`.**
+`update_from_github.sh` derives every path from `INSTALL_ROOT` (default
+`/opt/vuln-reporting`). Override it as an **environment variable** on each invocation:
+
+```bash
+sudo INSTALL_ROOT=/opt/storage/vuln-reporting \
+  /opt/storage/vuln-reporting/current/scripts/update_from_github.sh --check
+```
+
+`INSTALL_ROOT` **must** be an environment variable — it cannot go in `shared/.env`,
+because the script uses `INSTALL_ROOT` to *locate* `shared/.env` in the first place
+(chicken-and-egg). For cron or automation, set it in the crontab line or a wrapper
+script, not in the credential file.
+
+**2. The systemd unit — rewrite the hard-coded paths.**
+systemd cannot expand environment variables in `WorkingDirectory`, `EnvironmentFile`,
+or `ReadWritePaths` (they are parsed before any environment loads), so the unit ships
+with the base path hard-coded. Rewrite all of them consistently before installing:
+
+```bash
+sudo sed -i 's#/opt/vuln-reporting#/opt/storage/vuln-reporting#g' \
+  /etc/systemd/system/vuln-reports.service
+sudo systemctl daemon-reload
+sudo systemctl restart vuln-reports
+```
+
+Both must point at the same base. After relocating, re-run the `--dry-run` verify
+(see [Verify](#verify)) before enabling scheduled delivery.
 
 ---
 

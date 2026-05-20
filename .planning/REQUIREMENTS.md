@@ -23,11 +23,11 @@
 
 ### Warm-Cache Job
 
-- [ ] **CACHE-01**: Operator can run `python -m scripts.warm_cache` (or `scripts/warm_cache.py`) as a standalone entry point that writes `data/cache/<YYYY-MM-DD>/*.parquet` in the same shape `run_all.py` consumes.
-- [ ] **CACHE-02**: Warm-cache run uses `tenable_client.get_client()` + `data.fetchers` directly — no new Python dependencies, no extraction from `run_all.py`.
-- [ ] **CACHE-03**: Operator can invoke `warm_cache.py` with `--date YYYY-MM-DD`, `--prune-stale`, `--verbose`, and `--dry-run` flags.
-- [ ] **CACHE-04**: Parquet writes are atomic (via `os.replace` on a temp file) so concurrent daemon + cron runs cannot observe partial files.
-- [ ] **CACHE-05**: All warm-cache output is captured to `logs/warm_cache.log` via `RotatingFileHandler` from the first run; cron-friendly exit codes (0 success, non-zero on auth/API failure).
+- [x] **CACHE-01**: Operator can run `python -m scripts.warm_cache` (or `scripts/warm_cache.py`) as a standalone entry point that writes `data/cache/<YYYY-MM-DD>/*.parquet` in the same shape `run_all.py` consumes.
+- [x] **CACHE-02**: Warm-cache run uses `tenable_client.get_client()` + `data.fetchers` directly — no new Python dependencies, no extraction from `run_all.py`.
+- [x] **CACHE-03**: Operator can invoke `warm_cache.py` with `--date YYYY-MM-DD`, `--prune-stale`, `--verbose`, and `--dry-run` flags.
+- [x] **CACHE-04**: Parquet writes are atomic (via `os.replace` on a temp file) so concurrent daemon + cron runs cannot observe partial files.
+- [x] **CACHE-05**: All warm-cache output is captured to `logs/warm_cache.log` via `RotatingFileHandler` from the first run; cron-friendly exit codes (0 success, non-zero on auth/API failure).
 
 ### Release Automation
 
@@ -36,7 +36,7 @@
 - [x] **CI-03**: Released tarball is named `vuln-reporting-vX.Y.Z-slim.tar.gz` (suffix avoids collision with GitHub's auto-generated source tarball).
 - [x] **CI-04**: A SHA256 checksum file (`*.sha256`) is uploaded as a second asset on every release.
 - [x] **CI-05**: Tags matching `-rc`, `-beta`, or `-alpha` suffixes are marked as prerelease on GitHub.
-- [ ] **CI-06**: Release workflow runs a tarball-content assertion step that fails the build if forbidden paths (`.planning/`, `.env`, `data/trend/`, etc.) or non-placeholder credential values are present.
+- [x] **CI-06**: Release workflow runs a tarball-content assertion step that fails the build if forbidden paths (`.planning/`, `.env`, `data/trend/`, etc.) or non-placeholder credential values are present.
 - [x] **CI-07**: Workflow declares `permissions: contents: write` explicitly (default `GITHUB_TOKEN` is read-only).
 
 ### Install / Update / Rollback
@@ -59,9 +59,9 @@
 
 ### Cron-Friendly Logging
 
-- [ ] **LOG-01**: `scripts/warm_cache.py` catches argparse usage errors (unknown args, missing `--`) and logs `"Started at <T> with argv=<X>; failed because <Y>"` to `logs/warm_cache.log` before exiting non-zero — so the cron log records the real reason, not just `"type -h for help"`.
+- [x] **LOG-01**: `scripts/warm_cache.py` catches argparse usage errors (unknown args, missing `--`) and logs `"Started at <T> with argv=<X>; failed because <Y>"` to `logs/warm_cache.log` before exiting non-zero — so the cron log records the real reason, not just `"type -h for help"`.
 - [x] **LOG-02**: `scripts/update_from_github.sh` writes the same shape of "started + failed-because" line to its log (e.g. `logs/update.log`) on usage errors, mid-run failures, and successful completions.
-- [ ] **LOG-03**: Both scripts log a single "started" line at process start (with full argv) and a single "completed" line at process end (success or failure) — minimum two log lines per invocation.
+- [x] **LOG-03**: Both scripts log a single "started" line at process start (with full argv) and a single "completed" line at process end (success or failure) — minimum two log lines per invocation.
 
 ### Documentation
 
@@ -103,42 +103,42 @@ Carried from prior milestones; not in scope for v1.2.
 
 | REQ-ID | Phase | Plan | Status |
 |--------|-------|------|--------|
-| FOOT-01 | Phase 7 | — | Open |
-| FOOT-02 | Phase 7 | — | Open |
-| FOOT-03 | Phase 7 | — | Open |
-| FOOT-04 | Phase 7 | — | Open |
-| UPDATE-15 | Phase 7 | — | Open |
-| CACHE-01 | Phase 8 | — | Open |
-| CACHE-02 | Phase 8 | — | Open |
-| CACHE-03 | Phase 8 | — | Open |
-| CACHE-04 | Phase 8 | — | Open |
-| CACHE-05 | Phase 8 | — | Open |
-| LOG-01 | Phase 8 | — | Open |
-| LOG-03 | Phase 8 | — | Open |
-| CI-01 | Phase 9 | — | Open |
-| CI-02 | Phase 9 | — | Open |
-| CI-03 | Phase 9 | — | Open |
-| CI-04 | Phase 9 | — | Open |
-| CI-05 | Phase 9 | — | Open |
-| CI-06 | Phase 9 | — | Open |
-| CI-07 | Phase 9 | — | Open |
-| UPDATE-01 | Phase 10 | — | Open |
-| UPDATE-02 | Phase 10 | — | Open |
-| UPDATE-03 | Phase 10 | — | Open |
-| UPDATE-04 | Phase 10 | — | Open |
-| UPDATE-05 | Phase 10 | — | Open |
-| UPDATE-06 | Phase 10 | — | Open |
-| UPDATE-07 | Phase 10 | — | Open |
-| UPDATE-08 | Phase 10 | — | Open |
-| UPDATE-09 | Phase 10 | — | Open |
-| UPDATE-10 | Phase 10 | — | Open |
-| UPDATE-11 | Phase 10 | — | Open |
-| UPDATE-12 | Phase 10 | — | Open |
-| UPDATE-13 | Phase 10 | — | Open |
-| UPDATE-14 | Phase 10 | — | Open |
-| LOG-02 | Phase 10 | — | Open |
-| DOC-01 | Phase 11 | — | Open |
-| DOC-02 | Phase 11 | — | Open |
-| DOC-03 | Phase 11 | — | Open |
-| DOC-04 | Phase 11 | — | Open |
-| DOC-05 | Phase 11 | — | Open |
+| FOOT-01 | Phase 7 | — | ✓ Verified |
+| FOOT-02 | Phase 7 | — | ✓ Verified |
+| FOOT-03 | Phase 7 | — | ✓ Verified |
+| FOOT-04 | Phase 7 | — | ✓ Verified |
+| UPDATE-15 | Phase 7 | — | ✓ Verified |
+| CACHE-01 | Phase 8 | — | ✓ Verified |
+| CACHE-02 | Phase 8 | — | ✓ Verified |
+| CACHE-03 | Phase 8 | — | ✓ Verified |
+| CACHE-04 | Phase 8 | — | ✓ Verified |
+| CACHE-05 | Phase 8 | — | ✓ Verified |
+| LOG-01 | Phase 8 | — | ✓ Verified |
+| LOG-03 | Phase 8 | — | ✓ Verified |
+| CI-01 | Phase 9 | — | ✓ Verified |
+| CI-02 | Phase 9 | — | ✓ Verified |
+| CI-03 | Phase 9 | — | ✓ Verified |
+| CI-04 | Phase 9 | — | ✓ Verified |
+| CI-05 | Phase 9 | — | ✓ Verified |
+| CI-06 | Phase 9 | — | ✓ Verified |
+| CI-07 | Phase 9 | — | ✓ Verified |
+| UPDATE-01 | Phase 10 | — | ✓ Verified |
+| UPDATE-02 | Phase 10 | — | ✓ Verified |
+| UPDATE-03 | Phase 10 | — | ✓ Verified |
+| UPDATE-04 | Phase 10 | — | ✓ Verified |
+| UPDATE-05 | Phase 10 | — | ✓ Verified |
+| UPDATE-06 | Phase 10 | — | ✓ Verified |
+| UPDATE-07 | Phase 10 | — | ✓ Verified |
+| UPDATE-08 | Phase 10 | — | ✓ Verified |
+| UPDATE-09 | Phase 10 | — | ✓ Verified |
+| UPDATE-10 | Phase 10 | — | ✓ Verified |
+| UPDATE-11 | Phase 10 | — | ✓ Verified |
+| UPDATE-12 | Phase 10 | — | ✓ Verified |
+| UPDATE-13 | Phase 10 | — | ✓ Verified |
+| UPDATE-14 | Phase 10 | — | ✓ Verified |
+| LOG-02 | Phase 10 | — | ✓ Verified |
+| DOC-01 | Phase 11 | — | ✓ Verified |
+| DOC-02 | Phase 11 | — | ✓ Verified |
+| DOC-03 | Phase 11 | — | ✓ Verified |
+| DOC-04 | Phase 11 | — | ✓ Verified |
+| DOC-05 | Phase 11 | — | ✓ Verified |
