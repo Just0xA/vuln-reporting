@@ -64,8 +64,8 @@ next_action: User to re-run `sudo bash deploy/smoke_test.sh` on the Rocky 9 VM t
 
 **verification:**
 - Fix 1 verified earlier in this session (env reader handles spaced values; `--list`/`--rollback` paths reachable).
-- Fix 2 verified by inspection only (no systemd on the Windows dev box). Line endings confirmed LF (`git ls-files --eol` → `i/lf w/lf`) so shebangs stay valid on Linux.
-- **Deferred to user:** re-run `sudo bash deploy/smoke_test.sh` on Rocky 9 to confirm CHECK 2 now correctly blocks (sandbox enforcing under `strict`) and all 5 checks pass; additionally exercise a real report render so matplotlib/WeasyPrint cache writes into `runtime-cache` are validated (CHECK 1's `json.dump` does not cover that path).
+- Fix 2 verified by inspection at fix time (no systemd on the Windows dev box). Line endings confirmed LF (`git ls-files --eol` → `i/lf w/lf`) so shebangs stay valid on Linux.
+- **VM-VERIFIED 2026-05-21 (Rocky 9 VirtualBox):** clean re-run of `sudo bash deploy/smoke_test.sh` → ALL 5 CHECKS PASS, including CHECK 2 negative control now correctly blocking the `data/trend` write under `ProtectSystem=strict`. Real-render probe (matplotlib `savefig` + WeasyPrint `write_pdf`) run via `systemd-run` mirroring the unit's strict sandbox + runtime-cache env → exit 0, "caches written under ProtectSystem=strict", `HOME`/`MPLCONFIGDIR` resolved into `runtime-cache`. Confirms the cache-dir env that CHECK 1's trivial `json.dump` does not exercise. Both bugs fixed and proven in the real target environment.
 
 **files_changed:**
 - `scripts/update_from_github.sh` — Fix 1: safe KEY=VALUE env reader (prior step).
