@@ -278,8 +278,36 @@ assert_layout() {
 # Env sourcing
 # ---------------------------------------------------------------------------
 source_env() {
-  # shellcheck source=/dev/null
-  . "${INSTALL_ROOT}/shared/.env"
+  # Parse ONLY the keys this script needs from shared/.env. We deliberately do
+  # NOT shell-source the file: systemd EnvironmentFile= tolerates unquoted
+  # values containing spaces (e.g. SMTP_FROM_NAME=Vulnerability Management
+  # Reports), but bash `.`/`source` parses such a line as `VAR=word command...`
+  # and aborts under `set -e` ("command not found"). A safe KEY=VALUE reader
+  # avoids any shell evaluation of the file contents.
+  local env_file="${INSTALL_ROOT}/shared/.env"
+  local line key value
+
+  if [[ -f "$env_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      # Skip blank lines and comments.
+      [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+      # Require a KEY=VALUE shape; ignore anything else.
+      [[ "$line" != *=* ]] && continue
+      key="${line%%=*}"
+      value="${line#*=}"
+      # Trim surrounding whitespace from the key.
+      key="${key#"${key%%[![:space:]]*}"}"
+      key="${key%"${key##*[![:space:]]}"}"
+      # Strip one layer of optional surrounding single or double quotes.
+      if [[ "$value" == \"*\" || "$value" == \'*\' ]]; then
+        value="${value:1:${#value}-2}"
+      fi
+      case "$key" in
+        GITHUB_RELEASE_REPO) GITHUB_RELEASE_REPO="$value" ;;
+        GITHUB_TOKEN)        GITHUB_TOKEN="$value" ;;
+      esac
+    done < "$env_file"
+  fi
 
   if [[ -z "${GITHUB_RELEASE_REPO:-}" ]]; then
     log_completed "failed: GITHUB_RELEASE_REPO not set in ${INSTALL_ROOT}/shared/.env"

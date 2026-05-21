@@ -48,6 +48,19 @@ WorkingDirectory=/opt/vuln-reporting/current/
 # process environment.  Never commit .env to version control.
 EnvironmentFile=/opt/vuln-reporting/shared/.env
 
+# Runtime cache home for libraries that write dotfiles/caches under $HOME.
+# The service account is created with --no-create-home, so HOME would
+# otherwise be unwritable. Under ProtectSystem=strict (below) the parent
+# tree is read-only, so these MUST point at a path that is both inside
+# ReadWritePaths and pre-created at install time:
+#   - HOME            — generic fallback for any library probing ~
+#   - XDG_CACHE_HOME  — WeasyPrint/fontconfig font cache ($HOME/.cache)
+#   - MPLCONFIGDIR    — matplotlib config/cache (auto-creates this subdir,
+#                       since its parent runtime-cache/ is writable)
+Environment=HOME=/opt/vuln-reporting/shared/data/runtime-cache
+Environment=XDG_CACHE_HOME=/opt/vuln-reporting/shared/data/runtime-cache
+Environment=MPLCONFIGDIR=/opt/vuln-reporting/shared/data/runtime-cache/matplotlib
+
 # -----------------------------------------------------------------------
 # Execution
 # -----------------------------------------------------------------------
@@ -83,6 +96,13 @@ NoNewPrivileges=true
 # Give the service a private /tmp
 PrivateTmp=true
 
+# Make the entire OS file tree (including /opt) read-only, except the paths
+# enumerated in ReadWritePaths below. Without ProtectSystem, ReadWritePaths
+# is inert — the whole filesystem stays writable and the write sandbox is a
+# no-op. 'strict' (not 'full') is required because 'full' leaves /opt
+# writable, which is exactly where this install lives.
+ProtectSystem=strict
+
 # Allow network access (required for Tenable API and SMTP delivery)
 # PrivateNetwork is NOT set so that outbound connections work.
 
@@ -90,7 +110,10 @@ PrivateTmp=true
 # These are the persistent directories under /opt/vuln-reporting/shared/
 # (the release-agnostic side of the symlink-based deploy layout) — the
 # release tree under /opt/vuln-reporting/current/ is intentionally read-only.
-ReadWritePaths=/opt/vuln-reporting/shared/output /opt/vuln-reporting/shared/logs /opt/vuln-reporting/shared/data/cache /opt/vuln-reporting/shared/data/trend
+# runtime-cache holds the HOME/XDG_CACHE_HOME/MPLCONFIGDIR writes above and
+# MUST exist before start (systemd fails namespace setup on a missing RWP
+# path under ProtectSystem=strict; the install layout creates it).
+ReadWritePaths=/opt/vuln-reporting/shared/output /opt/vuln-reporting/shared/logs /opt/vuln-reporting/shared/data/cache /opt/vuln-reporting/shared/data/trend /opt/vuln-reporting/shared/data/runtime-cache
 
 [Install]
 WantedBy=multi-user.target

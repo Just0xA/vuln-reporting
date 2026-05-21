@@ -13,6 +13,9 @@
 #       INSTALL_ROOT=/tmp/smoke-net bash deploy/smoke_bootstrap.sh
 #     (or run update_from_github.sh --check against a real GITHUB_RELEASE_REPO with
 #     network access).
+#   - A real report render (matplotlib/WeasyPrint writing into runtime-cache under
+#     ProtectSystem=strict). CHECK 1's trivial json.dump exercises the sandbox path
+#     enforcement but not the library cache writes — confirm those on a real VM run.
 #
 # PLACEHOLDER CREDENTIALS (D-04-08)
 #   shared/.env is populated with PLACEHOLDER values only — never real credentials.
@@ -117,7 +120,8 @@ mkdir -p \
   "${SMOKE_ROOT}/shared/logs" \
   "${SMOKE_ROOT}/shared/output" \
   "${SMOKE_ROOT}/shared/data/cache" \
-  "${SMOKE_ROOT}/shared/data/trend"
+  "${SMOKE_ROOT}/shared/data/trend" \
+  "${SMOKE_ROOT}/shared/data/runtime-cache"
 
 # Write shared/.env with PLACEHOLDER values only (D-04-08 — no real creds).
 cat > "${SMOKE_ROOT}/shared/.env" <<'ENVEOF'
@@ -242,8 +246,11 @@ echo ""
 # CHECK 1 — POSITIVE: B-01 trend write under the real sandbox
 # ---------------------------------------------------------------------------
 # Use systemd-run with the SAME identity and hardening as the live unit.
-# ReadWritePaths matches the real unit exactly (output, logs, data/cache,
-# data/trend). Asserts that data/trend IS writable.
+# ReadWritePaths and ProtectSystem=strict match the real unit exactly
+# (output, logs, data/cache, data/trend, data/runtime-cache). The HOME/
+# XDG_CACHE_HOME/MPLCONFIGDIR Environment lines mirror the unit so that the
+# positive control behaves like a real render (library cache writes land in
+# runtime-cache). Asserts that data/trend IS writable.
 #
 # The python one-liner mirrors management_summary's actual write pattern:
 #   TREND_DIR.mkdir(parents=True, exist_ok=True)
@@ -258,10 +265,13 @@ if systemd-run \
     --wait \
     --pipe \
     --uid=vuln-reports \
-    --property="ReadWritePaths=${SMOKE_ROOT}/shared/output ${SMOKE_ROOT}/shared/logs ${SMOKE_ROOT}/shared/data/cache ${SMOKE_ROOT}/shared/data/trend" \
+    --property="ReadWritePaths=${SMOKE_ROOT}/shared/output ${SMOKE_ROOT}/shared/logs ${SMOKE_ROOT}/shared/data/cache ${SMOKE_ROOT}/shared/data/trend ${SMOKE_ROOT}/shared/data/runtime-cache" \
     --property="NoNewPrivileges=yes" \
     --property="PrivateTmp=yes" \
-    --property="ProtectSystem=full" \
+    --property="ProtectSystem=strict" \
+    --property="Environment=HOME=${SMOKE_ROOT}/shared/data/runtime-cache" \
+    --property="Environment=XDG_CACHE_HOME=${SMOKE_ROOT}/shared/data/runtime-cache" \
+    --property="Environment=MPLCONFIGDIR=${SMOKE_ROOT}/shared/data/runtime-cache/matplotlib" \
     --property="WorkingDirectory=${SMOKE_ROOT}/current" \
     python3 -c "
 import json, os
@@ -287,22 +297,31 @@ fi
 # If this check UNEXPECTEDLY PASSES (file created), the sandbox is not
 # enforcing. That makes check 1's PASS meaningless, and the entire smoke
 # is worthless. Treat an unexpected pass as a hard FAIL.
+#
+# IMPORTANT: this control keeps runtime-cache in ReadWritePaths and supplies
+# the same HOME/XDG_CACHE_HOME/MPLCONFIGDIR Environment as the real unit, so
+# the ONLY thing being denied is the data/trend write. If we omitted those,
+# a failure could be misattributed to a cache-dir denial rather than the
+# data/trend path being absent from RWP.
 # ---------------------------------------------------------------------------
 TREND_SENTINEL2="${SMOKE_ROOT}/shared/data/trend/smoke_check2.json"
 rm -f "$TREND_SENTINEL2"
 
 CHECK2_LABEL="NEGATIVE control — sandbox without data/trend in ReadWritePaths"
 
-# Intentionally omit data/trend from ReadWritePaths.
+# Intentionally omit data/trend from ReadWritePaths (runtime-cache stays in).
 SANDBOX_EXIT=0
 systemd-run \
     --wait \
     --pipe \
     --uid=vuln-reports \
-    --property="ReadWritePaths=${SMOKE_ROOT}/shared/output ${SMOKE_ROOT}/shared/logs ${SMOKE_ROOT}/shared/data/cache" \
+    --property="ReadWritePaths=${SMOKE_ROOT}/shared/output ${SMOKE_ROOT}/shared/logs ${SMOKE_ROOT}/shared/data/cache ${SMOKE_ROOT}/shared/data/runtime-cache" \
     --property="NoNewPrivileges=yes" \
     --property="PrivateTmp=yes" \
-    --property="ProtectSystem=full" \
+    --property="ProtectSystem=strict" \
+    --property="Environment=HOME=${SMOKE_ROOT}/shared/data/runtime-cache" \
+    --property="Environment=XDG_CACHE_HOME=${SMOKE_ROOT}/shared/data/runtime-cache" \
+    --property="Environment=MPLCONFIGDIR=${SMOKE_ROOT}/shared/data/runtime-cache/matplotlib" \
     --property="WorkingDirectory=${SMOKE_ROOT}/current" \
     python3 -c "
 import json, os
@@ -320,7 +339,7 @@ elif [[ -f "$TREND_SENTINEL2" ]]; then
   echo "  CHECK 2 FAIL: *** SANDBOX IS NOT ENFORCING ***"
   echo "               Write SUCCEEDED even without data/trend in ReadWritePaths."
   echo "               Check 1's PASS is meaningless — ReadWritePaths is not restricting writes."
-  echo "               This host's systemd may not support ProtectSystem=full or ReadWritePaths."
+  echo "               This host's systemd may not support ProtectSystem=strict or ReadWritePaths."
   OVERALL=1
 elif [[ "$SANDBOX_EXIT" -ne 0 ]] && [[ -f "$TREND_SENTINEL2" ]]; then
   record FAIL "$CHECK2_LABEL"

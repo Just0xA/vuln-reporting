@@ -90,7 +90,7 @@ reports accumulate in `shared/output/`.
 ### Step 1 — Create the install root and service account
 
 ```bash
-sudo mkdir -p /opt/vuln-reporting/{releases,shared/{logs,output,data/cache,data/trend}}
+sudo mkdir -p /opt/vuln-reporting/{releases,shared/{logs,output,data/cache,data/trend,data/runtime-cache}}
 sudo useradd --system --no-create-home --shell /sbin/nologin vuln-reports
 sudo chown -R vuln-reports:vuln-reports /opt/vuln-reporting
 sudo chmod -R 750 /opt/vuln-reporting
@@ -471,13 +471,26 @@ No service restart needed — the script reads `.env` at each invocation.
     ├── output/                          # timestamped report folders
     └── data/
         ├── cache/                       # per-day parquet cache
-        └── trend/                       # trend snapshots (management_summary)
+        ├── trend/                       # trend snapshots (management_summary)
+        └── runtime-cache/               # service HOME/XDG_CACHE_HOME/MPLCONFIGDIR
+            └── matplotlib/              # auto-created by matplotlib at first render
 ```
 
 The `current` symlink is the sole indirection point. Every path that the service,
 cron jobs, and manual CLI invocations use goes through `current/` — so a rollback
 (re-pointing `current`) takes effect for all callers simultaneously with no
 configuration changes.
+
+`shared/data/runtime-cache/` is not symlinked into the release tree — it is used
+only by the systemd unit, which runs under `ProtectSystem=strict` (the whole OS
+tree, including `/opt`, is read-only except the paths in `ReadWritePaths`). The
+service account is created with `--no-create-home`, so the unit pins `HOME`,
+`XDG_CACHE_HOME`, and `MPLCONFIGDIR` into this directory via `Environment=` lines
+so matplotlib and WeasyPrint/fontconfig have a writable cache. This directory
+**must exist before the service starts** — a missing `ReadWritePaths` path makes
+systemd fail namespace setup under `strict`. Step 1's `mkdir -p` creates it. The
+`matplotlib/` subdirectory is auto-created by matplotlib on first render because
+its parent (`runtime-cache/`) is writable.
 
 ---
 
