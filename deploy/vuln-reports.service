@@ -31,6 +31,12 @@ Description=Vulnerability Management Report Scheduler
 After=network.target
 Wants=network-online.target
 
+# Restart-storm rate limit — bounds the Restart=on-failure policy in [Service].
+# Per systemd.unit(5) these keys belong in [Unit], not [Service]; placed in
+# [Service] they are silently ignored ("Unknown key name") and the limit is lost.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
 [Service]
 # -----------------------------------------------------------------------
 # Identity — run as a dedicated non-login service account, never as root
@@ -77,8 +83,6 @@ TimeoutStopSec=120
 # -----------------------------------------------------------------------
 Restart=on-failure
 RestartSec=30
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # -----------------------------------------------------------------------
 # Logging — stdout and stderr are captured by journald automatically

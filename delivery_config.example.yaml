@@ -1,0 +1,49 @@
+# delivery_config.example.yaml
+#
+# TEMPLATE — copy this to shared/delivery_config.yaml and edit with your real
+# recipient groups, schedules, tag filters, and report selections:
+#
+#   sudo -u vuln-reports cp \
+#     /opt/vuln-reporting/current/delivery_config.example.yaml \
+#     /opt/vuln-reporting/shared/delivery_config.yaml
+#
+# All recipients below use the RFC 6761 reserved example.invalid domain so this
+# template never delivers mail. Replace every placeholder before going live.
+# Validates against delivery_config.schema.yaml.
+
+groups:
+  # Weekly executive summary scoped to a single Production tag.
+  - name: "Executive Team"
+    schedule:
+      frequency: weekly
+      day_of_week: monday
+      time: "07:00"
+    filters:
+      tag_category: "Environment"
+      tag_value: "Production"
+    reports:
+      - executive_kpi
+      - trend_analysis
+    email:
+      subject: "Weekly Vuln Management Summary — Production"
+      recipients:
+        - ciso@example.invalid
+        - vp-it@example.invalid
+      cc:
+        - security-team@example.invalid
+      reply_to: security@example.invalid
+
+  # Weekly remediation detail across all assets (empty filter = all assets).
+  - name: "Remediation Team"
+    schedule:
+      frequency: weekly
+      day_of_week: wednesday
+      time: "08:30"
+    filters: {}
+    reports:
+      - sla_remediation
+      - patch_compliance
+    email:
+      subject: "Weekly Remediation Worklist"
+      recipients:
+        - remediation@example.invalid
