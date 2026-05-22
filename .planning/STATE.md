@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-05-19)
 Phase: 11 — COMPLETE (final phase of v1.2)
 Plan: 2 of 2
 Status: Verified — 11-VERIFICATION.md status: passed (5/5 DOC reqs). All v1.2 phases (7,8,9,10,11) complete; milestone ready for audit/close.
-Last activity: 2026-05-20 — Phase 11 verified passed; RUNBOOK.MD renamed to RUNBOOK.md for cross-link integrity on case-sensitive filesystems
+Last activity: 2026-05-22 — Completed quick task 260522-kyy: 5 deployment fixes from the v1.2.0 clean-machine walkthrough
 
 ## Shipped Milestones
 
@@ -68,6 +68,7 @@ None at roadmap creation.
 | 2026-05-20 | systemd-venv-path (260520-a29) | Fixed v1.2 ship-blocker: `deploy/vuln-reports.service` `ExecStart` pointed at flat `/opt/vuln-reporting/.venv` but updater builds per-release `current/.venv` — unit would fail to start and auto-rollback every upgrade. Repointed to `current/.venv`; synced `STACK.md` intel. RUNBOOK refs left to Phase 11. | 884e415 |
 | 2026-05-20 | close-v12-audit-gaps (260520-mp4) | Closed all 3 v1.2 milestone-audit findings: B-01 (added `shared/data/trend` to systemd `ReadWritePaths` — `management_summary` was being denied the trend-JSON write under hardening), W-01 (fixed DEPLOYMENT.md breadcrumb/swap step order to match code), W-02 (documented the updater's sudoers requirement + run-as-root alternative). Added install-base relocation guidance (unit `sed` recipe + `INSTALL_ROOT` env var, with the chicken-and-egg note). Synced REQUIREMENTS.md traceability (39× Open→Verified) + ticked 8 requirement boxes. | 7b32a18 |
 | 2026-05-20 | deploy-smoke-scripts (260520-n7j) | Added `deploy/smoke_test.sh` (network-free RHEL-9 systemd smoke: B-01 trend-write positive test + negative control that fails loudly if the sandbox isn't enforcing, plus `--list`/`--rollback`/auto-rollback mechanics against a fake `git archive` layout) and `deploy/smoke_bootstrap.sh` (Rocky/Alma 9 dnf provisioner). Both `export-ignore`'d from the slim tarball. Closes the documented post-merge-smoke gap; full run happens on a real RHEL-family host. | 8a1b160 |
+| 2026-05-22 | apply-5-deployment-fixes (260522-kyy) | 5 fixes surfaced by the v1.2.0 clean-machine deployment walkthrough on a Rocky 9 VM: DEPLOYMENT.md Steps 6-7 missing `sudo -u vuln-reports` prefix (operator hit Permission denied) (#1), paste-fragile multi-line Verify commands → added `&&` one-liners (#2), no step created `shared/delivery_config.yaml` + broken Schema-Migration ref → added tracked `delivery_config.example.yaml` (placeholder/example.invalid) + a seed step (#3), stale Tenable verify expected-output corrected to real `tenable_client.py` strings (#4); systemd `StartLimitIntervalSec`/`StartLimitBurst` moved `[Service]`→`[Unit]` (were silently ignored — restart-storm cap was inert) (#5, ships in v1.2.1). Code/docs commit split. | ccee1c5, 8a1555a |
 
 ## Deferred Items
 
