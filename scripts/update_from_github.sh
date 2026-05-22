@@ -924,6 +924,10 @@ cmd_install() {
   rm -rf "$TMPDIR_TO_CLEAN"
   TMPDIR_TO_CLEAN=""
 
+  # Auto-prune old releases — best-effort, only on full success. Failure paths
+  # exit via auto_rollback (exits 12/13) or earlier; they never reach this point.
+  prune_releases "$RELEASE_RETENTION"
+
   log_completed "success"
 }
 

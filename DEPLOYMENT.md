@@ -389,7 +389,17 @@ sudo /opt/vuln-reporting/current/scripts/update_from_github.sh --version v1.2.0 
 
 # Skip the systemctl restart (staged maintenance windows)
 sudo /opt/vuln-reporting/current/scripts/update_from_github.sh --version v1.2.1 --skip-restart
+
+# Prune old releases, keeping the 3 most recent (active + rollback target always kept)
+sudo /opt/vuln-reporting/current/scripts/update_from_github.sh --prune
+
+# Override the retention count
+sudo /opt/vuln-reporting/current/scripts/update_from_github.sh --prune --keep 5
 ```
+
+Successful `--version` installs auto-prune to the default retention (keep 3). The active
+release and the `.last` rollback target are never deleted even if they fall outside the
+keep window. Prune is best-effort and never fails an install.
 
 All invocations log a started and completed line to `shared/logs/update.log`.
 
