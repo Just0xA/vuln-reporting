@@ -706,6 +706,9 @@ prune_releases() {
     fi
   done
 
+  # Join tag lists with spaces for the summary — the script's global
+  # IFS=$'\n\t' would otherwise expand "${array[*]}" with newlines.
+  local IFS=' '
   printf 'pruned: kept %d (%s), removed %d (%s)\n' \
     "${#kept_tags[@]}" "${kept_tags[*]:-none}" \
     "${#removed_tags[@]}" "${removed_tags[*]:-none}"
