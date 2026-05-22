@@ -143,20 +143,20 @@ sudo -u vuln-reports "${RELEASE_DIR}/.venv/bin/pip" install -r "${RELEASE_DIR}/r
 
 ```bash
 # Credentials and config (operator-managed; survive upgrades)
-ln -sfn /opt/vuln-reporting/shared/.env               "${RELEASE_DIR}/.env"
-ln -sfn /opt/vuln-reporting/shared/delivery_config.yaml "${RELEASE_DIR}/delivery_config.yaml"
+sudo -u vuln-reports ln -sfn /opt/vuln-reporting/shared/.env               "${RELEASE_DIR}/.env"
+sudo -u vuln-reports ln -sfn /opt/vuln-reporting/shared/delivery_config.yaml "${RELEASE_DIR}/delivery_config.yaml"
 
 # Runtime data (logs, output, cache, trend snapshots)
-ln -sfn /opt/vuln-reporting/shared/logs               "${RELEASE_DIR}/logs"
-ln -sfn /opt/vuln-reporting/shared/output             "${RELEASE_DIR}/output"
-ln -sfn /opt/vuln-reporting/shared/data/cache         "${RELEASE_DIR}/data/cache"
-ln -sfn /opt/vuln-reporting/shared/data/trend         "${RELEASE_DIR}/data/trend"
+sudo -u vuln-reports ln -sfn /opt/vuln-reporting/shared/logs               "${RELEASE_DIR}/logs"
+sudo -u vuln-reports ln -sfn /opt/vuln-reporting/shared/output             "${RELEASE_DIR}/output"
+sudo -u vuln-reports ln -sfn /opt/vuln-reporting/shared/data/cache         "${RELEASE_DIR}/data/cache"
+sudo -u vuln-reports ln -sfn /opt/vuln-reporting/shared/data/trend         "${RELEASE_DIR}/data/trend"
 ```
 
 ### Step 7 — Point `current` at the new release
 
 ```bash
-ln -sfn "$RELEASE_DIR" /opt/vuln-reporting/current
+sudo -u vuln-reports ln -sfn "$RELEASE_DIR" /opt/vuln-reporting/current
 ```
 
 ### Step 8 — Configure credentials
@@ -217,6 +217,22 @@ Optional variables:
 read at the same path (`/opt/vuln-reporting/current/.env`) regardless of which
 release is active.
 
+### Seed the delivery config
+
+Like `.env`, `delivery_config.yaml` lives in `shared/` (operator-managed; survives
+upgrades) and is symlinked into each release by Step 6. The symlink dangles until
+you create the file — seed it from the shipped example, then edit your real groups:
+
+```bash
+# Copy the template from the new release:
+sudo -u vuln-reports cp /opt/vuln-reporting/current/delivery_config.example.yaml /opt/vuln-reporting/shared/delivery_config.yaml
+
+# Edit with your real recipient groups, schedules, and filters:
+sudo -u vuln-reports nano /opt/vuln-reporting/shared/delivery_config.yaml
+```
+
+Until at least one group is defined, `run_all.py --dry-run` validates 0 groups.
+
 ---
 
 ## Verify
@@ -224,11 +240,11 @@ release is active.
 ### Validate configuration (no API calls)
 
 ```bash
-sudo -u vuln-reports bash -c "
-  cd /opt/vuln-reporting/current
-  .venv/bin/python run_all.py --dry-run
-"
+sudo -u vuln-reports bash -c "cd /opt/vuln-reporting/current && .venv/bin/python run_all.py --dry-run"
 ```
+
+This is a single-line, paste-safe command — the `&&` keeps it intact when a terminal
+collapses a multi-line `cd`+command block onto one line.
 
 Expected output: a `rich` table listing all delivery groups with a green `OK` for each.
 If any group shows `FAIL`, the error message identifies the misconfigured field.
@@ -236,13 +252,17 @@ If any group shows `FAIL`, the error message identifies the misconfigured field.
 ### Verify Tenable connectivity
 
 ```bash
-sudo -u vuln-reports bash -c "
-  cd /opt/vuln-reporting/current
-  .venv/bin/python tenable_client.py
-"
+sudo -u vuln-reports bash -c "cd /opt/vuln-reporting/current && .venv/bin/python tenable_client.py"
 ```
 
-Expected: `[INFO] Tenable connection verified.`
+This is a single-line, paste-safe command (the `&&` survives a multi-line paste collapse).
+
+Expected output:
+
+```
+Successfully authenticated to Tenable at https://cloud.tenable.com
+Connection successful. Client is ready.
+```
 
 ### Install and start the systemd service
 
