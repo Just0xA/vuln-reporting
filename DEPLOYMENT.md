@@ -55,6 +55,20 @@ sudo dnf install -y python3.11 python3.11-pip python3.11-devel
 python3.11 --version
 ```
 
+`scripts/update_from_github.sh` auto-resolves a versioned interpreter (>= 3.10) when
+no unversioned `python3` exists — it checks bare `python3` first, then falls back through
+`python3.13`, `python3.12`, `python3.11`, `python3.10`. On a host with only `python3.11`
+and no `/usr/bin/python3` symlink, the updater will resolve `python3.11` automatically.
+
+Wiring up an unversioned `python3` is still recommended for clarity and compatibility with
+other tooling:
+
+```bash
+sudo alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+```
+
+If no python3 >= 3.10 is found, the updater exits 8 with a clear error in `update.log`.
+
 **WeasyPrint system packages** (required for PDF generation):
 
 ```bash
