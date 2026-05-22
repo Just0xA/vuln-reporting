@@ -42,6 +42,9 @@ PYTHON_BIN=""
 # (UPDATE-08, T-10-13: infinite-loop DoS mitigation).
 IN_AUTO_ROLLBACK=0
 
+# Default number of releases --prune and auto-prune keep.
+RELEASE_RETENTION="${RELEASE_RETENTION:-3}"
+
 # ---------------------------------------------------------------------------
 # Logger
 # ---------------------------------------------------------------------------
@@ -150,7 +153,7 @@ trap 'on_exit $?' EXIT
 # ---------------------------------------------------------------------------
 print_usage() {
   cat <<EOF
-Usage: ${SCRIPT_NAME} [--check | --list | --version <TAG> | --rollback] [--force] [--skip-restart]
+Usage: ${SCRIPT_NAME} [--check | --list | --version <TAG> | --rollback | --prune] [--force] [--skip-restart] [--keep <N>]
 
   Update and rollback helper for the Vulnerability Reporting Suite.
   Operates on the install layout at: ${INSTALL_ROOT}
@@ -175,6 +178,11 @@ Flags:
   --skip-restart     (With --version or --rollback) skip both the systemctl restart and
                      the post-swap health check; logs a WARNING line to update.log.
                      The next invocation still runs the health check normally.
+  --prune            Delete old release dirs, keeping the ${RELEASE_RETENTION} most recent
+                     (default). The active release and the rollback (.last) target are always
+                     preserved. Successful --version installs auto-prune.
+  --keep <N>         (Only with --prune) keep the N most recent releases instead of the
+                     default. N must be a positive integer.
   --help, -h         Print this help and exit (no log entry written).
 
 Notes:
@@ -188,6 +196,8 @@ Examples:
   ${SCRIPT_NAME} --list
   ${SCRIPT_NAME} --version v1.2.0
   ${SCRIPT_NAME} --rollback
+  ${SCRIPT_NAME} --prune
+  ${SCRIPT_NAME} --prune --keep 5
 
 Log: ${LOG_FILE}
 EOF
@@ -201,6 +211,7 @@ parse_args() {
   VERSION=""
   FORCE=0
   SKIP_RESTART=0
+  KEEP=""
 
   if [[ $# -eq 0 ]]; then
     # No arguments — treat as usage error (handled in main after capture).
@@ -257,6 +268,23 @@ parse_args() {
       --skip-restart)
         SKIP_RESTART=1
         shift
+        ;;
+      --prune)
+        if [[ -n "$CMD" && "$CMD" != "prune" ]]; then
+          usage_error "conflicting command flags (--prune cannot be combined with another command)"
+        fi
+        CMD="prune"
+        shift
+        ;;
+      --keep)
+        if [[ $# -lt 2 ]]; then
+          usage_error "missing value after --keep (expected a positive integer)"
+        fi
+        if ! [[ "$2" =~ ^[1-9][0-9]*$ ]]; then
+          usage_error "invalid --keep value '$2' (expected a positive integer)"
+        fi
+        KEEP="$2"
+        shift 2
         ;;
       *)
         usage_error "unknown flag '$1' (try --help)"
@@ -569,6 +597,123 @@ write_breadcrumb() {
 }
 
 # ---------------------------------------------------------------------------
+# Release retention pruning (UPDATE-16)
+# prune_releases <keep_n>
+# Deletes old release dirs under ${INSTALL_ROOT}/releases/, keeping the
+# keep_n most recent (by semver order).  The active release (current symlink
+# target) and the .last rollback breadcrumb target are ALWAYS preserved even
+# if they fall outside the keep-N window.  All deletions are best-effort and
+# non-fatal; a prune failure must never abort an otherwise-successful install.
+# ---------------------------------------------------------------------------
+prune_releases() {
+  local keep_n="$1"
+  local releases_dir="${INSTALL_ROOT}/releases"
+
+  # Resolve the active release basename.
+  local active_abs active_base
+  active_abs="$(readlink "${INSTALL_ROOT}/current" 2>/dev/null || true)"
+  case "$active_abs" in
+    /*) ;;
+    *)  active_abs="${INSTALL_ROOT}/releases/${active_abs}" ;;
+  esac
+  active_base="$(basename "$active_abs")"
+
+  # Resolve the .last rollback target basename (may not exist).
+  local last_base=""
+  local last_file="${releases_dir}/.last"
+  if [[ -f "$last_file" ]]; then
+    local last_raw
+    last_raw="$(cat "$last_file" 2>/dev/null || true)"
+    if [[ -n "$last_raw" ]]; then
+      case "$last_raw" in
+        /*) ;;
+        *)  last_raw="${INSTALL_ROOT}/releases/${last_raw}" ;;
+      esac
+      last_base="$(basename "$last_raw")"
+    fi
+  fi
+
+  # Enumerate release directories only (mirrors cmd_list — excludes .last file).
+  local -a entries=()
+  if [[ -d "$releases_dir" ]]; then
+    for d in "${releases_dir}"/*/; do
+      [[ -d "$d" ]] || continue
+      entries+=("$(basename "$d")")
+    done
+  fi
+
+  local total="${#entries[@]}"
+  if [[ "$total" -le "$keep_n" ]]; then
+    log_line "prune: ${total} release(s) <= keep ${keep_n}; nothing to remove"
+    printf 'prune: %d release(s) present, keep=%d; nothing to remove\n' "$total" "$keep_n"
+    return 0
+  fi
+
+  # Sort ascending by semver; the newest keep_n form the keep set.
+  local sorted
+  sorted="$(printf '%s\n' "${entries[@]}" | sort -V)"
+
+  local -a all_sorted=()
+  while IFS= read -r name; do
+    all_sorted+=("$name")
+  done <<< "$sorted"
+
+  local num_sorted="${#all_sorted[@]}"
+  local keep_start=$(( num_sorted - keep_n ))
+
+  # Partition: candidates are the oldest entries (indices 0..keep_start-1).
+  local -a kept_tags=() removed_tags=()
+
+  local i
+  for (( i = 0; i < num_sorted; i++ )); do
+    local tag="${all_sorted[$i]}"
+
+    if [[ "$i" -ge "$keep_start" ]]; then
+      # Inside the keep window.
+      kept_tags+=("$tag")
+      continue
+    fi
+
+    # Outside the keep window — but always preserve active and rollback targets.
+    if [[ "$tag" == "$active_base" ]]; then
+      log_line "prune: preserving ${tag} (active release)"
+      kept_tags+=("$tag")
+      continue
+    fi
+    if [[ -n "$last_base" && "$tag" == "$last_base" ]]; then
+      log_line "prune: preserving ${tag} (rollback target)"
+      kept_tags+=("$tag")
+      continue
+    fi
+
+    # Safety guard: path must be inside releases/ before any rm -rf.
+    local abs_path="${releases_dir}/${tag}"
+    case "$abs_path" in
+      "${INSTALL_ROOT}/releases/"*) ;;
+      *)
+        log_line "WARNING: prune skipping ${abs_path} — path is outside ${INSTALL_ROOT}/releases/"
+        kept_tags+=("$tag")
+        continue
+        ;;
+    esac
+
+    # Best-effort delete — a failure is logged and skipped, never fatal.
+    if rm -rf "$abs_path" || { log_line "WARNING: prune failed to remove ${abs_path}"; false; }; then
+      log_line "prune: removed ${abs_path}"
+      removed_tags+=("$tag")
+    else
+      kept_tags+=("$tag")
+    fi
+  done
+
+  printf 'pruned: kept %d (%s), removed %d (%s)\n' \
+    "${#kept_tags[@]}" "${kept_tags[*]:-none}" \
+    "${#removed_tags[@]}" "${removed_tags[*]:-none}"
+
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Post-swap health check (plan 10-03, UPDATE-08)
 # ---------------------------------------------------------------------------
 
@@ -870,6 +1015,16 @@ cmd_rollback() {
 }
 
 # ---------------------------------------------------------------------------
+# --prune (UPDATE-16)
+# ---------------------------------------------------------------------------
+cmd_prune() {
+  local keep_n="${KEEP:-$RELEASE_RETENTION}"
+  log_line "prune requested (keep=${keep_n})"
+  prune_releases "$keep_n"
+  log_completed "success"
+}
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 main() {
@@ -895,6 +1050,9 @@ main() {
   if [[ "$SKIP_RESTART" -eq 1 && "$CMD" != "install" && "$CMD" != "rollback" ]]; then
     usage_error "--skip-restart is only meaningful with --version or --rollback"
   fi
+  if [[ -n "$KEEP" && "$CMD" != "prune" ]]; then
+    usage_error "--keep is only meaningful with --prune"
+  fi
 
   # (d) --help was already handled inside parse_args (exits 0, no logging).
 
@@ -916,6 +1074,7 @@ main() {
     list)     cmd_list     ;;
     install)  cmd_install  ;;
     rollback) cmd_rollback ;;
+    prune)    cmd_prune    ;;
     *)
       log_completed "failed: internal error — unknown CMD '${CMD}'"
       exit 2
