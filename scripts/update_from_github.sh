@@ -34,6 +34,9 @@ INSTALL_ROOT="${INSTALL_ROOT:-/opt/vuln-reporting}"
 LOG_FILE="${INSTALL_ROOT}/shared/logs/update.log"
 SCRIPT_NAME="$(basename "$0")"
 
+# Resolved at startup by resolve_python_bin(); used at every python3 call site.
+PYTHON_BIN=""
+
 # Recursion guard for auto_rollback — set to 1 on entry to auto_rollback so
 # health_check short-circuits instead of triggering another rollback cycle
 # (UPDATE-08, T-10-13: infinite-loop DoS mitigation).
@@ -70,6 +73,41 @@ log_completed() {
   local status="$1"
   log_line "completed at $(date -u +%Y-%m-%dT%H:%M:%SZ) status=${status}"
   COMPLETED=1
+}
+
+# ---------------------------------------------------------------------------
+# Python interpreter resolution (UPDATE-15)
+# Sets PYTHON_BIN to the first python3 >= 3.10 found on PATH.
+# Prefer bare python3 (distro-wired); fall back through versioned names in
+# descending order.  On failure: log a clear message and exit 8.
+# Must NOT use set +e regions — all probe failures are guarded with if/||.
+# ---------------------------------------------------------------------------
+resolve_python_bin() {
+  local candidate version_ok
+
+  # Prefer bare python3 if present and >= 3.10.
+  if candidate="$(command -v python3 2>/dev/null)"; then
+    if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
+      PYTHON_BIN="$candidate"
+      log_line "resolved python interpreter: ${PYTHON_BIN}"
+      return 0
+    fi
+  fi
+
+  # Fall back through versioned names in descending order.
+  local name
+  for name in python3.13 python3.12 python3.11 python3.10; do
+    if candidate="$(command -v "$name" 2>/dev/null)"; then
+      if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
+        PYTHON_BIN="$candidate"
+        log_line "resolved python interpreter: ${PYTHON_BIN}"
+        return 0
+      fi
+    fi
+  done
+
+  log_completed "failed: no python3 >= 3.10 found on PATH; wire up python3 via 'alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1' or install python3.10+"
+  exit 8
 }
 
 # Trap-tracked globals for release-dir and tempdir cleanup (set by cmd_install).
@@ -433,7 +471,7 @@ provision_venv() {
   local target_dir="$1"
 
   log_line "provisioning venv in ${target_dir}/.venv"
-  if ! python3 -m venv "${target_dir}/.venv"; then
+  if ! "$PYTHON_BIN" -m venv "${target_dir}/.venv"; then
     log_completed "failed: venv provisioning for ${VERSION} (python3 -m venv returned non-zero)"
     exit 8
   fi
@@ -593,7 +631,7 @@ cmd_check() {
     exit 3
   fi
 
-  if ! latest="$(printf '%s\n' "$api_response" | python3 -c 'import sys,json;print(json.load(sys.stdin)["tag_name"])' 2>/dev/null)"; then
+  if ! latest="$(printf '%s\n' "$api_response" | "$PYTHON_BIN" -c 'import sys,json;print(json.load(sys.stdin)["tag_name"])')"; then
     log_completed "failed: could not parse tag_name from GitHub API response for ${GITHUB_RELEASE_REPO}"
     exit 3
   fi
@@ -865,6 +903,9 @@ main() {
 
   # (f) Layout guard — runs before env sourcing for all real commands.
   assert_layout
+
+  # (f2) Resolve the Python interpreter once; both venv and cmd_check use it.
+  resolve_python_bin
 
   # (g) Source env and validate required vars.
   source_env
