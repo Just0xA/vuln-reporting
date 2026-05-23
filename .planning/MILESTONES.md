@@ -4,6 +4,54 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 
 ---
 
+## v1.2 — Deployment & Self-Update Infrastructure
+
+**Shipped:** 2026-05-22 (v1.2.0)
+**Phases:** 5 (7–11) | **Plans:** 10
+**Timeline:** built 2026-05-19 → 2026-05-20; released and field-hardened 2026-05-22 on a Rocky 9 VM
+**Git range:** `5c90d9c` (milestone start) → `v1.2.4` (`ce0bcf3`)
+**Files changed:** 65 | **LOC delta:** +11,667 / −1,245
+**Requirements:** 39/39 phase-verified satisfied
+
+**Delivered:** A production deployment and self-update story for the suite. A non-author operator can install, upgrade, and roll back on a single Linux server from a signed release tarball — no git clone — driven by `scripts/update_from_github.sh`, with a CI pipeline that publishes those tarballs automatically and authoritative deployment docs.
+
+**Key accomplishments (by phase):**
+- **Phase 7 — Foundations:** `/opt/vuln-reporting/{current,releases,shared}` symlink layout; `.gitattributes` `export-ignore` boundary defining the slim release tarball; hardened `deploy/vuln-reports.service` systemd unit (`ProtectSystem=strict` + explicit `ReadWritePaths`, runtime-cache `HOME`/`XDG_CACHE_HOME`/`MPLCONFIGDIR`).
+- **Phase 8 — Warm Cache:** `scripts/warm_cache.py` pre-fetch so scheduled batches hit `[CACHE HIT]` instead of redundant Tenable exports.
+- **Phase 9 — CI / Release Automation:** `.github/workflows/release.yml` — pushing a `v*` tag builds `vuln-reporting-vX.Y.Z-slim.tar.gz` + `.sha256`, blocks forbidden paths, marks `-rc/-beta/-alpha` as prereleases, and publishes a GitHub Release.
+- **Phase 10 — Install / Update / Rollback:** `scripts/update_from_github.sh` with `--check`/`--list`/`--version`/`--rollback`/`--force`/`--skip-restart` — SHA256-verified download, per-release venv, shared-path symlinks, atomic `ln -sfn` swap, `.last` breadcrumb, post-swap health check with auto-rollback, and a printed rollback one-liner.
+- **Phase 11 — Documentation:** root `README.md`, authoritative `DEPLOYMENT.md` (tarball install/upgrade/rollback), operations-scoped `RUNBOOK.md`, and `deploy/crontab.example`.
+
+**Releases:**
+| Tag | Date | Summary |
+|-----|------|---------|
+| `v1.2.0` | 2026-05-22 | Initial deployment-infrastructure release (milestone ship). |
+| `v1.2.1` | 2026-05-22 | Clean-machine deployment-walkthrough fixes: systemd `StartLimit*` moved `[Service]`→`[Unit]` (restart cap was inert), tracked `delivery_config.example.yaml`, `sudo -u vuln-reports` prefixes + paste-safe one-liners, stale Tenable verify text. |
+| `v1.2.2` | 2026-05-22 | Updater resolves a versioned `python3` (≥3.10) on RHEL hosts that ship `python3.9`/`python3.11` but no `/usr/bin/python3`; removed the error-masking `2>/dev/null`. |
+| `v1.2.3` | 2026-05-22 | Release retention: `--prune` command + `--keep N` and auto-prune on successful install (keep 3); active + `.last` rollback target always preserved. |
+| `v1.2.4` | 2026-05-22 | Fixes `rich.errors.LiveError` when concurrent scheduled groups run in daemon mode — per-call `Console` + disable live display on non-TTY. |
+
+**Verification:**
+- 5/5 phase verifications passed (Phases 7–11); 39/39 requirements satisfied.
+- Milestone audit `v1.2-MILESTONE-AUDIT.md` status: passed (original `gaps_found` closed by quick task `260520-mp4`).
+- v1.2.0 → v1.2.4 each validated end-to-end on a real Rocky 9 VM: install, upgrade, rollback, force-overwrite, real-symlink prune (incl. rollback-target preservation), daemon-mode concurrency (no `LiveError`), and live email delivery.
+
+**Notable surprises (all caught on the real RHEL VM, not the Windows dev box):**
+- systemd `ExecStart` pointed at a flat `.venv` while the updater builds per-release `current/.venv` (ship-blocker; quick task `260520-a29`).
+- `ProtectSystem=strict` made `ReadWritePaths` load-bearing — `management_summary`'s trend-JSON write was denied until `shared/data/trend` was added (`260520-mp4`).
+- A normal RHEL host can have versioned Python only, no `python3` command → updater `command not found` under `sudo` (v1.2.2).
+- Per-release venvs accumulate unbounded with no GC → `--prune` (v1.2.3).
+- APScheduler runs same-time groups in concurrent threads sharing rich's process-global live-display lock → `LiveError` (v1.2.4).
+- Two hand-edited `shared/.env` typos (`GITHUB_RELEASE_REPO`, SMTP) caused a 404 and a connection-refused; reinforced "check the VM's `.env` first."
+
+**Archive:** _(v1.2 not yet formally closed — these are the live docs; they move to `milestones/v1.2-*` on close.)_
+- [`ROADMAP.md`](ROADMAP.md) — full phase + plan detail
+- [`REQUIREMENTS.md`](REQUIREMENTS.md) — 39-requirement traceability
+- [`v1.2-MILESTONE-AUDIT.md`](v1.2-MILESTONE-AUDIT.md) — milestone audit (status: passed)
+- Post-release patches (v1.2.1–v1.2.4) tracked in [`STATE.md`](STATE.md) "Quick Tasks Completed".
+
+---
+
 ## v1.1 — PDF Chrome Redesign
 
 **Shipped:** 2026-05-13
