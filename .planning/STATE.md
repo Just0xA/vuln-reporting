@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: milestone
-status: verifying
-stopped_at: v1.2 roadmap defined; 5 phases mapped to 39 requirements.
-last_updated: "2026-05-20T12:27:43.182Z"
-last_activity: 2026-05-20
+status: shipped
+stopped_at: v1.2 milestone closed and archived; v1.2.0–v1.2.4 released and VM-validated. No active milestone.
+last_updated: "2026-05-23T01:29:00.000Z"
+last_activity: 2026-05-22
 progress:
   total_phases: 4
   completed_phases: 4
@@ -25,13 +25,14 @@ See: .planning/PROJECT.md (updated 2026-05-19)
 
 ## Current Position
 
-Phase: 11 — COMPLETE (final phase of v1.2)
-Plan: 2 of 2
-Status: Verified — 11-VERIFICATION.md status: passed (5/5 DOC reqs). All v1.2 phases (7,8,9,10,11) complete; milestone ready for audit/close.
-Last activity: 2026-05-22 — Completed quick task 260522-o2h: added release retention/pruning (--prune + auto-prune) to the updater. Pending v1.2.3 release + real-symlink --prune validation on the Rocky 9 VM. (Prior: 260522-mf3 python3 hardening shipped in v1.2.2.)
+Phase: — (no active milestone)
+Plan: —
+Status: v1.2 milestone CLOSED & ARCHIVED (2026-05-22). All 5 phases (7–11) verified, 39/39 requirements satisfied, audit passed. Released v1.2.0–v1.2.4, all validated end-to-end on the Rocky 9 VM. Next milestone TBD (`/gsd-new-milestone`).
+Last activity: 2026-05-22 — Closed/archived the v1.2 Deployment & Self-Update milestone (ROADMAP/REQUIREMENTS archived to milestones/v1.2-*; no bare v1.2 tag — already released as v1.2.0–v1.2.4).
 
 ## Shipped Milestones
 
+- ✅ **v1.2 Deployment & Self-Update Infrastructure** (2026-05-22) — see [`MILESTONES.md`](MILESTONES.md). 5 phases (7–11), 10 plans, 65 files / +11,667 LOC. 39/39 requirements satisfied; audit passed. Tarball install/update/rollback via `scripts/update_from_github.sh`, CI release pipeline, hardened systemd unit; released v1.2.0–v1.2.4 (incl. python3 resolution, release pruning, daemon `LiveError` fix), all VM-validated. Full archive: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md), [`milestones/v1.2-REQUIREMENTS.md`](milestones/v1.2-REQUIREMENTS.md). Audit: [`v1.2-MILESTONE-AUDIT.md`](v1.2-MILESTONE-AUDIT.md).
 - ✅ **v1.1 PDF Chrome Redesign** (2026-05-13) — see [`MILESTONES.md`](MILESTONES.md). 2 phases, 9 plans, 49 files / +7305 LOC across 1 day. All 16 v1.1 requirements satisfied. Shared `PdfChrome` utility wired into `board_summary` + `composed_report` via `_CHROME_AWARE_SLUGS` allowlist; legacy renderers byte-unchanged. Full archive: [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md), [`milestones/v1.1-REQUIREMENTS.md`](milestones/v1.1-REQUIREMENTS.md). Audit: [`v1.1-MILESTONE-AUDIT.md`](v1.1-MILESTONE-AUDIT.md).
 - ✅ **v1.0 Modular Reporting Framework** (2026-05-08) — see [`MILESTONES.md`](MILESTONES.md). 4 phases, 19 plans, 1 quick task, 140 commits across 4 days. All 24 v1 requirements Validated. Full archive: [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md), [`milestones/v1.0-REQUIREMENTS.md`](milestones/v1.0-REQUIREMENTS.md), [`milestones/v1.0-phases/`](milestones/v1.0-phases/). Retrospective: [`RETROSPECTIVE.md`](RETROSPECTIVE.md).
 
