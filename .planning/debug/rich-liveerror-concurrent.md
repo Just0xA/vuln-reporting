@@ -91,4 +91,4 @@ Two compounding facets:
 
 **Files changed:** `data/fetchers.py`.
 
-**Still to confirm:** live re-run on the Rocky 9 VM (daemon mode, two groups at the same `time:`) per the "verify on real RHEL VM" practice. Fix must ship in the next release (v1.2.4) to reach the VM.
+**Confirmed on the VM (2026-05-22, v1.2.4):** the original repro — two groups (`Test Pull` + `Test Pull — Analyst Off`) scheduled at the same `time:` — ran concurrently under the daemon (interleaved log lines prove true thread concurrency). Both completed `board_summary` incl. `fetch_fixed_vulnerabilities`, wrote PDF + Excel, and reached the email stage. **No `LiveError`.** Fully resolved. Shipped in v1.2.4.
