@@ -254,11 +254,24 @@ Until at least one group is defined, `run_all.py --dry-run` validates 0 groups.
 ### Validate configuration (no API calls)
 
 ```bash
-sudo -u vuln-reports bash -c "cd /opt/vuln-reporting/current && .venv/bin/python run_all.py --dry-run"
+sudo -u vuln-reports env HOME=/opt/vuln-reporting/shared/data/runtime-cache XDG_CACHE_HOME=/opt/vuln-reporting/shared/data/runtime-cache MPLCONFIGDIR=/opt/vuln-reporting/shared/data/runtime-cache/matplotlib bash -c "cd /opt/vuln-reporting/current && .venv/bin/python run_all.py --dry-run"
 ```
 
 This is a single-line, paste-safe command — the `&&` keeps it intact when a terminal
 collapses a multi-line `cd`+command block onto one line.
+
+The `env HOME=... XDG_CACHE_HOME=... MPLCONFIGDIR=...` prefix mirrors the systemd unit's
+`Environment=` lines so matplotlib writes its config/font cache into the writable
+`shared/data/runtime-cache` directory. A manual `sudo -u` invocation does **not** inherit
+the service's `Environment=` settings, so without this prefix matplotlib probes the
+`--no-create-home` service account's unwritable `/home/vuln-reports` and prints a harmless
+`Permission denied: '/home/vuln-reports'` / `MPLCONFIGDIR` warning, then rebuilds its font
+cache under `/tmp`. The simpler form below still validates correctly — it just emits that
+warning:
+
+```bash
+sudo -u vuln-reports bash -c "cd /opt/vuln-reporting/current && .venv/bin/python run_all.py --dry-run"
+```
 
 Expected output: a `rich` table listing all delivery groups with a green `OK` for each.
 If any group shows `FAIL`, the error message identifies the misconfigured field.
