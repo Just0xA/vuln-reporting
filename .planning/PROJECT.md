@@ -12,7 +12,19 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 ## Current State
 
-**Shipped:** v1.1 PDF Chrome Redesign (2026-05-13) — see [`MILESTONES.md`](MILESTONES.md).
+**Shipped:** v1.2 Deployment & Self-Update Infrastructure (2026-05-22) — see [`MILESTONES.md`](MILESTONES.md).
+
+- 5 phases (7–11), 10 plans, 65 files / +11,667 / −1,245 across 2026-05-19 → 2026-05-22 (released and field-hardened on a Rocky 9 VM)
+- 39/39 requirements satisfied; milestone audit status: passed
+- The suite now installs, updates, and rolls back from signed release tarballs via `scripts/update_from_github.sh` — no git clone; SHA256-verified download, per-release `.venv`, shared-path symlinks, atomic `ln -sfn` swap, `.last` breadcrumb, post-swap health check with auto-rollback, and a printed rollback one-liner (`--prune`/`--keep N` retention added in v1.2.3)
+- `.github/workflows/release.yml` publishes `vuln-reporting-vX.Y.Z-slim.tar.gz` + `.sha256` on every `v*` tag, blocking forbidden paths and marking `-rc/-beta/-alpha` as prereleases
+- `scripts/warm_cache.py` decouples Tenable fetch latency from report-run wall time so scheduled batches hit `[CACHE HIT]`
+- `/opt/vuln-reporting/{current,releases,shared}` symlink layout; hardened `deploy/vuln-reports.service` (`ProtectSystem=strict` + explicit `ReadWritePaths`)
+- Authoritative `DEPLOYMENT.md` + operations-scoped `RUNBOOK.md` + root `README.md` + `deploy/crontab.example`
+- Released as v1.2.0 – v1.2.4 (post-ship fixes: inert systemd `StartLimit*`, versioned-`python3` resolution, release pruning, daemon-mode `LiveError`)
+
+<details>
+<summary>Previous shipped: v1.1 PDF Chrome Redesign (2026-05-13)</summary>
 
 - 2 phases, 9 plans, 49 files changed across 1 day (2026-05-13 same-day discuss → plan → execute → UAT → close)
 - 37 tests green on the v1.1 surface at milestone close
@@ -21,6 +33,8 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 - Cover body trimmed to `Scope: <value>` subtitle + RAG strip ("Key Performance Metrics" header)
 - Modular-framework parity: adding a new `*_module.py` and listing it under `reports: [composed_report]` with `modules: [...]` gives it full chrome with **zero per-slug Python**
 - Legacy `management_summary` + `ops_remediation` byte-unchanged across the milestone (CHROME-COMPAT-01 hard contract)
+
+</details>
 
 <details>
 <summary>Previous shipped: v1.0 Modular Reporting Framework (2026-05-08)</summary>
@@ -35,24 +49,11 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 </details>
 
-**Codebase state (post-v1.1):** Five reports work end-to-end plus the YAML-driven `composed_report` slug. `board_summary` and `composed_report` are chrome-aware. `management_summary` + `ops_remediation` remain on legacy render paths (untouched); they will inherit chrome only after migration to the module contract (GEN-01/02 deferred).
+**Codebase state (post-v1.2):** Five reports work end-to-end plus the YAML-driven `composed_report` slug. `board_summary` and `composed_report` are chrome-aware. `management_summary` + `ops_remediation` remain on legacy render paths (untouched); they will inherit chrome only after migration to the module contract (GEN-01/02 deferred). The suite is now server-deployable from signed release tarballs with scripted install/update/rollback (`scripts/update_from_github.sh`), CI-published artifacts (`.github/workflows/release.yml`), a standalone warm-cache job, and authoritative `DEPLOYMENT.md` / `RUNBOOK.md` / `README.md`.
 
-## Current Milestone: v1.2 Server Update and Install
+## Next Milestone Goals
 
-**Goal:** Make the suite cleanly server-deployable — slim release artifacts, scripted install/update/rollback, an operator runbook, an auto-release workflow, and a user-friendly README — so a non-author operator can deploy + upgrade without hand-curating files.
-
-**Target features:**
-- Slim release tarballs via `.gitattributes` `export-ignore` (excludes `.planning/`, `docs/`, `ref/`, `tests/`, `.github/`, top-level dev docs).
-- Standalone `scripts/warm_cache.py` decoupling Tenable fetch latency from report-run wall time.
-- `scripts/update_from_github.sh` with `--check` / `--version` / `--rollback` / `--list` on a `/opt/vuln-reporting/{current → releases/vX.Y.Z, shared/}` layout.
-- `.github/workflows/release.yml` triggered by `v*` tag push + `workflow_dispatch` — builds + uploads the slim tarball.
-- RUNBOOK additions: "Operational cron schedule" + "Updating from GitHub" with on-disk layout diagram.
-- User-friendly root `README.md` (what + who + quickstart) plus operator-focused `DEPLOYMENT.md`.
-
-**Key context:**
-- Single-server target; updates are operator-run on demand (only `--check` automates discovery).
-- `shared/` (`.env`, `delivery_config.yaml`, `logs/`, `output/`, `data/cache/`) survives upgrades via symlinks.
-- Deferred: `composed_report` output filename disambiguation (stays on backlog).
+**TBD** — to be defined via `/gsd-new-milestone`. Candidate scope lives in the Backlog section below (GEN-01/02 module migration, GEN-03/04 YAML composition, PERF-01..04, LEGACY-01).
 
 ## Backlog (deferred from prior milestones)
 
@@ -115,4 +116,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-19 — milestone v1.2 Server Update and Install started*
+*Last updated: 2026-05-22 after v1.2 Deployment & Self-Update Infrastructure milestone*

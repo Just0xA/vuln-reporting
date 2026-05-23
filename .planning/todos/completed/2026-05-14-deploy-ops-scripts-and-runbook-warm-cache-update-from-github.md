@@ -1,5 +1,8 @@
 ---
 created: 2026-05-14T13:49:26.447Z
+completed: 2026-05-22
+status: done
+resolution: "Delivered by milestone v1.2 (Phases 8, 10, 11) — scripts/warm_cache.py, scripts/update_from_github.sh, RUNBOOK.md operations + cron schedule, deploy/crontab.example."
 title: Deploy/ops scripts + RUNBOOK — warm cache, update from GitHub
 area: tooling
 files:

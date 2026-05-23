@@ -1,5 +1,8 @@
 ---
 created: 2026-05-14T13:49:26.447Z
+completed: 2026-05-22
+status: done
+resolution: "Delivered by milestone v1.2 (Phases 7, 9) — .gitattributes export-ignore slim-tarball boundary + .github/workflows/release.yml release automation."
 title: Shrink server footprint — exclude dev-only files from deployment
 area: tooling
 files:

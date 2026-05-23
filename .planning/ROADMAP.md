@@ -1,61 +1,66 @@
-### Phase 11: Documentation
-**Goal**: A non-author operator can find everything they need to deploy, upgrade, and run the suite — a root README orients newcomers, DEPLOYMENT.md is the authoritative install/upgrade/rollback guide for the v1.2 tarball workflow, and RUNBOOK.md is rescoped to day-to-day operations with a ready-to-use cron schedule
-**Depends on**: Phase 7 (symlink layout), Phase 9 (release tarball), Phase 10 (`update_from_github.sh` install/update/rollback commands) — all three are documented here, so docs come last
-**Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05
-**Success Criteria** (what must be TRUE):
-  1. Repo root has a new `README.md` covering what the suite does, who it's for, a quickstart pointer, and a prominent link to `DEPLOYMENT.md`
-  2. New `DEPLOYMENT.md` is the single authoritative install/upgrade guide for the v1.2 release-tarball workflow: system requirements, install from a release tarball (NOT git clone — that's explicitly out of scope as a production path), configure credentials in `shared/.env` (including `GITHUB_RELEASE_REPO`), verify via `run_all.py --dry-run`, the `update_from_github.sh` update procedure, a prominently-placed rollback one-liner, troubleshooting, an on-disk `/opt/vuln-reporting/{current,releases,shared}` layout diagram, a schema-migration note, and the D-04-08 sensitive-data pre-release checklist
-  3. `RUNBOOK.md` is rewritten from scratch, scoped narrowly to "how to run and use the tool" (day-to-day operations, scheduler management, log locations, runtime troubleshooting). All install/deployment content (current Sections 1–2: RHEL fresh-install, git-clone/scp deploy) is removed and replaced with a pointer to `DEPLOYMENT.md`
-  4. `RUNBOOK.md` includes an "Operational cron schedule" section with `warm_cache.py` and `scheduler.py --mode run-due` cron lines plus log-rotation guidance
-  5. `deploy/crontab.example` ships a working, drop-in cron schedule with the warm-cache job placed ≥30 minutes before the earliest report group and never near midnight (cache-folder date-rollover hazard)
-**Plans**: 2 plans
-Plans:
-- [x] 11-01-PLAN.md — Root `README.md` + authoritative `DEPLOYMENT.md` for the v1.2 tarball install/update/rollback workflow (DOC-01, DOC-02)
-- [x] 11-02-PLAN.md — Rewrite `RUNBOOK.md` scoped to operations + "Operational cron schedule" section + `deploy/crontab.example` (DOC-03, DOC-04, DOC-05)
+# Roadmap: Vulnerability Management Reporting Suite
 
-### Phase 10: Install / Update / Rollback Infrastructure
-**Goal**: A non-author operator can install, upgrade, and roll back the suite on a single Linux server using only `scripts/update_from_github.sh` — release tarball download is validated against its SHA256 sidecar, swaps are atomic, every upgrade leaves a one-liner rollback path, and a failed restart auto-reverts
-**Depends on**: Phase 7 (`/opt/vuln-reporting/current` + `/opt/vuln-reporting/shared/` symlink layout in `deploy/vuln-reports.service`), Phase 9 (release tarball + `.sha256` sidecar on GitHub Releases)
-**Requirements**: UPDATE-01, UPDATE-02, UPDATE-03, UPDATE-04, UPDATE-05, UPDATE-06, UPDATE-07, UPDATE-08, UPDATE-09, UPDATE-10, UPDATE-11, UPDATE-12, UPDATE-13, UPDATE-14, LOG-02
-**Success Criteria** (what must be TRUE):
-  1. Operator runs `scripts/update_from_github.sh --check` and sees current-vs-latest version comparison with distinct exit codes (0 up-to-date, 1 update-available, ≥2 error); operator runs `--list` and sees installed releases with the active one marked. Both honor `GITHUB_TOKEN` env var when set to lift the GitHub API rate limit from 60/hr to 5000/hr.
-  2. Operator runs `--version vX.Y.Z`: script downloads the slim tarball + `.sha256`, validates the checksum (refuses to proceed on mismatch), extracts to `releases/vX.Y.Z/`, creates a per-release `.venv` and runs `pip install -r requirements.txt`, symlinks shared paths (`.env`, `delivery_config.yaml`, `logs/`, `output/`, `data/cache/`, `data/trend/`) from `/opt/vuln-reporting/shared/` into the release dir, runs `python run_all.py --dry-run` for smoke validation, captures the previous `current` target as a `.last` breadcrumb, atomically swaps via `ln -sfn`, restarts `vuln-reports.service`, and after a 10-second settle confirms `systemctl is-active` returns `active` — auto-rolling-back if not. The operator sees a printed rollback one-liner on success.
-  3. Operator runs `--rollback`: script reads `releases/.last`, atomically re-points `current` to that previous release directory, and restarts the unit. The `.last` breadcrumb is captured BEFORE every forward swap and rewritten AFTER it succeeds (never both updated in a single mutation that could be interrupted).
-  4. Script uses `set -euo pipefail` + `trap`-on-exit cleanup so a failed download, checksum mismatch, dry-run failure, or partial extraction never leaves a half-built release directory. Script refuses to operate if `current` is missing or does not point inside `releases/` (refuse-if-unknown-layout safety on hand-built installs).
-  5. `--force` re-extracts over an existing release dir; `--skip-restart` skips the systemd restart with a warning logged. Every invocation logs a "started" line with full argv and a "completed" line (success or failure) to `logs/update.log`; usage errors log the real failure reason before exiting non-zero.
-  6. GitHub Releases API URL is sourced from `GITHUB_RELEASE_REPO` in `.env` (e.g., `GITHUB_RELEASE_REPO=owner/repo`) — operators forking into their own org point the updater at their fork without code changes.
-**Plans**: 3 plans
-Plans:
-- [x] 10-01-PLAN.md — Skeleton + safety guards + `--check` / `--list` discovery (UPDATE-09, UPDATE-10, UPDATE-04, UPDATE-01, UPDATE-12, LOG-02) — also adds `GITHUB_RELEASE_REPO` to `.env.example`
-- [x] 10-02-PLAN.md — `--version vX.Y.Z` install flow: download + SHA256 verify + extract + per-release venv + shared-path symlinks + dry-run + atomic swap + breadcrumb (UPDATE-02, UPDATE-06, UPDATE-07, UPDATE-13, UPDATE-14)
-- [x] 10-03-PLAN.md — `--rollback`, `--force`, `--skip-restart`, post-swap health check with auto-rollback, rollback one-liner print on success (UPDATE-03, UPDATE-05, UPDATE-08, UPDATE-11)
+## Milestones
 
-### Phase 9: CI/Release Automation
-**Goal**: Pushing a `v*` tag publishes a slim, validated release tarball + SHA256 checksum to GitHub Releases automatically, with prerelease tags marked and forbidden paths blocked at build time
-**Depends on**: Phase 7 (Foundations — `.gitattributes` defines the slim-tarball boundary that this workflow packages)
-**Requirements**: CI-01, CI-02, CI-03, CI-04, CI-05, CI-06, CI-07
-**Success Criteria** (what must be TRUE):
-  1. Maintainer pushes a `vX.Y.Z` tag and `.github/workflows/release.yml` runs end-to-end: builds `vuln-reporting-vX.Y.Z-slim.tar.gz`, computes a `.sha256` sidecar, uploads both as assets, and creates a published GitHub Release named for the tag
-  2. Maintainer can re-run the workflow against an existing tag via the GitHub UI (`workflow_dispatch` with a version input)
-  3. Tags suffixed `-rc`, `-beta`, or `-alpha` produce releases marked `prerelease: true`; bare semver tags produce stable releases
-  4. A tarball-content assertion step inspects the built archive and fails the build if `.planning/`, `.env`, `data/trend/`, `.git`, or non-placeholder credentials appear in the contents
-  5. Workflow declares `permissions: contents: write` explicitly (no reliance on default repo settings); action versions are pinned to verified majors current as of 2026-05-19 (`actions/checkout@v6`, `softprops/action-gh-release@v3`)
-**Plans**: 2 plans
-Plans:
-- [x] 09-01-PLAN.md — Core release workflow `.github/workflows/release.yml` (checkout, build slim tarball, SHA256 sidecar, publish release, prerelease detection) (CI-01, CI-02, CI-03, CI-04, CI-05, CI-07)
-- [x] 09-02-PLAN.md — Tarball-content assertion step: forbidden-path + credential-scan gate (CI-06)
+- ✅ **v1.0 Modular Reporting Framework** — Phases 1–4 (shipped 2026-05-08) — [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md)
+- ✅ **v1.1 PDF Chrome Redesign** — Phases 5–6 (shipped 2026-05-13) — [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md)
+- ✅ **v1.2 Deployment & Self-Update Infrastructure** — Phases 7–11 (shipped 2026-05-22) — [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
+- 📋 **Next milestone** — TBD
 
-### Phase 8: Warm Cache
-**Goal**: Operators can decouple Tenable fetch latency from report-run wall time by running a pre-fetch job on a cron schedule
-**Depends on**: Nothing (independent of release infrastructure; can run against existing live install)
-**Requirements**: CACHE-01, CACHE-02, CACHE-03, CACHE-04, CACHE-05, LOG-01, LOG-03
-**Success Criteria** (what must be TRUE):
-  1. Operator runs `python -m scripts.warm_cache` and finds `data/cache/<YYYY-MM-DD>/*.parquet` files in the same shape `run_all.py` consumes, with no new Python dependencies required
-  2. Operator passes `--dry-run` and sees what would be written without any files being created; passes `--verbose` and sees fetch progress; passes `--prune-stale` and prior-day cache folders are removed; passes `--date YYYY-MM-DD` and the target date folder is written
-  3. A concurrent daemon + cron invocation cannot observe a partial parquet file (writes go to a temp file and are promoted via `os.replace`)
-  4. `logs/warm_cache.log` is written from the first run and rotates automatically; exit code is 0 on success and non-zero on auth or API failure
-  5. Every invocation produces at minimum a "started" line (with full argv) and a "completed" line (success or failure) in `logs/warm_cache.log`; usage errors log the real failure reason before exiting non-zero
-**Plans**: 2 plans
-Plans:
-- [x] 08-01-PLAN.md — Atomic parquet-write helper in data/fetchers.py (CACHE-04)
-- [x] 08-02-PLAN.md — scripts/warm_cache.py with rotating log, dry-run/verbose/prune-stale/date flags (CACHE-01, CACHE-02, CACHE-03, CACHE-05, LOG-01, LOG-03)
+## Phases
+
+<details>
+<summary>✅ v1.0 Modular Reporting Framework (Phases 1–4) — SHIPPED 2026-05-08</summary>
+
+Full detail: [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md)
+
+</details>
+
+<details>
+<summary>✅ v1.1 PDF Chrome Redesign (Phases 5–6) — SHIPPED 2026-05-13</summary>
+
+Full detail: [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md)
+
+</details>
+
+<details>
+<summary>✅ v1.2 Deployment & Self-Update Infrastructure (Phases 7–11) — SHIPPED 2026-05-22</summary>
+
+- [x] Phase 7: Foundations (2/2 plans) — slim-tarball `.gitattributes` boundary + symlink-layout systemd unit
+- [x] Phase 8: Warm Cache (2/2 plans) — `scripts/warm_cache.py` atomic pre-fetch
+- [x] Phase 9: CI/Release Automation (2/2 plans) — `.github/workflows/release.yml` slim tarball + SHA256
+- [x] Phase 10: Install / Update / Rollback (3/3 plans) — `scripts/update_from_github.sh`
+- [x] Phase 11: Documentation (2/2 plans) — README, DEPLOYMENT.md, RUNBOOK.md, crontab.example
+
+Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
+
+</details>
+
+## Progress
+
+| Phase                          | Milestone | Plans Complete | Status   | Completed  |
+| ------------------------------ | --------- | -------------- | -------- | ---------- |
+| 1. Module Render Contract      | v1.0      | 3/3            | Complete | 2026-05-05 |
+| 2. ReportComposer Upgrades     | v1.0      | 5/5            | Complete | 2026-05-06 |
+| 3. Board Summary Migration     | v1.0      | 7/7            | Complete | 2026-05-07 |
+| 4. YAML Opt-out + Regression   | v1.0      | 4/4            | Complete | 2026-05-08 |
+| 5. PDF Chrome Foundation       | v1.1      | 4/4            | Complete | 2026-05-13 |
+| 6. Cover Redesign + Board Int. | v1.1      | 5/5            | Complete | 2026-05-13 |
+| 7. Foundations                 | v1.2      | 2/2            | Complete | 2026-05-19 |
+| 8. Warm Cache                  | v1.2      | 2/2            | Complete | 2026-05-19 |
+| 9. CI/Release Automation       | v1.2      | 2/2            | Complete | 2026-05-19 |
+| 10. Install / Update / Rollback | v1.2     | 3/3            | Complete | 2026-05-19 |
+| 11. Documentation              | v1.2      | 2/2            | Complete | 2026-05-20 |
+
+## Backlog
+
+Cross-milestone backlog is tracked in [`PROJECT.md`](PROJECT.md) ("Backlog" / "Deferred to Future Milestones") and [`STATE.md`](STATE.md) ("Deferred Items"). Open items carried past v1.2:
+
+- **GEN-01/02** — Migrate `management_summary` / `ops_remediation` to the module render contract.
+- **GEN-03/04** — Broader YAML-driven module composition beyond the `composed_report` slug.
+- **PERF-01..04** — Performance pass (per-batch enrich cache, midnight cache crossover, log rotation, tag-value typo detection).
+- **LEGACY-01** — Re-evaluate the 6 unbuilt reports in CLAUDE.md as candidate module bundles.
+- **composed_report output filename disambiguation** — per-group basenames for groups using `reports: [composed_report]`.
+- **Cosmetic janitorial** — `run_all.py:76,90` stale `_VALID_FREQUENCIES` / `_VALID_REPORTS` constants.
+
+> The two 2026-05-14 deploy todos (`deploy-ops-scripts-and-runbook-warm-cache-update-from-github`, `shrink-server-footprint-exclude-dev-only-files`) were **DELIVERED by v1.2** (Phases 7–11). Moved to `.planning/todos/completed/`.

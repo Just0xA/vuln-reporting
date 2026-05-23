@@ -44,9 +44,9 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 - APScheduler runs same-time groups in concurrent threads sharing rich's process-global live-display lock → `LiveError` (v1.2.4).
 - Two hand-edited `shared/.env` typos (`GITHUB_RELEASE_REPO`, SMTP) caused a 404 and a connection-refused; reinforced "check the VM's `.env` first."
 
-**Archive:** _(v1.2 not yet formally closed — these are the live docs; they move to `milestones/v1.2-*` on close.)_
-- [`ROADMAP.md`](ROADMAP.md) — full phase + plan detail
-- [`REQUIREMENTS.md`](REQUIREMENTS.md) — 39-requirement traceability
+**Archive:**
+- [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md) — full phase + plan detail
+- [`milestones/v1.2-REQUIREMENTS.md`](milestones/v1.2-REQUIREMENTS.md) — 39-requirement traceability
 - [`v1.2-MILESTONE-AUDIT.md`](v1.2-MILESTONE-AUDIT.md) — milestone audit (status: passed)
 - Post-release patches (v1.2.1–v1.2.4) tracked in [`STATE.md`](STATE.md) "Quick Tasks Completed".
 
