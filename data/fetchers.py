@@ -29,6 +29,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
+from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from tenacity import (
     retry,
@@ -39,6 +40,31 @@ from tenacity import (
 )
 
 from config import CACHE_DIR, SEVERITY_LEVEL_MAP, vpr_to_severity
+
+
+# ---------------------------------------------------------------------------
+# Fetch progress bar
+# ---------------------------------------------------------------------------
+def _make_fetch_progress() -> Progress:
+    """Build a transient progress bar for a long-running fetch.
+
+    Each call gets its OWN ``Console`` so concurrent scheduler threads never
+    share rich's process-global live-display lock — two reports running at the
+    same time would otherwise raise ``rich.errors.LiveError`` (only one live
+    display is allowed per console). The live display is also disabled entirely
+    when stdout is not a terminal (e.g. under the systemd service), where a live
+    bar renders nothing useful but would still take the lock.
+    """
+    console = Console()
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        transient=True,
+        console=console,
+        disable=not console.is_terminal,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Type-coercion helper
@@ -261,12 +287,7 @@ def fetch_all_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
     }
     rows: list[dict] = []
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        TimeElapsedColumn(),
-        transient=True,
-    ) as progress:
+    with _make_fetch_progress() as progress:
         task = progress.add_task("Streaming full vulnerability export…", total=None)
 
         for vuln in tio.exports.vulns(**export_filters):
@@ -392,12 +413,7 @@ def fetch_fixed_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
     }
     rows: list[dict] = []
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        TimeElapsedColumn(),
-        transient=True,
-    ) as progress:
+    with _make_fetch_progress() as progress:
         task = progress.add_task("Streaming fixed vulnerability export…", total=None)
 
         for vuln in tio.exports.vulns(**export_filters):
@@ -496,12 +512,7 @@ def fetch_all_assets(tio, cache_dir: Path) -> pd.DataFrame:
     logger.info("[API FETCH] Fetching all assets from Tenable API (unscoped)")
     rows: list[dict] = []
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        TimeElapsedColumn(),
-        transient=True,
-    ) as progress:
+    with _make_fetch_progress() as progress:
         task = progress.add_task("Streaming full asset export…", total=None)
 
         for asset in tio.exports.assets():
@@ -890,12 +901,7 @@ def fetch_vulnerabilities(
 
     rows: list[dict] = []
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        TimeElapsedColumn(),
-        transient=True,
-    ) as progress:
+    with _make_fetch_progress() as progress:
         task = progress.add_task("Streaming vulnerability export…", total=None)
 
         for vuln in tio.exports.vulns(**export_filters):
@@ -992,12 +998,7 @@ def fetch_assets(
     logger.info("[API FETCH] Fetching assets from Tenable API")
     rows: list[dict] = []
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        TimeElapsedColumn(),
-        transient=True,
-    ) as progress:
+    with _make_fetch_progress() as progress:
         task = progress.add_task("Streaming asset export…", total=None)
 
         for asset in tio.exports.assets():
