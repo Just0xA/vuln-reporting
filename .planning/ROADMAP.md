@@ -62,5 +62,6 @@ Cross-milestone backlog is tracked in [`PROJECT.md`](PROJECT.md) ("Backlog" / "D
 - **LEGACY-01** — Re-evaluate the 6 unbuilt reports in CLAUDE.md as candidate module bundles.
 - **composed_report output filename disambiguation** — per-group basenames for groups using `reports: [composed_report]`.
 - **Cosmetic janitorial** — `run_all.py:76,90` stale `_VALID_FREQUENCIES` / `_VALID_REPORTS` constants.
+- **Daemon-integrated warm-cache** — fold `scripts/warm_cache.py` into the scheduler daemon as a schedule-derived job (warm ~30 min before the earliest group, computed from `delivery_config.yaml`; warm once before dispatching concurrent same-time groups). Removes the separate cron, the manual ≥30-min timing coupling, the midnight date-rollover footgun, and the cold-cache double-fetch race for same-time groups (`run_all` pre-fetch covers only 2 of the 4 datasets `warm_cache` does). Candidate for v1.3.
 
 > The two 2026-05-14 deploy todos (`deploy-ops-scripts-and-runbook-warm-cache-update-from-github`, `shrink-server-footprint-exclude-dev-only-files`) were **DELIVERED by v1.2** (Phases 7–11). Moved to `.planning/todos/completed/`.
