@@ -226,11 +226,11 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
+from config import SLA_DAYS as _SLA  # source of truth — avoid drift
 from tests.fixtures.builders import build_assets_df, build_vulns_df
 
 _SEVERITIES = ["critical", "high", "medium", "low"]
 _VPR = {"critical": 9.5, "high": 8.0, "medium": 5.0, "low": 2.0}
-_SLA = {"critical": 15, "high": 30, "medium": 90, "low": 180}
 
 
 def make_scenario(
