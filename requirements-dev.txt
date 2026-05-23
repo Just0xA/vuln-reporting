@@ -1,0 +1,6 @@
+# Test-only dependencies. NOT installed on the production VM.
+# Install locally with:  python -m pip install -r requirements-dev.txt
+pytest>=8.3
+pytest-xdist>=3.6
+aiosmtpd>=1.4
+pypdf>=5.0

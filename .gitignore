@@ -62,7 +62,6 @@ Thumbs.db
 .coverage
 htmlcov/
 *.coveragerc
-tests/
 
 # =============================================================================
 # Database (delivery audit log — contains recipient addresses)
