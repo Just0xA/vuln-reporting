@@ -1,0 +1,33 @@
+#!/bin/sh
+# Pre-commit gate: runs the local E2E test suite before allowing a commit.
+#
+# Emergency bypass (use sparingly — it skips the whole suite):
+#     VULN_E2E_SKIP=1 git commit ...
+#
+# This is preferred over `git commit --no-verify`, which would skip ALL hooks.
+
+if [ "$VULN_E2E_SKIP" = "1" ]; then
+    echo "!!! VULN_E2E_SKIP=1 set — SKIPPING the E2E test suite. Use only in emergencies. !!!"
+    exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+# Prefer the project venv (where the test deps live); fall back to PATH.
+if [ -x "$ROOT/.venv/Scripts/python.exe" ]; then
+    PY="$ROOT/.venv/Scripts/python.exe"      # Windows venv layout
+elif [ -x "$ROOT/.venv/bin/python" ]; then
+    PY="$ROOT/.venv/bin/python"              # POSIX venv layout
+elif command -v python3 >/dev/null 2>&1; then
+    PY="python3"
+else
+    PY="python"
+fi
+
+echo "Running local E2E test suite (set VULN_E2E_SKIP=1 to bypass in emergencies)..."
+"$PY" -m pytest -n auto -q
+status=$?
+if [ "$status" -ne 0 ]; then
+    echo "E2E suite FAILED — commit aborted. Fix the tests or set VULN_E2E_SKIP=1 to bypass."
+fi
+exit "$status"

@@ -770,6 +770,39 @@ find /opt/vuln-reporting/shared/output -maxdepth 1 -type d -mtime +180 -exec rm 
 
 ---
 
+## Local E2E Test Suite
+
+Offline pytest suite that validates reports before every commit (no Tenable, no VM).
+Tests live in `tests/` and run fully offline: synthetic data is injected through a
+seeded parquet cache, and outbound email is captured via a faked SMTP transport.
+
+**One-time setup (per checkout):**
+
+    .venv/Scripts/python -m pip install -r requirements-dev.txt   # Windows
+    git config core.hooksPath .githooks
+
+**Run manually:**
+
+    python -m pytest             # whole suite, parallel (-n auto)
+    python -m pytest -m unit     # Layer 1 only (per-module contract)
+    python -m pytest -m content  # Layer 2 only (exact values)
+    python -m pytest -m e2e      # Layer 3 only (run_group + SMTP capture)
+
+**Pre-commit gate:** once `core.hooksPath` is set, `.githooks/pre-commit` runs the
+full suite on every `git commit` (using the project `.venv` interpreter if present).
+Emergency bypass (use sparingly — preferred over `--no-verify`, which skips all hooks):
+
+    VULN_E2E_SKIP=1 git commit -m "..."
+
+**Eyeball a delivered email:** captured messages are written to
+`output/test-eml/message_NNN.eml` — open in Outlook / a browser.
+
+**Before your first PR (future contributors):** run the one-time setup above, then
+`python -m pytest` must be green before pushing. CI is intentionally not configured;
+the maintainer/reviewer runs the suite locally.
+
+---
+
 _This document covers the operational aspects of the suite. For installation,
 upgrades, and rollback see [DEPLOYMENT.md](DEPLOYMENT.md). For architecture
 details, API integration notes, and development guidelines, see `CLAUDE.md`._
