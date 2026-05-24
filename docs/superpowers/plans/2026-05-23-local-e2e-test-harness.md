@@ -854,7 +854,23 @@ from tests.validators import assert_valid_pdf, assert_valid_xlsx
 pytestmark = pytest.mark.e2e
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
-_GROUPS = yaml.safe_load((_ROOT / "delivery_config.yaml").read_text())["groups"]
+
+
+def _load_groups() -> list[dict]:
+    """Prefer the operator's real config; fall back to the tracked example.
+
+    delivery_config.yaml is gitignored (operator-managed) so it may be absent
+    on a fresh checkout. The example is always tracked. If neither exists,
+    return [] and the parametrized tests simply collect nothing.
+    """
+    for name in ("delivery_config.yaml", "delivery_config.example.yaml"):
+        path = _ROOT / name
+        if path.exists():
+            return yaml.safe_load(path.read_text()).get("groups", []) or []
+    return []
+
+
+_GROUPS = _load_groups()
 _GROUP_IDS = [g["name"] for g in _GROUPS]
 
 
