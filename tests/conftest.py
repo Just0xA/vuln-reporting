@@ -16,7 +16,7 @@ if str(_ROOT) not in sys.path:
 
 from tests.fixtures.builders import three_overdue_crit, one_asset  # noqa: E402
 from tests.fixtures.generator import make_scenario  # noqa: E402
-from tests.smtp_catcher import SmtpCatcher  # noqa: E402
+from tests.smtp_catcher import SmtpCapture  # noqa: E402
 
 _EML_DUMP_DIR = _ROOT / "output" / "test-eml"
 
@@ -81,12 +81,18 @@ def seeded_cache(tmp_path) -> Path:
 
 @pytest.fixture
 def smtp_catcher(monkeypatch):
-    """Start an in-process SMTP catcher and point the email sender at it."""
-    with SmtpCatcher(dump_dir=_EML_DUMP_DIR) as catcher:
-        monkeypatch.setenv("SMTP_HOST", catcher.host)
-        monkeypatch.setenv("SMTP_PORT", str(catcher.port))
-        monkeypatch.setenv("SMTP_USERNAME", "")
-        monkeypatch.setenv("SMTP_PASSWORD", "")
-        monkeypatch.setenv("SMTP_USE_SSL", "false")
-        monkeypatch.setenv("SMTP_FROM_ADDRESS", "reports@test.local")
-        yield catcher
+    """Capture outbound email via a faked smtplib transport (no real server).
+
+    See tests/smtp_catcher.py for why a real in-process server can't satisfy
+    the sender's forced STARTTLS+login. Exposes `.messages` (list[Message])
+    and `.sent` (list of (from_addr, to_addrs)).
+    """
+    capture = SmtpCapture(dump_dir=_EML_DUMP_DIR)
+    capture.install(monkeypatch)
+    monkeypatch.setenv("SMTP_HOST", "localhost")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_USERNAME", "test")
+    monkeypatch.setenv("SMTP_PASSWORD", "test")
+    monkeypatch.setenv("SMTP_USE_SSL", "false")
+    monkeypatch.setenv("SMTP_FROM_ADDRESS", "reports@test.local")
+    yield capture
