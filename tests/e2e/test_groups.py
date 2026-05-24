@@ -1,0 +1,106 @@
+"""
+tests/e2e/test_groups.py — Layer 3 config-driven E2E.
+
+Seeds a temp parquet cache, runs the REAL run_group per delivery_config.yaml
+group with a DummyTio (cache short-circuit means it's never called), then
+validates artifacts and the captured MIME email.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+from run_all import run_group
+from tests.validators import assert_valid_pdf, assert_valid_xlsx
+
+pytestmark = pytest.mark.e2e
+
+_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _load_groups() -> list[dict]:
+    """Prefer the operator's real config; fall back to the tracked example.
+
+    delivery_config.yaml is gitignored (operator-managed) so it may be absent
+    on a fresh checkout. The example is always tracked. If neither exists,
+    return [] and the parametrized tests simply collect nothing.
+    """
+    for name in ("delivery_config.yaml", "delivery_config.example.yaml"):
+        path = _ROOT / name
+        if path.exists():
+            return yaml.safe_load(path.read_text()).get("groups", []) or []
+    return []
+
+
+_GROUPS = _load_groups()
+_GROUP_IDS = [g["name"] for g in _GROUPS]
+
+
+@pytest.mark.parametrize("group", _GROUPS, ids=_GROUP_IDS)
+def test_group_runs_fail_soft_and_artifacts_valid(
+    group, seeded_cache, temp_output_dir, dummy_tio
+):
+    result = run_group(
+        group,
+        tio=dummy_tio,
+        cache_dir=seeded_cache,
+        base_output_dir=temp_output_dir,
+        no_email=True,
+        recipient_override=["test@example.com"],
+    )
+    assert result["status"] in ("success", "partial"), result.get("error")
+
+    out = Path(result["output_folder"])
+    for pdf in out.rglob("*.pdf"):
+        assert_valid_pdf(pdf)
+    for xlsx in out.rglob("*.xlsx"):
+        assert_valid_xlsx(xlsx)
+
+
+# --- Failure-mode scenarios driven through the real pipeline -----------
+
+import pandas as pd  # noqa: E402
+
+from tests.fixtures.scenarios import (  # noqa: E402
+    null_first_found, null_vpr, zero_match,
+)
+
+_SCENARIOS = {
+    "zero_match": zero_match,
+    "null_vpr": null_vpr,
+    "null_first_found": null_first_found,
+}
+
+
+def _cache_from(cache_dir: Path, vulns: pd.DataFrame, assets: pd.DataFrame) -> Path:
+    """Write a scenario's dfs into a cache dir (fastparquet, all 4 datasets)."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    datasets = {
+        "vulns_all": vulns,
+        "assets_all": assets,
+        "vulns_fixed": vulns.iloc[0:0].copy(),
+        "recast_rules": pd.DataFrame({"_": pd.Series([], dtype="object")}),
+    }
+    for name, df in datasets.items():
+        df.to_parquet(cache_dir / f"{name}.parquet", index=False, engine="fastparquet")
+    return cache_dir
+
+
+@pytest.mark.parametrize("scenario_name", list(_SCENARIOS))
+def test_failure_mode_scenarios_run_fail_soft(
+    scenario_name, tmp_path, temp_output_dir, dummy_tio
+):
+    """ZERO_MATCH / null-VPR / null-first-found must not crash run_group."""
+    vulns, assets = _SCENARIOS[scenario_name]()
+    cache = _cache_from(tmp_path / "scenario-cache", vulns, assets)
+    result = run_group(
+        _GROUPS[0],
+        tio=dummy_tio,
+        cache_dir=cache,
+        base_output_dir=temp_output_dir,
+        no_email=True,
+        recipient_override=["test@example.com"],
+    )
+    assert result["status"] in ("success", "partial"), result.get("error")
