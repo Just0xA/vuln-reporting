@@ -56,16 +56,22 @@ def _vuln(asset_uuid, severity, vpr, days_ago, state="open", **over):
 
 
 def build_vulns_df(rows: list[dict]) -> pd.DataFrame:
+    # .assign() returns a new frame — avoids the pandas CoW chained-assignment
+    # FutureWarning that in-place df[col]=... triggers.
     df = pd.DataFrame(rows, columns=_VULN_COLUMNS)
-    df["first_found"] = pd.to_datetime(df["first_found"], utc=True, errors="coerce")
-    return df
+    return df.assign(
+        first_found=pd.to_datetime(df["first_found"], utc=True, errors="coerce"),
+    )
 
 
 def build_assets_df(rows: list[dict]) -> pd.DataFrame:
     df = pd.DataFrame(rows, columns=_ASSET_COLUMNS)
-    for col in ("last_seen", "last_licensed_scan_date"):
-        df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
-    return df
+    return df.assign(
+        last_seen=pd.to_datetime(df["last_seen"], utc=True, errors="coerce"),
+        last_licensed_scan_date=pd.to_datetime(
+            df["last_licensed_scan_date"], utc=True, errors="coerce"
+        ),
+    )
 
 
 def three_overdue_crit() -> pd.DataFrame:

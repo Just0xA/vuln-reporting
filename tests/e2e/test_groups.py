@@ -53,7 +53,11 @@ def test_group_runs_fail_soft_and_artifacts_valid(
     assert result["status"] in ("success", "partial"), result.get("error")
 
     out = Path(result["output_folder"])
-    for pdf in out.rglob("*.pdf"):
+    # Don't let a regression-to-zero-artifacts pass silently: every real group
+    # here is expected to emit at least one PDF.
+    pdfs = list(out.rglob("*.pdf"))
+    assert pdfs, f"group '{group['name']}' produced no PDF in {out}"
+    for pdf in pdfs:
         assert_valid_pdf(pdf)
     for xlsx in out.rglob("*.xlsx"):
         assert_valid_xlsx(xlsx)
