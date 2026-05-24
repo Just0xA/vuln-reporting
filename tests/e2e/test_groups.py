@@ -104,3 +104,78 @@ def test_failure_mode_scenarios_run_fail_soft(
         recipient_override=["test@example.com"],
     )
     assert result["status"] in ("success", "partial"), result.get("error")
+
+
+# --- SMTP delivery + failure modes -------------------------------------
+
+from tests.validators import (  # noqa: E402
+    assert_email_cids_resolve, assert_well_formed_html,
+)
+
+_FIRST_GROUP = _GROUPS[0]
+
+
+def _attachment_filenames(msg) -> list:
+    return [p.get_filename() for p in msg.walk() if p.get_filename()]
+
+
+def test_group_email_is_captured_and_well_formed(
+    seeded_cache, temp_output_dir, dummy_tio, smtp_catcher
+):
+    run_group(
+        _FIRST_GROUP,
+        tio=dummy_tio,
+        cache_dir=seeded_cache,
+        base_output_dir=temp_output_dir,
+        no_email=False,
+        recipient_override=["test@example.com"],
+    )
+    assert len(smtp_catcher.messages) == 1
+    msg = smtp_catcher.messages[0]
+
+    html = "".join(
+        p.get_payload(decode=True).decode("utf-8", "replace")
+        for p in msg.walk()
+        if p.get_content_type() == "text/html"
+    )
+    assert_well_formed_html(html)
+    assert_email_cids_resolve(msg)
+    assert any(str(f).lower().endswith(".pdf") for f in _attachment_filenames(msg))
+
+
+def test_oversize_attachments_fall_back_to_pdf_only(
+    seeded_cache, temp_output_dir, dummy_tio, smtp_catcher, monkeypatch
+):
+    import delivery.email_sender as es
+    monkeypatch.setattr(es, "MAX_ATTACHMENT_SIZE_MB", 0)
+
+    run_group(
+        _FIRST_GROUP,
+        tio=dummy_tio,
+        cache_dir=seeded_cache,
+        base_output_dir=temp_output_dir,
+        no_email=False,
+        recipient_override=["test@example.com"],
+    )
+    assert len(smtp_catcher.messages) == 1
+    files = [str(f).lower() for f in _attachment_filenames(smtp_catcher.messages[0])]
+    assert not any(f.endswith(".xlsx") for f in files), "Excel should be omitted when oversize"
+
+
+def test_empty_recipient_list_is_skipped_not_sent(
+    seeded_cache, temp_output_dir, dummy_tio, smtp_catcher
+):
+    group = dict(_FIRST_GROUP)
+    group["email"] = dict(group.get("email", {}))
+    group["email"]["recipients"] = []
+    group["email"]["cc"] = []
+
+    result = run_group(
+        group,
+        tio=dummy_tio,
+        cache_dir=seeded_cache,
+        base_output_dir=temp_output_dir,
+        no_email=False,
+    )
+    assert len(smtp_catcher.messages) == 0
+    assert result["status"] in ("success", "partial", "failed")
