@@ -38,3 +38,38 @@ The Operator Remediation Report v2 (see ROADMAP) needs a reliable fix-type bucke
 ### Acceptance / handoff
 
 Output a short table mapping `plugin.family` → reliability verdict (`Reliable` / `Needs heuristic backup` / `Unknown — too few samples`) plus the proposed classifier logic. Attach the table to the Operator Remediation Report v2 phase context when planning starts.
+
+---
+
+## Q-002 — `tio.exports.compliance()` schema sufficiency for failures-by-check fan-in
+
+**Surfaced:** 2026-06-01 (via `/gsd-explore` — Compliance Reporting seed)
+**Owner:** TBD
+**Status:** Open
+
+### Question
+
+Does `tio.exports.compliance()` return enough check metadata in a single fetch to render a failures-grouped-by-check view, or do we need a second fetch (or a join against scan/audit-policy metadata) to enrich?
+
+Specifically, per row, do we get:
+
+- **Audit-file / framework identity** — name and/or ID of the source `.audit` file (CIS Windows Server 2022, CIS-tailored custom, DISA STIG, etc.) so a `framework` column is populated without a lookup.
+- **Check identity and description** — stable check ID, check name, rationale/description text, and CIS-section reference for grouping and for the analyst-tab drill-down.
+- **Result status** — `PASSED` / `FAILED` / `WARNING` (and any other states) so we can filter to failures-only.
+- **Asset identity** — UUID / hostname / IP for tag enrichment via the existing `utils/tag_helper.py` path.
+- **Per-instance evidence** — actual-vs-expected values, or output snippet, for analyst drill-down.
+
+### Why this matters
+
+The v1 operational cut (see [[compliance-reporting]] seed and [[compliance-data-model-decisions]] note) is a one-row-per-failing-check fan-in with affected-asset counts. If the export already carries the check + audit-file identity inline, the module is a straightforward `groupby`. If not, we need to either (a) call a second endpoint to enrich check metadata, or (b) pre-load a check-catalog from the audit-policy definitions and join in-process.
+
+### How to investigate
+
+1. Trigger a one-off `tio.exports.compliance()` against a small known-compliance-enabled scope and dump a sample (~100 rows) to parquet.
+2. Inspect the column set and per-row payload — note which of the fields above are present, which are null, which require enrichment.
+3. Cross-check against the pyTenable docs and the `/compliance` v3 API spec for documented schema vs. observed.
+4. If enrichment is needed, identify the cheapest source (scan metadata, audit-policy endpoint, or a manually exported audit-catalog).
+
+### Acceptance / handoff
+
+Output a short table mapping each required field → `Present in export` / `Needs enrichment (source: X)` / `Not available`. If enrichment is required, propose the join strategy and estimate added fetch cost. Attach to the Compliance Reporting phase context when planning starts.
