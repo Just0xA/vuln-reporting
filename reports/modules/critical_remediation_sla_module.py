@@ -49,6 +49,7 @@ from openpyxl.utils import get_column_letter
 from config import SLA_DAYS
 from reports.modules.base import BaseModule, ModuleConfig, ModuleData
 from reports.modules.registry import register_module
+from reports.modules.board_pdf_layout import two_column_metric_section
 from reports.modules.board_report_utils import (
     compute_per_bu_breakdown,
     extract_business_unit,
@@ -494,13 +495,13 @@ class CriticalRemediationSLAModule(BaseModule):
         """
         Render a full-page PDF section for WeasyPrint.
 
-        Layout:
-        1. Section heading
-        2. Gauge (centred) with 95 / 85 colour zones
-        3. Status badge
-        4. Three bold support numbers: Open Last Month | Fixed Last Month | Fixed in SLA
-        5. Top-5 worst-performing BUs table
-        6. Explanatory paragraph
+        Layout (two-column row via ``two_column_metric_section`` to avoid the
+        page bleed a stacked explanation caused):
+        - Section heading (full width)
+        - Left column: gauge with 95 / 85 colour zones, status badge, and three
+          bold support numbers (Open Last Month | Fixed Last Month | Fixed in SLA)
+        - Right column: explanatory paragraph (left-aligned)
+        - Below, full width: Top-5 worst-performing BUs table
         """
         if data.error:
             return (
@@ -637,15 +638,12 @@ class CriticalRemediationSLAModule(BaseModule):
   combined with still-open findings; see the calculations document for detail.</em>
 </p>"""
 
-        return f"""
-<div class="module-section">
-  <h2 class="section-heading">{self.DISPLAY_NAME}</h2>
-  {gauge_html}
-  {status_html}
-  {support_html}
-  {bu_table_html}
-  {explain_html}
-</div>"""
+        return two_column_metric_section(
+            heading_html=f'<h2 class="section-heading">{self.DISPLAY_NAME}</h2>',
+            left_html=f"{gauge_html}{status_html}{support_html}",
+            explanation_html=explain_html,
+            full_width_html=bu_table_html,
+        )
 
     # ------------------------------------------------------------------
     # render_excel_tabs()

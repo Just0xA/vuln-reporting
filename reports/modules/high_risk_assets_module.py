@@ -32,6 +32,7 @@ from openpyxl.utils import get_column_letter
 
 from reports.modules.base import BaseModule, ModuleConfig, ModuleData
 from reports.modules.registry import register_module
+from reports.modules.board_pdf_layout import two_column_metric_section
 from config import RISK_WEIGHTS
 from reports.modules.board_report_utils import (
     compute_bu_risk_scores,
@@ -492,13 +493,14 @@ class HighRiskAssetsModule(BaseModule):
         """
         Render a full-page PDF section for WeasyPrint.
 
-        Layout (top to bottom):
-        1. Section heading
-        2. Gauge (centred) — green near 0%, red near 100%
-        3. Status badge showing high-risk % and on-target label
-        4. Two bold support numbers: High-Risk Assets | Total On-Time Assets
-        5. Top-5 worst-performing BUs table (highest % first)
-        6. Explanatory paragraph
+        Layout (two-column row via ``two_column_metric_section`` to avoid the
+        page bleed a stacked explanation caused):
+        - Section heading (full width)
+        - Left column: gauge (green near 0%, red near 100%), status badge
+          showing high-risk % and on-target label, and two bold support numbers
+          (High-Risk Assets | Total On-Time Assets)
+        - Right column: explanatory paragraph (left-aligned)
+        - Below, full width: Top-5 worst-performing BUs table (highest % first)
 
         Returns an error callout div if ``data.error`` is set.
         """
@@ -630,15 +632,12 @@ class HighRiskAssetsModule(BaseModule):
   the Tenable &ldquo;Application&rdquo; tag category.
 </p>"""
 
-        return f"""
-<div class="module-section">
-  <h2 class="section-heading">{self.DISPLAY_NAME}</h2>
-  {gauge_html}
-  {status_html}
-  {support_html}
-  {bu_table_html}
-  {explain_html}
-</div>"""
+        return two_column_metric_section(
+            heading_html=f'<h2 class="section-heading">{self.DISPLAY_NAME}</h2>',
+            left_html=f"{gauge_html}{status_html}{support_html}",
+            explanation_html=explain_html,
+            full_width_html=bu_table_html,
+        )
 
     # ------------------------------------------------------------------
     # render_excel_tabs()
