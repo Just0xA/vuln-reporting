@@ -313,22 +313,65 @@ sudo journalctl -u vuln-reports -f
 ### Allow the updater to restart the service
 
 `update_from_github.sh` calls `sudo systemctl restart vuln-reports.service` after every
-swap and rollback. You must either:
+swap and rollback. Two invocation models are supported:
 
-- **Run the updater as root** — always invoke it with `sudo` (as shown throughout this
-  guide), or
-- **Grant the service account a scoped sudoers entry** — required if you automate updates
-  as the `vuln-reports` account (e.g. from cron). Without it the restart fails silently
-  for the non-interactive account and the post-swap health check auto-rolls-back **every**
-  upgrade regardless of release health:
+**Run as root (default — recommended for manual and interactive upgrades)**
 
-  ```bash
-  # /etc/sudoers.d/vuln-reports-restart  (validate with: sudo visudo -c)
-  vuln-reports ALL=(root) NOPASSWD: /bin/systemctl restart vuln-reports.service
-  ```
+Always invoke the updater with `sudo` (as shown throughout this guide):
 
-  Confirm the `systemctl` path with `command -v systemctl` — some distros use
-  `/usr/bin/systemctl`; the sudoers path must match exactly.
+```bash
+sudo /opt/vuln-reporting/current/scripts/update_from_github.sh --version v1.2.1
+```
+
+The updater automatically restores service-account ownership on the new release directory
+(and its `.venv`) after provisioning, using the owner of `${INSTALL_ROOT}/releases/` as the
+reference. This means a root-run upgrade no longer leaves a `root:root`-owned tree that the
+`ProtectSystem=strict` service cannot read, which previously caused the post-swap health check
+to auto-rollback every clean upgrade.
+
+**Run as the `vuln-reports` service account (for cron automation)**
+
+Supported for flexibility — for example, if you want a cron job to run as the service account
+rather than as root. In this mode the updater skips the ownership fix (the files are already
+owned by the invoking account, which is the service account). This mode **requires** the scoped
+sudoers entry below; without it the `systemctl restart` call fails for the non-interactive
+account and the post-swap health check auto-rolls-back every upgrade regardless of release
+health:
+
+```bash
+# /etc/sudoers.d/vuln-reports-restart  (validate with: sudo visudo -c)
+vuln-reports ALL=(root) NOPASSWD: /bin/systemctl restart vuln-reports.service
+```
+
+Confirm the `systemctl` path with `command -v systemctl` — some distros use
+`/usr/bin/systemctl`; the sudoers path must match exactly.
+
+**Proxy variables for the service-account path**
+
+When the updater is invoked as the `vuln-reports` service account (e.g. from a cron job or
+wrapper script), `curl` (release download) and `pip` (venv provisioning) need outbound internet
+access. The proxy environment variables that your AD user inherits automatically are **not**
+inherited by the service account.
+
+Set `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` (and their lower-case equivalents `http_proxy`,
+`https_proxy`, `no_proxy`, which `curl` also honors) on the invocation line or in the wrapper
+script — **not** in `shared/.env`. The updater reads only `GITHUB_RELEASE_REPO` and
+`GITHUB_TOKEN` from `shared/.env`; it does not export those values to `curl` or `pip`, so
+proxy settings there have no effect (same chicken-and-egg constraint as `INSTALL_ROOT` — see
+[Relocating the install base](#relocating-the-install-base)).
+
+Example cron/wrapper invocation as the service account:
+
+```bash
+HTTPS_PROXY=http://proxy.corp.example.com:8080 \
+NO_PROXY=localhost,127.0.0.1,.corp.example.com \
+http_proxy=http://proxy.corp.example.com:8080 \
+https_proxy=http://proxy.corp.example.com:8080 \
+no_proxy=localhost,127.0.0.1,.corp.example.com \
+  /opt/vuln-reporting/current/scripts/update_from_github.sh --version v1.2.1
+```
+
+If no proxy is required on your network, ignore this subsection entirely.
 
 ---
 
