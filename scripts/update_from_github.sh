@@ -23,6 +23,7 @@
 #   13  post-swap health check failed AND auto-rollback ALSO failed (critical; manual recovery)
 #   14  --rollback: .last missing/empty/invalid (no rollback history; use --list + --version)
 #   15  --rollback: atomic swap or systemctl restart failed
+#   16  chown of new release dir failed (could not restore service-account ownership; run as root)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -541,6 +542,58 @@ symlink_shared() {
 }
 
 # ---------------------------------------------------------------------------
+# Release-dir ownership fix (260602-jqg)
+# ---------------------------------------------------------------------------
+
+# fix_release_ownership TARGET_DIR
+# When running as root, restores service-account ownership on the new release
+# dir (including its .venv) so that ProtectSystem=strict + chmod 750 lets the
+# service read it.  Owner/group is derived from ${INSTALL_ROOT}/releases via
+# GNU stat — so alternate INSTALL_ROOT values require no special-casing.
+#
+# Non-root invocations skip the chown entirely (files are already owned by the
+# invoking account, which IS the service account in that mode).
+#
+# Must be called AFTER provision_venv (so .venv contents are covered) and
+# BEFORE the PARTIAL_RELEASE_DIR="" disarm so a chown failure still triggers
+# the EXIT-trap partial-dir cleanup.
+fix_release_ownership() {
+  local target_dir="$1"
+
+  # Non-root: nothing to do — files are already owned by the invoking account.
+  if [ "$(id -u)" -ne 0 ]; then
+    log_line "fix_release_ownership: non-root invocation; skipping chown (files already correctly owned)"
+    return 0
+  fi
+
+  # Derive the intended owner from the trusted releases/ directory.
+  local intended_owner
+  if ! intended_owner="$(stat -c '%U:%G' "${INSTALL_ROOT}/releases" 2>/dev/null)"; then
+    log_completed "failed: could not determine intended owner from ${INSTALL_ROOT}/releases (stat)"
+    exit 16
+  fi
+
+  # Check the current owner of the new release dir.
+  local current_owner
+  current_owner="$(stat -c '%U:%G' "$target_dir" 2>/dev/null || true)"
+
+  if [[ "$current_owner" == "$intended_owner" ]]; then
+    log_line "fix_release_ownership: ${target_dir} already owned by ${intended_owner}; skipping chown"
+    return 0
+  fi
+
+  log_line "chowning ${target_dir} → ${intended_owner} (running as root)"
+  # Default chown -R (no -L/-H) changes the symlinks themselves, not their
+  # shared/ targets — intentional: shared/ stays service-account-owned.
+  # Do NOT add -L or -H; doing so would follow symlinks into shared/ and change
+  # ownership there, which would break shared-dir permissions for every release.
+  if ! chown -R "${intended_owner}" "$target_dir"; then
+    log_completed "failed: chown -R of ${target_dir} to ${intended_owner} returned non-zero"
+    exit 16
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Smoke dry-run (plan 10-02, UPDATE-02)
 # ---------------------------------------------------------------------------
 
@@ -870,6 +923,7 @@ cmd_install() {
 
   provision_venv "$TARGET_DIR"
   symlink_shared "$TARGET_DIR"
+  fix_release_ownership "$TARGET_DIR"
 
   # Disarm partial-dir trap BEFORE the smoke test so that a dry-run failure
   # leaves the release dir intact for operator inspection.  The operator needs
