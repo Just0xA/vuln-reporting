@@ -65,6 +65,12 @@ htmlcov/
 # Local test scratch/debug artifacts — keep test code tracked, ignore binaries/dumps
 tests/**/*.parquet
 tests/**/debug_*.json
+tests/**/debug_*.txt
+# Local-only diagnostic/analysis scratch scripts (run by hand, not part of the pytest suite)
+tests/diagnose_*.py
+tests/analyze_*.py
+tests/validate_*.py
+tests/test_modules_level*.py
 output/test-eml/
 
 # =============================================================================
