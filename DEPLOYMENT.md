@@ -373,6 +373,64 @@ no_proxy=localhost,127.0.0.1,.corp.example.com \
 
 If no proxy is required on your network, ignore this subsection entirely.
 
+### Schedule reports with cron (alternative to the systemd daemon)
+
+The systemd service described in "Install and start the systemd service" above is the
+recommended path for scheduled delivery. If you prefer a cron-based schedule instead,
+this subsection covers the first-time setup. **Use cron OR the daemon — not both at the
+same time for scheduled delivery.** Running both doubles every delivery and may produce
+race conditions on the parquet cache.
+
+The ready-to-use crontab file ships at [`deploy/crontab.example`](deploy/crontab.example).
+Review and adjust the timing before installing (see comments inside the file), then install
+it as the service account:
+
+```bash
+sudo -u vuln-reports crontab - < /opt/vuln-reporting/current/deploy/crontab.example
+```
+
+The example file contains two cron lines: a `warm_cache` pre-warmer that runs before any
+report group fires, and a `scheduler.py --mode run-due` line invoked every 5 minutes to
+fire any group whose schedule matches the current time within a ±10-minute window.
+
+**TIMING RULE A — schedule `warm_cache` at least 30 minutes before your earliest report group.**
+The fetch must complete before the report run starts. With a 07:00 earliest group, schedule
+`warm_cache` at 06:15 or earlier. Adjust both times to match your actual earliest group. If
+the dataset is large and the fetch takes longer than 30 minutes, push the warm-cache time
+earlier accordingly.
+
+**TIMING RULE B — never schedule `warm_cache` near midnight.**
+Cache folders are named by server local date (`YYYY-MM-DD`), not UTC. If `warm_cache.py`
+fires at 23:55 and the report run fires at 00:05, the date rolls over between the two runs
+and the report run will not find the cached data — it re-fetches everything from Tenable,
+defeating the point of pre-warming. Keep warm-cache well before midnight (e.g. 06:15
+satisfies both rules with comfortable margins).
+
+**`cd` into the project root — required.**
+`warm_cache.py` imports project-root modules (`config`, `data`, `tenable_client`), and
+`python -m` only adds the current working directory to `sys.path`. Cron's default CWD is
+the service account's home directory, not the project root, so the `cd` at the start of
+each cron line is not optional.
+
+**Per-release `.venv` path.**
+The updater builds a virtual environment at `current/.venv/` for each release. The cron
+lines use `/opt/vuln-reporting/current/.venv/bin/python`. Operators on an older hand-built
+install may need `/opt/vuln-reporting/.venv/bin/python` instead.
+
+**Non-default `INSTALL_ROOT`.**
+If the suite is installed somewhere other than `/opt/vuln-reporting` (see
+[Relocating the install base](#relocating-the-install-base)), every path occurrence in each
+cron line must change together: the `cd` target, the interpreter path, and the `>>` log-redirect
+path. Changing only the `cd` target while leaving the interpreter or log path pointing at the
+old base will silently break the pre-warmer or discard its output.
+
+**Cron log files are NOT auto-rotated.**
+The `>>` redirects in the cron lines capture cron-level stdout/stderr into
+`warm_cache.cron.log` and `run-due.cron.log` under `shared/logs/`. These files are not
+covered by the scripts' own rotating log handlers. See the logrotate snippet in
+[`deploy/crontab.example`](deploy/crontab.example) (comments inside the file) to set up
+rotation — or truncate them periodically.
+
 ---
 
 ## Update Procedure

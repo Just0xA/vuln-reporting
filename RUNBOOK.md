@@ -366,18 +366,11 @@ share cached data, which is intentional and reduces API load.
 
 ## Operational Cron Schedule
 
-If you prefer not to run the systemd daemon, you can use cron to invoke
-`scheduler.py --mode run-due` on a regular cadence. **Use cron OR the daemon —
-not both at the same time for scheduled delivery.**
+> **First-time cron setup** (installing `crontab.example`, the two timing rules, `INSTALL_ROOT`
+> path adjustment, and the cron-or-daemon choice) is covered in [DEPLOYMENT.md](DEPLOYMENT.md)
+> under "Schedule reports with cron (alternative to the systemd daemon)".
 
-The ready-to-use crontab file is at [`deploy/crontab.example`](deploy/crontab.example).
-Install it as the `vuln-reports` user:
-
-```bash
-sudo -u vuln-reports crontab - < /opt/vuln-reporting/current/deploy/crontab.example
-```
-
-Review and adjust the timing before installing (see comments inside the file).
+This section covers day-to-day cron operation for an already-configured install.
 
 ---
 
@@ -390,50 +383,59 @@ so it can catch any scheduled group within that window.
 
 ---
 
-### Warm-cache cron line
+### Adjusting cron timing when delivery groups change
 
-`warm_cache.py` pre-fetches the four Tenable datasets
-(vulnerabilities, fixed vulnerabilities, assets, recast rules) into parquet
-files so that the report run hits `[CACHE HIT]` instead of fetching live.
+When you add a new delivery group or change an existing group's scheduled time, check
+whether the warm-cache line still fires early enough. `warm_cache` must finish before
+the earliest group fires — see [DEPLOYMENT.md](DEPLOYMENT.md) for the timing rules.
 
-Two timing rules govern when to schedule this line:
+To edit the installed crontab:
 
-1. **≥30 minutes before the earliest report group.** The fetch must complete
-   before the report run starts. With a 07:00 earliest group, schedule at
-   06:15 or earlier.
+```bash
+sudo -u vuln-reports crontab -e
+```
 
-2. **Never near midnight.** Cache folders are named by server local date
-   (`YYYY-MM-DD`). If `warm_cache.py` fires at 23:55 and the report runs at
-   00:05, the cache folder name changes between the two and the report run
-   will not find the cached data — it will re-fetch everything.
+After adjusting, run a dry-run to confirm the config is still valid:
 
-The example file schedules warm-cache at **06:15** (15 minutes past 6 AM),
-which satisfies both rules assuming a 07:00 earliest group. Adjust if your
-earliest group is earlier or the fetch takes longer than 30 minutes on your
-dataset.
+```bash
+cd /opt/vuln-reporting/current
+sudo -u vuln-reports .venv/bin/python run_all.py --dry-run
+```
 
 ---
 
-### Log rotation guidance
+### Checking warm-cache and cron logs
 
-`warm_cache.py` and `scheduler.py` write their own rotating logs to
-`/opt/vuln-reporting/shared/logs/`. The cron lines in `deploy/crontab.example`
-also redirect cron-level stdout/stderr to separate `.cron.log` files in that
-directory. Those cron log files are NOT rotated automatically — configure them
-in `logrotate` or truncate them periodically:
+The pre-warmer writes its own rotating log:
 
-```bash
-# /etc/logrotate.d/vuln-reports-cron
-/opt/vuln-reporting/shared/logs/warm_cache.cron.log
-/opt/vuln-reporting/shared/logs/run-due.cron.log {
-    daily
-    rotate 14
-    compress
-    missingok
-    notifempty
-    copytruncate
-}
 ```
+/opt/vuln-reporting/shared/logs/warm_cache.log
+```
+
+The `>>` redirect in the crontab also captures cron-level output:
+
+```
+/opt/vuln-reporting/shared/logs/warm_cache.cron.log
+/opt/vuln-reporting/shared/logs/run-due.cron.log
+```
+
+The `.cron.log` files are NOT auto-rotated. See the logrotate snippet in
+[`deploy/crontab.example`](deploy/crontab.example) to set up rotation, or
+truncate them periodically.
+
+---
+
+### Troubleshooting cache misses (report re-fetches instead of `[CACHE HIT]`)
+
+If a report run shows live fetches rather than `[CACHE HIT]` in the logs, the most
+common causes are:
+
+- **Date rollover:** `warm_cache` ran just before midnight and the report ran just
+  after — cache folder names are by server local date, so they no longer match.
+  See DEPLOYMENT.md's timing rules to keep both lines well away from midnight.
+- **Warm run still in progress:** `warm_cache` had not finished before the report
+  group fired. Push the warm-cache cron time earlier (or adjust the group's delivery
+  time later) to guarantee the fetch completes first.
 
 ---
 
