@@ -706,9 +706,13 @@ def fetch_recast_rules(tio, cache_dir: Path) -> pd.DataFrame:
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=_EMPTY_COLS)
 
     if not df.empty:
-        for col in ("expires_at", "created_at"):
-            if col in df.columns:
-                df.loc[:, col] = _parse_iso_utc(df[col])
+        updates = {
+            col: _parse_iso_utc(df[col])
+            for col in ("expires_at", "created_at")
+            if col in df.columns
+        }
+        if updates:
+            df = df.assign(**updates)
 
     logger.info(
         "fetch_recast_rules: %d active HOST RECAST/ACCEPT rules loaded.", len(df)
