@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-06-05T19:00:09.094Z"
 last_activity: 2026-06-05
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-05-19)
+See: .planning/PROJECT.md (updated 2026-06-05)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** Phase 08 — warm-cache
+**Current focus:** Phase 12 — Trend Snapshot Substrate (S1)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 12 — Trend Snapshot Substrate (S1)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-05 — Milestone v1.3 started
+Status: Roadmap defined; ready for phase planning
+Last activity: 2026-06-05 — v1.3 roadmap created (2 phases, 13 requirements mapped)
 
 ## Shipped Milestones
 
@@ -37,13 +37,21 @@ Last activity: 2026-06-05 — Milestone v1.3 started
 
 ## Performance Metrics
 
-(Reset at milestone boundary; accumulates as v1.2 phases ship.)
+(Reset at milestone boundary; accumulates as v1.3 phases ship.)
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions logged in PROJECT.md "Key Decisions" table. Prior milestone decision logs archived at `milestones/v1.0-ROADMAP.md` and `milestones/v1.1-ROADMAP.md`.
+Decisions logged in PROJECT.md "Key Decisions" table. Prior milestone decision logs archived at `milestones/v1.0-ROADMAP.md`, `milestones/v1.1-ROADMAP.md`, and `milestones/v1.2-ROADMAP.md`.
+
+### v1.3 Settled Constraints (from spikes — not open questions)
+
+- **S1 is snapshot-capture, NOT reconstruction.** Spike 002: ~29-day Tenable fixed-retention wall forbids backfill. Cold start is real. Multi-month history must accumulate forward from first snapshot.
+- **Reopened-aware predicate is mandatory.** The naive `last_fixed null OR last_fixed>D` form drops ~19% of all findings (the entire REOPENED population, ~30,500 of 160,453 in the spiked dataset). The two-interval model using `resurfaced_date` resolves it exactly (+2 of 160,453). TREND-01 requires unit tests proving this.
+- **Snapshots extend `data/trend/`, not a parallel store.** Must not regress `management_summary` or any other existing trend consumer.
+- **PII discipline (D-04-08) applies to snapshot payloads.** Aggregate counts only; no hostnames, IPs, plugin names, or asset-level fields in persisted files.
+- **SEG-03 exception list is operator-facing local output only.** Never committed, never emailed.
 
 ### Pending Todos
 
@@ -81,7 +89,7 @@ None at roadmap creation.
 
 ## Deferred Items
 
-Carried forward from v1.0 + v1.1; not in scope for v1.2.
+Carried forward from v1.0 + v1.1; not in scope for v1.2 or v1.3.
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
@@ -95,7 +103,7 @@ Carried forward from v1.0 + v1.1; not in scope for v1.2.
 
 ## Session Continuity
 
-Last session: 2026-05-20T12:27:43.175Z
-Stopped at: v1.2 roadmap defined; 5 phases mapped to 39 requirements.
+Last session: 2026-06-05
+Stopped at: v1.3 roadmap defined; 2 phases mapped to 13 requirements.
 Resume file: None
-Next command: `/gsd:plan-phase 7`
+Next command: `/gsd:plan-phase 12`

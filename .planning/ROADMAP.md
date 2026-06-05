@@ -5,7 +5,7 @@
 - ✅ **v1.0 Modular Reporting Framework** — Phases 1–4 (shipped 2026-05-08) — [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md)
 - ✅ **v1.1 PDF Chrome Redesign** — Phases 5–6 (shipped 2026-05-13) — [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 Deployment & Self-Update Infrastructure** — Phases 7–11 (shipped 2026-05-22) — [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
-- 📋 **Next milestone** — TBD
+- 🔵 **v1.3 Trend & Segmentation Substrate** — Phases 12–13 (in progress)
 
 ## Phases
 
@@ -36,21 +36,54 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 
 </details>
 
+### v1.3 Trend & Segmentation Substrate (Phases 12–13)
+
+- [ ] **Phase 12: Trend Snapshot Substrate (S1)** — Canonical open-count primitive (reopened-aware), monthly snapshot capture/read, store continuity with `data/trend/`, idempotency, PII discipline, and cron-friendly entry point
+- [ ] **Phase 13: Owner Segmentation + Composition (S2 + Doc)** — Owner/BU grouping helper, Unassigned catch-all, analyst exception list, fail-soft guard, S1×S2 composition proof, and auditor runbook
+
+## Phase Details
+
+### Phase 12: Trend Snapshot Substrate (S1)
+**Goal**: The codebase has a canonical, tested open-count primitive and a snapshot-capture engine that begins accumulating monthly trend history in the existing `data/trend/` store
+**Depends on**: Phase 11 (v1.2 complete)
+**Requirements**: TREND-01, TREND-02, TREND-03, TREND-04, TREND-05, TREND-06, TREND-07
+**Success Criteria** (what must be TRUE):
+  1. `open_findings_at(df, date)` returns the correct open count at any date using the reopened-aware two-interval predicate, passes unit tests covering OPEN / REOPENED / FIXED labelled cases, and matches the actual live open count exactly
+  2. Running the snapshot entry point twice for the same calendar month produces one snapshot (idempotent overwrite), and running it for a new month appends without touching prior months
+  3. A second report that calls `read_trend()` after two monthly snapshots exist receives a month-over-month series without crashing; calling it with only one snapshot (cold-start) returns available history and a flag, not an exception
+  4. Snapshot files live under `data/trend/`, share the JSON shape already consumed by `management_summary`, and the existing `management_summary` trend output is byte-for-byte unchanged after the substrate is wired in
+  5. Snapshot payloads contain only aggregate counts (no hostnames, IPs, plugin names, or other row-level fields); operator can confirm by inspecting a written file
+**Plans**: TBD
+
+### Phase 13: Owner Segmentation + Composition (S2 + Doc)
+**Goal**: Findings and assets can be grouped by Owner tag with a lossless Unassigned catch-all, the combination with the trend primitive is proven end-to-end, and an auditor-facing runbook documents both substrates
+**Depends on**: Phase 12
+**Requirements**: SEG-01, SEG-02, SEG-03, SEG-04, SEG-05, DOC-01
+**Success Criteria** (what must be TRUE):
+  1. Calling the segmentation helper on a real or synthetic findings DataFrame returns per-Owner buckets whose counts sum to the total, with all untagged assets collected under a single `Unassigned` bucket (label configurable)
+  2. When the `Owner` tag category is entirely absent or zero assets carry it, the helper returns everything under `Unassigned` and does not raise — existing reports that call it continue to deliver
+  3. The analyst exception list of untagged assets is written as a local Excel/CSV file; it is not attached to any email or committed to the repository
+  4. `capture_snapshot` accepts an `owner` dimension argument and writes per-Owner open counts into the snapshot store; `read_trend` can retrieve a month-over-month series for a specific Owner — proving S1 and S2 compose end-to-end
+  5. `docs/trend_and_segmentation_calculations.md` exists, documents the two-interval open predicate, the ~29-day Tenable fixed-retention constraint and forward-accumulation model, and the Owner/Unassigned segmentation model in the established `docs/*_calculations.md` style
+**Plans**: TBD
+
 ## Progress
 
-| Phase                          | Milestone | Plans Complete | Status   | Completed  |
-| ------------------------------ | --------- | -------------- | -------- | ---------- |
-| 1. Module Render Contract      | v1.0      | 3/3            | Complete | 2026-05-05 |
-| 2. ReportComposer Upgrades     | v1.0      | 5/5            | Complete | 2026-05-06 |
-| 3. Board Summary Migration     | v1.0      | 7/7            | Complete | 2026-05-07 |
-| 4. YAML Opt-out + Regression   | v1.0      | 4/4            | Complete | 2026-05-08 |
-| 5. PDF Chrome Foundation       | v1.1      | 4/4            | Complete | 2026-05-13 |
-| 6. Cover Redesign + Board Int. | v1.1      | 5/5            | Complete | 2026-05-13 |
-| 7. Foundations                 | v1.2      | 2/2            | Complete | 2026-05-19 |
-| 8. Warm Cache                  | v1.2      | 2/2            | Complete | 2026-05-19 |
-| 9. CI/Release Automation       | v1.2      | 2/2            | Complete | 2026-05-19 |
-| 10. Install / Update / Rollback | v1.2     | 3/3            | Complete | 2026-05-19 |
-| 11. Documentation              | v1.2      | 2/2            | Complete | 2026-05-20 |
+| Phase                          | Milestone | Plans Complete | Status      | Completed  |
+| ------------------------------ | --------- | -------------- | ----------- | ---------- |
+| 1. Module Render Contract      | v1.0      | 3/3            | Complete    | 2026-05-05 |
+| 2. ReportComposer Upgrades     | v1.0      | 5/5            | Complete    | 2026-05-06 |
+| 3. Board Summary Migration     | v1.0      | 7/7            | Complete    | 2026-05-07 |
+| 4. YAML Opt-out + Regression   | v1.0      | 4/4            | Complete    | 2026-05-08 |
+| 5. PDF Chrome Foundation       | v1.1      | 4/4            | Complete    | 2026-05-13 |
+| 6. Cover Redesign + Board Int. | v1.1      | 5/5            | Complete    | 2026-05-13 |
+| 7. Foundations                 | v1.2      | 2/2            | Complete    | 2026-05-19 |
+| 8. Warm Cache                  | v1.2      | 2/2            | Complete    | 2026-05-19 |
+| 9. CI/Release Automation       | v1.2      | 2/2            | Complete    | 2026-05-19 |
+| 10. Install / Update / Rollback | v1.2     | 3/3            | Complete    | 2026-05-19 |
+| 11. Documentation              | v1.2      | 2/2            | Complete    | 2026-05-20 |
+| 12. Trend Snapshot Substrate   | v1.3      | 0/TBD          | Not started | -          |
+| 13. Owner Segmentation + Comp. | v1.3      | 0/TBD          | Not started | -          |
 
 ## Backlog
 

@@ -57,4 +57,18 @@
 
 ## Traceability
 
-(Filled by the roadmap — each REQ maps to exactly one phase.)
+| Requirement | Phase | Status  |
+|-------------|-------|---------|
+| TREND-01    | 12    | Pending |
+| TREND-02    | 12    | Pending |
+| TREND-03    | 12    | Pending |
+| TREND-04    | 12    | Pending |
+| TREND-05    | 12    | Pending |
+| TREND-06    | 12    | Pending |
+| TREND-07    | 12    | Pending |
+| SEG-01      | 13    | Pending |
+| SEG-02      | 13    | Pending |
+| SEG-03      | 13    | Pending |
+| SEG-04      | 13    | Pending |
+| SEG-05      | 13    | Pending |
+| DOC-01      | 13    | Pending |

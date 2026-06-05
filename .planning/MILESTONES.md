@@ -4,6 +4,25 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 
 ---
 
+## v1.3 — Trend & Segmentation Substrate
+
+**Status:** In progress (started 2026-06-05)
+**Phases:** 2 (12–13) | **Plans:** TBD
+**Requirements:** 13 (TREND-01..07, SEG-01..05, DOC-01)
+
+**Goal:** Build the two shared substrates under the June-2026 report batch — a forward-accumulating monthly snapshot mechanism (S1) and an Owner/BU segmentation helper (S2) — so the v1.4 report modules become thin consumers instead of re-inventing trend and segmentation independently.
+
+**Key design constraints (settled by spikes):**
+- S1 is snapshot-capture only — Tenable's ~29-day fixed-retention wall forbids backfill (Spike 002). Cold start is real.
+- The open-count primitive must use the reopened-aware two-interval predicate; the naive form silently drops ~19% of findings (all REOPENED).
+- Snapshots extend the existing `data/trend/` store; no parallel store; `management_summary` must not regress.
+- Snapshot payloads are aggregate counts only (D-04-08 PII discipline).
+- SEG-03 analyst exception list is operator-facing local output; never committed or emailed.
+
+**Founding analysis:** [`notes/report-requests-batch-2026-06.md`](notes/report-requests-batch-2026-06.md), [`notes/trend-reconstruction-engine.md`](notes/trend-reconstruction-engine.md), [`spikes/MANIFEST.md`](spikes/MANIFEST.md) (Spikes 001–003).
+
+---
+
 ## v1.2 — Deployment & Self-Update Infrastructure
 
 **Shipped:** 2026-05-22 (v1.2.0)
