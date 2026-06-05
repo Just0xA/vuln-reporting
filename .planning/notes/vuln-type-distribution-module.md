@@ -28,10 +28,18 @@ The goal is to help leadership **see gaps in remediation efforts** by exposing w
 
 5. **Trend ships in two stages (cold start).** No App/OS/Hardware history exists today, so the month-over-month delta produces nothing until monthly snapshots accumulate. Ship **balance-now** first; the trend axis fills in over subsequent months. Leadership must not be promised a trend line on day one.
 
-## Open questions (resolve before/while building)
+## Open questions
 
-- **Empty-CPE / mixed-CPE handling — pending real-data measurement.** A meaningful share of findings carry `"cpe": []` (info/web/config plugins; the example response has a CSP-header web finding with no CPE). Decision deferred to a measurement spike: how much of the **Critical+High** set classifies cleanly by CPE prefix, and how big is the residual. Candidate fallback: a `plugin_family` → bucket map (e.g. "Red Hat Local Security Checks" is unambiguously OS even with empty CPE — often a *cleaner* OS/App signal than CPE). A visible "Unclassified" bucket is the honest floor if coverage is poor.
-- **Multi-CPE precedence.** A single finding's CPE list can mix types. Need a fixed precedence (e.g. `a > o > h`) so each finding lands in exactly one team's bucket — buckets are mutually exclusive because teams are.
+### Settled by Spike 001 (`.planning/spikes/001-cpe-coverage-crit-high/`)
+
+- **Empty-CPE handling — RESOLVED.** Only **0.8%** of Crit+High findings have empty CPE; residual is negligible. CPE prefix classifies **99.2%** cleanly. A tiny "Unclassified" tile or 3-family map absorbs the rest.
+- **Classifier shape — RESOLVED.** Pure CPE-only is **rejected**. Use **`plugin_family` override → CPE prefix → Unclassified**. CPE is the right backbone (third-party apps like Adobe/Chrome/Java/Office correctly land in Application even though their plugin_family is "Windows"), but Linux distro "Local Security Checks" families carry `cpe:/a:<package>` yet are OS/Operations work — they need a family override.
+- **Multi-CPE precedence — REFINED.** `a > o > h` is too naive for the 6.4% `{a,o}` mixed set (mostly MS Bulletins + Red Hat checks = OS patching). Use family-aware precedence: OS "Local Security Checks"/"Bulletins" families → OS even when an app CPE is present.
+
+### Still open
+
+- **Microsoft Bulletin ownership — HUMAN DECISION.** ~2,500 Crit+High `{a,o}` Microsoft-Bulletin findings: App Support or Operations? Org policy, not code. Moves ~4% of total volume between two tiles.
+- **Hardware scope.** Hardware tile is **~0** in real data (0 pure-`h` Crit+High). Confirm hardware/firmware scanning is out of scope (then consider hiding the tile when empty, or a 2-tile App/OS design) vs. investigating why hardware findings lack CPE.
 - **Snapshot persistence mechanism.** The trend axis needs a monthly snapshot of per-bucket Crit+High counts. Open: write the module's own snapshot, or piggyback the existing trend-snapshot infrastructure (`data/trend/`, used by `management_summary`)?
 
 ## Data reality (verified 2026-06-05)
