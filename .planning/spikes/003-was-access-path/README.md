@@ -43,14 +43,20 @@ The doc research above described `tio.exports.was()`, which **does not exist in 
 
 ## Results
 
-**VERDICT: PARTIAL ⚠ — access path RESOLVED but HEAVIER than docs implied (scan-centric `tio.was` in 1.5.2); tenant facts still need the corrected live probe.**
+**VERDICT: VALIDATED (with constraints) ✓ — fully answered by docs + live probe.** WAS is licensed and reachable. Access is HEAVY (separate scan-centric export). On the pinned 1.5.2 `tio.was`: no VPR (severity = `risk_factor`/CVSS) and no lifecycle fields (no trend/SLA). Supporting trend/SLA requires a pyTenable upgrade to `tio.exports.was()` — a real decision against the SDK-version constraint. The External report can ship current-posture web findings on 1.5.2 today; trend/SLA on WAS is gated on the upgrade.
 
 - **Bottom line: HEAVY — build a new WAS fetcher.** WAS is a distinct export endpoint with its own schema; cannot be done by projecting more `exports.vulns()` fields. Effort is moderate-within-heavy because `exports.was()` mirrors the existing vulns export pattern (new fetcher + cache dataset + normalization + the external-scope join).
 
-**Still requires a live tenant probe (run `probe_live.py`):**
-1. Is the tenant **WAS-licensed** at all? (VM-only → no data; report degrades to infra-only external.)
-2. Is **`vpr_score` populated** on WAS findings? **Critical for this codebase** — severity/SLA logic is VPR-first (`config.vpr_to_severity`). If WAS lacks VPR, it falls back to native severity everywhere; confirm the fallback is acceptable for the External report.
-3. Full chunk field schema (CWE, CVE, request/response payload field names) for the report's columns.
+**Live probe results (pyTenable 1.5.2 `tio.was.export()`, 50 findings sampled, 2026-06-05):**
+1. **WAS IS licensed and reachable.** (A malformed-filter run returned `400 INVALID_SEARCH_PARAM` — auth/endpoint OK; the configs/search AND group needs ≥2 conditions. Corrected → 50 findings.)
+2. **🔴 No VPR, no `severity` field.** `vpr populated: 0/50`. WAS severity is **`risk_factor`** (CVSS-derived: info/low/medium/high/critical). The codebase is VPR-first — so the External/WAS report needs a **`risk_factor`/CVSS-based severity derivation**; VPR SLA bands do not apply to web findings.
+3. **🔴 No lifecycle fields via 1.5.2 `tio.was`.** Finding records have **no `state`, `first_found`, `last_found`, or `last_fixed`** — they are per-scan snapshots. This path **cannot support MoM trend or SLA-aging**. The newer unified `tio.exports.was()` (pyTenable upgrade only) *does* carry those — strengthens the upgrade case.
+4. **Info noise present.** Sample finding was `risk_factor:'info'` ("Performance Telemetry") — must filter `risk_factor != 'info'`, like Informational on the VM side.
+5. **Field schema (confirmed):** `uri, name, family, synopsis, description, solution, see_also, risk_factor, owasp, cwe, wasc, cves, bid, xrefs, cvss, cvss_vector, cvssv3(+_vector), cvssv4(+_vector), input_name, input_type, payload, proof, request_headers, response_headers, output, attachments, plugin_id, plugin_publication_date, plugin_modification_date`.
+
+**The pyTenable-version decision is now the crux** (not just licensing):
+- **Stay on 1.5.2 `tio.was`:** current-scan snapshots only — no lifecycle → **no trend/SLA**. Viable only for a current-posture external web list. Plus undocumented endpoint + per-scan downloads + client-side filtering.
+- **Upgrade pyTenable for `tio.exports.was()`:** lifecycle fields (`state/first_found/last_found/last_fixed`) + finding-level filters → supports trend/SLA. Cost: SDK bump vs the "no SDK adoption without explicit decision" constraint + VM-fetcher regression risk (needs a regression pass).
 
 ### Signal for the build
 - Scope the External report as **infra-external (tagged-external OR public IPv4) + a new WAS fetcher**, with WAS gated on the licensing probe AND the pyTenable-version decision.

@@ -62,9 +62,13 @@ def main() -> None:
     sample_finding: dict | None = None
 
     try:
-        # Scan-level filter; broad so we see whatever exists. Cap iteration hard.
+        # WAS configs/search requires an AND/OR group of >=2 conditions
+        # ("Expecting an array of 2 or more"). Broad date floor + completed status.
         it = tio.was.export(
-            and_filter=[("scans_status", "contains", ["completed"])]
+            and_filter=[
+                ("scans_started_at", "gte", "2000/01/01"),
+                ("scans_status", "contains", ["completed"]),
+            ]
         )
         for rec in it:
             sampled += 1
