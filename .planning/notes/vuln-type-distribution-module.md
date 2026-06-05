@@ -26,7 +26,7 @@ The goal is to help leadership **see gaps in remediation efforts** by exposing w
 
 4. **Classification source is already in the data.** `data/fetchers.py:343` already pulls `plugin.cpe` into `vulns_df` as a comma-joined string. No new fetch is required. The classifier is the CPE part letter (`a` / `o` / `h`) in CPE 2.2 form (`cpe:/a:vendor:product`).
 
-5. **Trend ships in two stages (cold start).** No App/OS/Hardware history exists today, so the month-over-month delta produces nothing until monthly snapshots accumulate. Ship **balance-now** first; the trend axis fills in over subsequent months. Leadership must not be promised a trend line on day one.
+5. **Trend ships in two stages (cold start) — likely SUPERSEDED.** Originally: no App/OS/Hardware history exists, so the MoM delta produces nothing until monthly snapshots accumulate (ship balance-now, trend fills in later). **Update (2026-06-05):** the [[trend-reconstruction-engine]] reconstructs per-bucket history retroactively from `first_found`/`last_fixed`, which would **eliminate the cold start** — VTD-01 could ship with trend from day one. If the substrate is built first (recommended in [[report-requests-batch-2026-06]]), drop the snapshot/two-stage plan and consume the engine instead.
 
 ## Open questions
 
