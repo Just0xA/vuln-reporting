@@ -36,10 +36,14 @@ The goal is to help leadership **see gaps in remediation efforts** by exposing w
 - **Classifier shape — RESOLVED.** Pure CPE-only is **rejected**. Use **`plugin_family` override → CPE prefix → Unclassified**. CPE is the right backbone (third-party apps like Adobe/Chrome/Java/Office correctly land in Application even though their plugin_family is "Windows"), but Linux distro "Local Security Checks" families carry `cpe:/a:<package>` yet are OS/Operations work — they need a family override.
 - **Multi-CPE precedence — REFINED.** `a > o > h` is too naive for the 6.4% `{a,o}` mixed set (mostly MS Bulletins + Red Hat checks = OS patching). Use family-aware precedence: OS "Local Security Checks"/"Bulletins" families → OS even when an app CPE is present.
 
+### Decided by requestor (2026-06-05)
+
+- **Microsoft Bulletin ownership → Operations/OS** (default). The `plugin_family` → bucket map is **config-driven** so the App/OS boundary is tuned in config, not code, if policy changes.
+- **Hardware tile hidden when empty.** Render Hardware only when non-zero; no permanent 3-tile promise.
+- **Auditor-facing explanation doc** (`docs/vuln_type_distribution_calculations.md`) ships with the module, alongside the existing `docs/*_calculations.md` runbooks — documents the classifier, the family-override list, the MS-Bulletin/distro routing decisions, and the Crit+High definition, so leaders/auditors have a rationale on request.
+
 ### Still open
 
-- **Microsoft Bulletin ownership — HUMAN DECISION.** ~2,500 Crit+High `{a,o}` Microsoft-Bulletin findings: App Support or Operations? Org policy, not code. Moves ~4% of total volume between two tiles.
-- **Hardware scope.** Hardware tile is **~0** in real data (0 pure-`h` Crit+High). Confirm hardware/firmware scanning is out of scope (then consider hiding the tile when empty, or a 2-tile App/OS design) vs. investigating why hardware findings lack CPE.
 - **Snapshot persistence mechanism.** The trend axis needs a monthly snapshot of per-bucket Crit+High counts. Open: write the module's own snapshot, or piggyback the existing trend-snapshot infrastructure (`data/trend/`, used by `management_summary`)?
 
 ## Data reality (verified 2026-06-05)
