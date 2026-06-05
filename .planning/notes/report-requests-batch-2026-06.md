@@ -55,6 +55,6 @@ Rationale: building any single report first (even the spiked-and-ready VTD-01) m
 ## Open decisions for milestone scoping
 - Confirm substrate-first vs ship-VTD-01-first.
 - Decide whether GEN-01 (`management_summary` migration) is folded into the substrate milestone.
-- **WAS access path (#3) — RESOLVED by Spike 003 (docs):** separate export → HEAVY new fetcher. Remaining: live tenant probe for WAS licensing + VPR-on-WAS (`spikes/003-was-access-path/probe_live.py`).
+- **WAS access path (#3) — Spike 003:** separate export → HEAVY new fetcher. Live probe showed pinned **pyTenable 1.5.2 lacks `tio.exports.was()`**; only the scan-config-driven `tio.was.export()` exists (undocumented internal endpoint, per-scan report downloads, client-side severity/state/VPR filtering). **New decision: upgrade pyTenable** (cleaner unified `tio.exports.was()`, but violates the SDK-version constraint + risks regressing VM fetchers) **vs build on 1.5.2 `tio.was`** (fragile, heavier). Remaining: corrected live probe for WAS licensing + VPR-on-WAS (`spikes/003-was-access-path/probe_live.py`).
 - **MTTR resolved-population (#4)**: what counts as "resolved" for the denominator — exclude reopened? exclude risk-accepted/recast? count only first-time fixes? Decide at plan-time; shapes every MTTR number.
 - **MTTR is a rework** (settled): all four gaps in scope — trend, honesty, Owner/BU, population.
