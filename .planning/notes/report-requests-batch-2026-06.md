@@ -33,8 +33,8 @@ Eight reports are now on the table (VTD-01 + seven new requests). Laid side-by-s
 
 ## The three shared substrates
 
-### S1 — Trend-reconstruction engine (KEYSTONE)
-Nearly every report needs month-over-month. Instead of accumulating snapshots, **reconstruct the historical open-population from the current finding set** using `first_found / last_fixed / state / severity`. Powers VTD-01 trend, #2, #5, #6, #7 directly and #1's prev-month delta. Retires snapshot-based `data/trend/`. Full design + caveats: [[trend-reconstruction-engine]] (`notes/trend-reconstruction-engine.md`).
+### S1 — Trend substrate (KEYSTONE) — reframed by Spike 002
+Nearly every report needs month-over-month. The original idea was to **reconstruct** history from `first_found/last_fixed/state` and retire snapshots. **Spike 002 INVALIDATED that** — Tenable retains fixed findings only ~29 days, so multi-month history can't be backfilled. The real substrate is a **snapshot-capture engine**: persist monthly open-counts (by dimension) + the in-retention fixed export from now forward; reconstruction serves current-state + the last ~29 days only. Still powers VTD-01, #2, #5, #6, #7, #1 — but via accumulated snapshots, with a real cold start. It also **must** use the reopened-aware two-interval predicate (the naive one drops ~19% of findings). Full design + caveats: [[trend-reconstruction-engine]]; spike: [`spikes/002-trend-reconstruction-lookback/`](spikes/002-trend-reconstruction-lookback/).
 
 ### S2 — Owner / Business Unit segmentation
 Cross-cutting "supporting data" cut (#1, #2 explicit; natural for most). **Status (requestor, 2026-06-05):** partially rolled out via the **`Owner` tag category**; some systems untagged. Required behavior: group by `Owner`, bucket untagged as **`Unassigned`** (catch-all that self-retires as tagging completes), and **emit an analyst alert / exception list of untagged assets** to be defined. Same shape as the existing `unscanned_assets` companion and VTD-01's "Unclassified" bucket. Note: `business_unit` is the *goal* dimension; see [[project_business_unit_interim_application]] for the interim-`Application` history.

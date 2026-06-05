@@ -14,10 +14,12 @@ Design decisions that emerged during spiking. Non-negotiable for the real build.
 - **Microsoft Bulletin ownership — DECIDED (requestor, 2026-06-05):** MS patch-Tuesday Bulletins default to **Operations/OS**. The family→bucket map is **config-driven** so this boundary is changed in config, not code.
 - **Hardware tile — DECIDED:** Hardware is ~0 today; **hide the Hardware tile when empty** (render only when non-zero). Don't promise a permanent 3-tile design.
 - **Auditor-facing explanation doc REQUIRED:** ship a `docs/vuln_type_distribution_calculations.md` runbook (alongside the existing `docs/*_calculations.md` set) documenting the classification rule, the family override list, the MS-Bulletin/distro decisions, and the Crit+High definition — so leaders/auditors have a rationale on request.
-- **Trend has a cold start** — ship balance-now; monthly per-bucket snapshots accumulate the MoM axis over subsequent months.
+- **Trend requires forward snapshots — reconstruction does NOT backfill history (Spike 002).** Tenable retains fixed findings only ~29 days, so multi-month history can't be rebuilt from a current export. The substrate is a **snapshot-capture engine** (persist monthly open-counts + the in-retention fixed export from now forward); reconstruction is limited to current state + the last ~29 days. Cold start is real.
+- **Any "currently open" computation MUST use the reopened-aware two-interval predicate (Spike 002).** The naive `last_fixed null OR last_fixed>D` form silently drops all REOPENED findings (~19% of open). Latent-bug warning for current-state modules, not just trend.
 
 ## Spikes
 
 | # | Name | Type | Validates | Verdict | Tags |
 |---|------|------|-----------|---------|------|
 | 001 | cpe-coverage-crit-high | standard | CPE-prefix classification of Crit+High is high-coverage AND team-ownership-accurate enough to drive the exec metric | ⚠ PARTIAL — CPE backbone validated (99.2% coverage), pure-CPE rejected; plugin_family override required | cpe, classification, vpr, plugin-family, exec-metric |
+| 002 | trend-reconstruction-lookback | standard | History reconstructed from current findings is accurate months back, replacing snapshots without a cold start | ⚠ PARTIAL — current-state predicate validated (reopened-aware), but multi-month reconstruction INVALIDATED by ~29d Tenable fixed-retention wall; snapshots still required | trend, reconstruction, retention, snapshots, reopened, substrate |

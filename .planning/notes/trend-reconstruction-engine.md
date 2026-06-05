@@ -6,6 +6,8 @@ context: Originated by the requestor during /gsd-explore while scoping post-VTD-
 
 # Trend-Reconstruction Engine
 
+> ⚠ **Spike 002 outcome (2026-06-05): the ambitious premise is INVALIDATED.** Tenable retains fixed findings only **~29 days**, so multi-month history **cannot** be reconstructed from a current export and snapshots **cannot** be retired. What survives: a reopened-aware **current-state** predicate (validated exact) and reconstruction over the **last ~29 days** only. The substrate is therefore a **snapshot-capture engine**, not a backfill engine. The original idea below is retained for context; read it through the spike's lens. See [`../spikes/002-trend-reconstruction-lookback/`](../spikes/002-trend-reconstruction-lookback/).
+
 ## The idea
 
 The current trend mechanism (`data/trend/`, used by `management_summary`) stores periodic **snapshots** and accumulates history over time — so any new trend metric has a **cold start** (no history until months pass).
