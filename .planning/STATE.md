@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: milestone
-status: shipped
-stopped_at: v1.2 milestone closed and archived; v1.2.0–v1.2.4 released and VM-validated. No active milestone.
-last_updated: "2026-05-23T01:29:00.000Z"
-last_activity: 2026-05-22
+milestone: v1.3
+milestone_name: Trend & Segmentation Substrate
+status: planning
+last_updated: "2026-06-05T19:00:09.094Z"
+last_activity: 2026-06-05
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-05-19)
 
 ## Current Position
 
-Phase: — (no active milestone)
+Phase: Not started (defining requirements)
 Plan: —
-Status: v1.2 milestone CLOSED & ARCHIVED (2026-05-22). All 5 phases (7–11) verified, 39/39 requirements satisfied, audit passed. Released v1.2.0–v1.2.4, all validated end-to-end on the Rocky 9 VM. Next milestone TBD (`/gsd-new-milestone`).
-Last activity: 2026-06-04 — Completed quick task 260604-bxa: fixed `fetch_recast_rules` parquet cache-write failure (in-place `df.loc` kept `expires_at` as object dtype holding Timestamps → fastparquet "Can't infer object conversion type"); switched to the `df.assign(**updates)` idiom used by `_normalize_*`. Verified locally.
+Status: Defining requirements
+Last activity: 2026-06-05 — Milestone v1.3 started
 
 ## Shipped Milestones
 

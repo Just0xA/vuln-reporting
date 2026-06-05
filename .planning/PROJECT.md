@@ -51,9 +51,17 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 **Codebase state (post-v1.2):** Five reports work end-to-end plus the YAML-driven `composed_report` slug. `board_summary` and `composed_report` are chrome-aware. `management_summary` + `ops_remediation` remain on legacy render paths (untouched); they will inherit chrome only after migration to the module contract (GEN-01/02 deferred). The suite is now server-deployable from signed release tarballs with scripted install/update/rollback (`scripts/update_from_github.sh`), CI-published artifacts (`.github/workflows/release.yml`), a standalone warm-cache job, and authoritative `DEPLOYMENT.md` / `RUNBOOK.md` / `README.md`.
 
-## Next Milestone Goals
+## Current Milestone: v1.3 Trend & Segmentation Substrate
 
-**TBD** — to be defined via `/gsd-new-milestone`. Candidate scope lives in the Backlog section below (GEN-01/02 module migration, GEN-03/04 YAML composition, PERF-01..04, LEGACY-01).
+**Goal:** Build the two shared substrates under the June-2026 report batch — so the report modules become a thin v1.4 batch instead of each re-inventing trend and segmentation.
+
+**Target features:**
+- **S1 — Trend snapshot substrate.** Forward-accumulating monthly snapshots of per-dimension open counts (extends `data/trend/`). Snapshot-capture, NOT reconstruction (Spike 002: ~29-day Tenable fixed-retention wall forbids backfill; cold start is real). Ships the **reopened-aware two-interval "open at date D" predicate** as the canonical open-count primitive (the naive predicate silently drops ~19% of findings).
+- **S2 — Owner/BU segmentation.** Group-by the `Owner` tag category + `Unassigned` self-retiring catch-all + an analyst exception list of untagged assets.
+
+**Out of scope (deferred):** All report modules (VTD-01, New-vs-Remediated, Vuln Density, Reopened, Program Health, Accepted/Recast) → v1.4 batch on top of these substrates. External/DMZ+WAS → gated on the pyTenable-upgrade decision (Spike 003: 1.5.2 `tio.was` has no VPR + no lifecycle). GEN-01 `management_summary` migration → v1.4 with the reports that need it.
+
+**Founding analysis:** [`notes/report-requests-batch-2026-06.md`](notes/report-requests-batch-2026-06.md), [`notes/trend-reconstruction-engine.md`](notes/trend-reconstruction-engine.md), spikes 001–003 ([`spikes/MANIFEST.md`](spikes/MANIFEST.md)), and the `spike-findings-vuln-reporting` skill.
 
 ## Backlog (deferred from prior milestones)
 
@@ -116,4 +124,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-22 after v1.2 Deployment & Self-Update Infrastructure milestone*
+*Last updated: 2026-06-05 — started v1.3 Trend & Segmentation Substrate milestone*
