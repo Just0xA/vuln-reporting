@@ -79,8 +79,8 @@ Substrates:
 Report modules (thin once S1/S2 exist; #1/#2/#4 entangle **GEN-01** `management_summary` modularization):
 - **Accepted & Recast** — current + prev-month ▲▼% infographic; by Owner/BU; uses `severity_modification_type` + `fetch_recast_rules()`. (modularizes a `management_summary` metric)
 - **Program Health Overview** — MoM velocity on totals; by Owner/BU. (overlaps `management_summary`)
-- **External (Public IP / DMZ)** — needs S3 (WAS); MoM trend.
-- **MTTR review** — exists in `management_summary`; needs requirements review pass, keep-vs-rebuild decision.
+- **External (Public IP / DMZ)** — external scope = **tagged-external OR computed public IPv4** (dual signal) + analyst flag for mismatches. Needs S3 (WAS) whose **access path is unknown → Spike 003 prerequisite** (unified `tio.exports.vulns()` vs separate `tio.was`). MoM trend (S1). Heaviest/most new-data report.
+- **MTTR — REWORK (not review)** — existing `mttr_by_severity_module.py` is a secret rolling ~30-day MTTR (fixed-retention, Spike 002), unweighted mean-of-means, reopened-inflated, no trend, no Owner/BU, legacy email channel. Needs S1 + S2 + honesty fixes + a **resolved-population decision** (exclude reopened/risk-accepted? first-time only?).
 - **Vulnerability Density** — open count / total assets, MoM.
 - **New vs Remediated** — `first_found`-in-month vs `last_fixed`-in-month; *is* S1 surfaced directly.
 - **Reopened Vulnerabilities** — `state==REOPENED` / `resurfaced_date`; build/config regression signal.

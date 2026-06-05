@@ -25,8 +25,8 @@ Eight reports are now on the table (VTD-01 + seven new requests). Laid side-by-s
 
 1. **Accepted & Recast** — current posture + previous-month infographic (up/down with % change). Exists partially in `management_summary`; wants it modular, plus Accepted/Recast **by Owner/Business Unit** as supporting data. Data: `severity_modification_type`, `recast_rule_uuid` on vulns + `fetch_recast_rules()` (both already in the codebase).
 2. **Program Health Overview** — trending month-over-month on totals, showing **velocity across the board**. Owner/BU supporting data.
-3. **External (Public IP & DMZ)** — must include **Web App Scan (WAS)** data; specific WAS fields may not be in the current `fetch_vulns` projection. MoM trend. Needs public-IP/DMZ asset scoping (tags/attributes).
-4. **Mean Time to Resolution** — already in `management_summary`; needs a **review pass + requirements discussion** to confirm it meets the ask. Not greenfield.
+3. **External (Public IP & DMZ)** — heaviest/most new-data report. **External scope = tagged-external OR computed public IPv4** (non-RFC1918) — dual signal; flag mismatches (public-IP-but-untagged / tagged-but-private) to an analyst like the Owner `Unassigned` catch-all. **Must include Web App Scan (WAS) data — access path UNKNOWN.** Org has WAS licensed + scanning but is unsure whether findings are unified in `tio.exports.vulns()` (lighter: project URL/OWASP/CWE/method fields) or live in the separate `tio.was` API (heavier: new fetcher + cache dataset). No WAS data is fetched today; current vuln projection drops all web fields. **→ Research spike before planning (Spike 003).** MoM trend (S1).
+4. **Mean Time to Resolution** — **rework, not review-and-keep** (requestor flagged all four gaps). The existing `reports/modules/mttr_by_severity_module.py` is solid but: (a) it's secretly a **rolling ~30-day MTTR** (averages over FIXED findings; fixed are retained only ~29d — Spike 002), never disclosed; (b) `overall_mttr` is an **unweighted mean-of-means** across tiers; (c) reopened findings overstate `days_to_fix` (`last_fixed − first_found` spans the whole reopen cycle); (d) no trend; (e) no Owner/BU; (f) legacy `render_email_kpis` channel, not the four-channel contract. Needs: trend (**S1**), Owner/BU (**S2**), honesty fixes (disclose window, sample-weight, reopened-aware), and a **resolved-population decision** (see Open Decisions).
 5. **Vulnerability Density** — change MoM **vs total asset count** (vulns per asset over time). Needs an asset-count denominator.
 6. **New vs Remediated** — count incoming vs remediated per month, vs prior months. **This *is* the trend-reconstruction engine surfaced directly** (`first_found` in month = new; `last_fixed` in month = remediated).
 7. **Reopened Vulnerabilities** — track build/config regressions where findings reopen. Data: `state == REOPENED`, `resurfaced_date`.
@@ -55,5 +55,6 @@ Rationale: building any single report first (even the spiked-and-ready VTD-01) m
 ## Open decisions for milestone scoping
 - Confirm substrate-first vs ship-VTD-01-first.
 - Decide whether GEN-01 (`management_summary` migration) is folded into the substrate milestone.
-- Confirm WAS field gap for #3 (research item — what `tio.exports.vulns()` WAS fields are missing from the current projection).
-- MTTR (#4): review-and-keep vs rebuild — needs its own requirements discussion.
+- **WAS access path (#3) — research spike (003)**: is WAS unified in `tio.exports.vulns()` or behind `tio.was`? Determines whether the External report is a field-projection add or a new-fetcher build. Org has WAS licensed but exposure is unconfirmed.
+- **MTTR resolved-population (#4)**: what counts as "resolved" for the denominator — exclude reopened? exclude risk-accepted/recast? count only first-time fixes? Decide at plan-time; shapes every MTTR number.
+- **MTTR is a rework** (settled): all four gaps in scope — trend, honesty, Owner/BU, population.
