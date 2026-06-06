@@ -38,7 +38,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 
 ### v1.3 Trend & Segmentation Substrate (Phases 12–13)
 
-- [ ] **Phase 12: Trend Snapshot Substrate (S1)** — Canonical open-count primitive (reopened-aware), monthly snapshot capture/read, store continuity with `data/trend/`, idempotency, PII discipline, and cron-friendly entry point
+- [ ] **Phase 12: Trend Snapshot Substrate (S1)** — Canonical open-count primitive (reopened-aware), monthly snapshot capture/read, store continuity with `data/trend/`, idempotency, PII discipline, and cron-friendly entry point (3 plans)
 - [ ] **Phase 13: Owner Segmentation + Composition (S2 + Doc)** — Owner/BU grouping helper, Unassigned catch-all, analyst exception list, fail-soft guard, S1×S2 composition proof, and auditor runbook
 
 ## Phase Details
@@ -53,7 +53,10 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
   3. A second report that calls `read_trend()` after two monthly snapshots exist receives a month-over-month series without crashing; calling it with only one snapshot (cold-start) returns available history and a flag, not an exception
   4. Snapshot files live under `data/trend/`, share the JSON shape already consumed by `management_summary`, and the existing `management_summary` trend output is byte-for-byte unchanged after the substrate is wired in
   5. Snapshot payloads contain only aggregate counts (no hostnames, IPs, plugin names, or other row-level fields); operator can confirm by inspecting a written file
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 12-01-PLAN.md — open_findings_at predicate (reopened-aware two-interval) + unit tests [TREND-01]
+- [ ] 12-02-PLAN.md — data/trend_store.py snapshot engine (atomic capture/read, idempotency, cold-start, PII) + content tests [TREND-02..06]
+- [ ] 12-03-PLAN.md — scripts/capture_trend_snapshot.py cron entry point [TREND-07]
 
 ### Phase 13: Owner Segmentation + Composition (S2 + Doc)
 **Goal**: Findings and assets can be grouped by Owner tag with a lossless Unassigned catch-all, the combination with the trend primitive is proven end-to-end, and an auditor-facing runbook documents both substrates
@@ -82,7 +85,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 | 9. CI/Release Automation       | v1.2      | 2/2            | Complete    | 2026-05-19 |
 | 10. Install / Update / Rollback | v1.2     | 3/3            | Complete    | 2026-05-19 |
 | 11. Documentation              | v1.2      | 2/2            | Complete    | 2026-05-20 |
-| 12. Trend Snapshot Substrate   | v1.3      | 0/TBD          | Not started | -          |
+| 12. Trend Snapshot Substrate   | v1.3      | 0/3            | Planned     | -          |
 | 13. Owner Segmentation + Comp. | v1.3      | 0/TBD          | Not started | -          |
 
 ## Backlog
