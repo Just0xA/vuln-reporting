@@ -12,6 +12,8 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 ## Current State
 
+**In progress:** v1.3 Trend & Segmentation Substrate — Phase 12 (Trend Snapshot Substrate, S1) complete (2026-06-08): canonical reopened-aware open-count primitive `utils/open_count.py`, forward-accumulating snapshot engine `data/trend_store.py` (atomic writes, per-month idempotency, cold-start-safe reader, PII-discipline), and cron entry point `scripts/capture_trend_snapshot.py`. 7/7 TREND-NN requirements verified; 19 unit+content tests green. Phase 13 (Owner Segmentation + Composition, S2) next.
+
 **Shipped:** v1.2 Deployment & Self-Update Infrastructure (2026-05-22) — see [`MILESTONES.md`](MILESTONES.md).
 
 - 5 phases (7–11), 10 plans, 65 files / +11,667 / −1,245 across 2026-05-19 → 2026-05-22 (released and field-hardened on a Rocky 9 VM)
@@ -124,4 +126,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-05 — started v1.3 Trend & Segmentation Substrate milestone*
+*Last updated: 2026-06-08 — Phase 12 (Trend Snapshot Substrate, S1) complete*
