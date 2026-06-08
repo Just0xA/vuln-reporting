@@ -21,12 +21,12 @@
 ### Trend Snapshot Substrate (S1)
 
 - [x] **TREND-01**: A canonical `open_findings_at(df, date)` primitive computes the open population using the **reopened-aware two-interval predicate** (OPEN = never fixed; REOPENED = fixed only during `[last_fixed, resurfaced_date)`; FIXED = fixed at `last_fixed`), is **unit-tested against labelled cases including reopened findings**, and matches the actual current open count exactly.
-- [ ] **TREND-02**: A `capture_snapshot(date, dimensions)` function writes a monthly snapshot of open counts grouped by each registered dimension (severity at minimum; pluggable for type/owner); writes are **atomic** (temp-file + `os.replace`).
-- [ ] **TREND-03**: Snapshots **reuse/extend the existing `data/trend/` store** and the JSON shape consumed by `management_summary` — no parallel store; existing trend consumers do not regress.
-- [ ] **TREND-04**: A `read_trend(dimension, months)` function returns a month-over-month series from accumulated snapshots and is **cold-start safe** (≤1 snapshot → returns available history and flags insufficient data, never crashes).
-- [ ] **TREND-05**: Snapshot capture is **idempotent per calendar month** (re-running for the same month overwrites that month's cell; never duplicates).
-- [ ] **TREND-06**: Snapshot payloads are **aggregate counts only — no row-level PII** (D-04-08); safe to persist under the existing `data/trend/` rules.
-- [ ] **TREND-07**: An operator/scheduled **entry point captures the current month's snapshot** (cron/daemon-friendly, logged with cron-friendly exit codes) so history accrues without manual action.
+- [x] **TREND-02**: A `capture_snapshot(date, dimensions)` function writes a monthly snapshot of open counts grouped by each registered dimension (severity at minimum; pluggable for type/owner); writes are **atomic** (temp-file + `os.replace`).
+- [x] **TREND-03**: Snapshots **reuse/extend the existing `data/trend/` store** and the JSON shape consumed by `management_summary` — no parallel store; existing trend consumers do not regress.
+- [x] **TREND-04**: A `read_trend(dimension, months)` function returns a month-over-month series from accumulated snapshots and is **cold-start safe** (≤1 snapshot → returns available history and flags insufficient data, never crashes).
+- [x] **TREND-05**: Snapshot capture is **idempotent per calendar month** (re-running for the same month overwrites that month's cell; never duplicates).
+- [x] **TREND-06**: Snapshot payloads are **aggregate counts only — no row-level PII** (D-04-08); safe to persist under the existing `data/trend/` rules.
+- [x] **TREND-07**: An operator/scheduled **entry point captures the current month's snapshot** (cron/daemon-friendly, logged with cron-friendly exit codes) so history accrues without manual action.
 
 ### Owner / BU Segmentation (S2)
 
@@ -60,12 +60,12 @@
 | Requirement | Phase | Status  |
 |-------------|-------|---------|
 | TREND-01    | 12    | Complete |
-| TREND-02    | 12    | Pending |
-| TREND-03    | 12    | Pending |
-| TREND-04    | 12    | Pending |
-| TREND-05    | 12    | Pending |
-| TREND-06    | 12    | Pending |
-| TREND-07    | 12    | Pending |
+| TREND-02    | 12    | Complete |
+| TREND-03    | 12    | Complete |
+| TREND-04    | 12    | Complete |
+| TREND-05    | 12    | Complete |
+| TREND-06    | 12    | Complete |
+| TREND-07    | 12    | Complete |
 | SEG-01      | 13    | Pending |
 | SEG-02      | 13    | Pending |
 | SEG-03      | 13    | Pending |
