@@ -72,6 +72,12 @@ _EXCEL_FILENAME       = "composed_report.xlsx"
 # composition.
 _MODULES_NEEDING_FIXED_VULNS = frozenset({"critical_remediation_sla"})
 
+# Modules that need the environment-wide open-finding total (pre-tag-filter)
+# forwarded via **kwargs.  TagSeverityShareModule is the only consumer today;
+# the total is computed from the unfiltered vulns_df before the tag filter
+# narrows it, mirroring the fixed_vulns_df gating pattern.
+_MODULES_NEEDING_ENV_TOTAL = frozenset({"tag_severity_share"})
+
 
 # ===========================================================================
 # Public API — called by run_all.py
@@ -194,6 +200,17 @@ def run_report(
     )
 
     # ------------------------------------------------------------------
+    # Compute environment grand total (pre-tag-filter) for tag_severity_share.
+    # Must be computed from the UNFILTERED vulns_df before the tag filter
+    # narrows the DataFrame, mirroring the fixed_vulns_df gating pattern.
+    # ------------------------------------------------------------------
+    if "state" in vulns_df.columns:
+        _open_mask    = vulns_df["state"].str.lower().isin({"open", "reopened"})
+        env_vuln_total = int(_open_mask.sum())
+    else:
+        env_vuln_total = 0
+
+    # ------------------------------------------------------------------
     # Apply tag filter (verbatim from board_summary._filter_assets_by_tag)
     # ------------------------------------------------------------------
     if tag_category and tag_value:
@@ -272,6 +289,8 @@ def run_report(
     composer_kwargs: dict = {}
     if fixed_vulns_df is not None:
         composer_kwargs["fixed_vulns_df"] = fixed_vulns_df
+    if _MODULES_NEEDING_ENV_TOTAL.intersection(modules):
+        composer_kwargs["env_vuln_total"] = env_vuln_total
 
     composer = ReportComposer(
         vulns_df       = vulns_df,
