@@ -47,3 +47,30 @@ groups:
       subject: "Weekly Remediation Worklist"
       recipients:
         - remediation@example.invalid
+
+  # ─────────────────────────────────────────────────────────────────────
+  # example — Tag Severity & Type Profile via composed_report
+  #
+  # Shows the VPR severity share vs environment and CPE type distribution
+  # for a selected tag. Both modules are auto-discovered at runtime.
+  # Severity in tag_severity_share is VPR-pure with a None bucket and
+  # no native-severity fallback (see docs/tag_severity_share_calculations.md).
+  #
+  - name: "Tag Severity & Type Profile — example"
+    description: "Tag-scoped VPR severity share vs environment and CPE type distribution."
+    schedule:
+      frequency: on_demand
+    reports:
+      - composed_report
+    modules:
+      - tag_severity_share
+      - vuln_type_distribution
+    report_title: "Tag Severity & Type Profile"
+    filters:
+      tag_category: "Environment"
+      tag_value: "Production"
+    email:
+      subject: "Tag Severity & Type Profile — Production"
+      recipients:
+        - ciso@example.invalid
+      reply_to: reports-test@example.invalid
