@@ -54,7 +54,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
   4. Snapshot files live under `data/trend/`, share the JSON shape already consumed by `management_summary`, and the existing `management_summary` trend output is byte-for-byte unchanged after the substrate is wired in
   5. Snapshot payloads contain only aggregate counts (no hostnames, IPs, plugin names, or other row-level fields); operator can confirm by inspecting a written file
 **Plans**: 3 plans
-- [ ] 12-01-PLAN.md — open_findings_at predicate (reopened-aware two-interval) + unit tests [TREND-01]
+- [x] 12-01-PLAN.md — open_findings_at predicate (reopened-aware two-interval) + unit tests [TREND-01]
 - [ ] 12-02-PLAN.md — data/trend_store.py snapshot engine (atomic capture/read, idempotency, cold-start, PII) + content tests [TREND-02..06]
 - [ ] 12-03-PLAN.md — scripts/capture_trend_snapshot.py cron entry point [TREND-07]
 
@@ -85,7 +85,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 | 9. CI/Release Automation       | v1.2      | 2/2            | Complete    | 2026-05-19 |
 | 10. Install / Update / Rollback | v1.2     | 3/3            | Complete    | 2026-05-19 |
 | 11. Documentation              | v1.2      | 2/2            | Complete    | 2026-05-20 |
-| 12. Trend Snapshot Substrate   | v1.3      | 0/3            | Planned     | -          |
+| 12. Trend Snapshot Substrate   | v1.3      | 1/3 | In Progress|  |
 | 13. Owner Segmentation + Comp. | v1.3      | 0/TBD          | Not started | -          |
 
 ## Backlog

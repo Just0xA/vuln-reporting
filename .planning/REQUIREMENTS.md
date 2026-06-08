@@ -20,7 +20,7 @@
 
 ### Trend Snapshot Substrate (S1)
 
-- [ ] **TREND-01**: A canonical `open_findings_at(df, date)` primitive computes the open population using the **reopened-aware two-interval predicate** (OPEN = never fixed; REOPENED = fixed only during `[last_fixed, resurfaced_date)`; FIXED = fixed at `last_fixed`), is **unit-tested against labelled cases including reopened findings**, and matches the actual current open count exactly.
+- [x] **TREND-01**: A canonical `open_findings_at(df, date)` primitive computes the open population using the **reopened-aware two-interval predicate** (OPEN = never fixed; REOPENED = fixed only during `[last_fixed, resurfaced_date)`; FIXED = fixed at `last_fixed`), is **unit-tested against labelled cases including reopened findings**, and matches the actual current open count exactly.
 - [ ] **TREND-02**: A `capture_snapshot(date, dimensions)` function writes a monthly snapshot of open counts grouped by each registered dimension (severity at minimum; pluggable for type/owner); writes are **atomic** (temp-file + `os.replace`).
 - [ ] **TREND-03**: Snapshots **reuse/extend the existing `data/trend/` store** and the JSON shape consumed by `management_summary` — no parallel store; existing trend consumers do not regress.
 - [ ] **TREND-04**: A `read_trend(dimension, months)` function returns a month-over-month series from accumulated snapshots and is **cold-start safe** (≤1 snapshot → returns available history and flags insufficient data, never crashes).
@@ -59,7 +59,7 @@
 
 | Requirement | Phase | Status  |
 |-------------|-------|---------|
-| TREND-01    | 12    | Pending |
+| TREND-01    | 12    | Complete |
 | TREND-02    | 12    | Pending |
 | TREND-03    | 12    | Pending |
 | TREND-04    | 12    | Pending |

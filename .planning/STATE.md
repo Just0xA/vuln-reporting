@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Trend & Segmentation Substrate
 status: executing
 stopped_at: Phase 12 context gathered
-last_updated: "2026-06-07T10:30:02.029Z"
-last_activity: 2026-06-07 -- Phase 12 planning complete
+last_updated: "2026-06-08T20:52:38.935Z"
+last_activity: 2026-06-08
 progress:
   total_phases: 2
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-05)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** Phase 12 — Trend Snapshot Substrate (S1)
+**Current focus:** Phase 12 — trend-snapshot-substrate-s1
 
 ## Current Position
 
-Phase: 12 — Trend Snapshot Substrate (S1)
-Plan: —
+Phase: 12 (trend-snapshot-substrate-s1) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-08 -- Completed quick task 260608-cma: Tag-vs-Env severity share + vuln-type profile report
+Last activity: 2026-06-08
 
 ## Shipped Milestones
 
@@ -88,6 +88,7 @@ None at roadmap creation.
 | 2026-06-05 | fast: release-trigger 3-part semver glob | Hardened `.github/workflows/release.yml` push-tags trigger from `'v*'` to `'v[0-9]*.[0-9]*.[0-9]*'` so a bare 2-part milestone tag (e.g. `v1.3`) can't start a release run that would then fail the strict SemVer regex at the Resolve-version step. Milestone label = `vX.Y` (planning only, never tagged); ship/patch releases = `vX.Y.Z`. Verified glob: matches `v1.2.0`/`v1.2.0-rc1`/`v10.20.30`, rejects `v1.3`/`v1.0`/legacy `pre-trend-scrub`. Strict regex retained as defense-in-depth. CI-config only. | ddd94fd |
 | 2026-06-04 | fix-recast-rules-parquet-cache-write-fai (260604-bxa) | `warm_cache --prune-stale` logged a non-fatal `WARNING: Could not write cache file recast_rules.parquet: Can't infer object conversion type` whenever a recast/accept rule carried a real `expires_at` (e.g. `2027-05-31`). Root cause: `fetch_recast_rules()` (data/fetchers.py) normalized its date columns with an **in-place** `df.loc[:, col] = _parse_iso_utc(df[col])`, which preserves the column's existing `object` dtype and stuffs `Timestamp` objects into it — fastparquet then can't serialize the object column. It had been written that way (obs 827) to silence a false-positive pandas-2.2 ChainedAssignment warning that plain `df[col] =` emits. Dormant until now because every rule was `expires_at="Never"` → all-NaT object column (serializes fine). Fix: replaced the loop with the `df.assign(**updates)` pattern already used by `_normalize_vuln_dates`/`_normalize_asset_dates` in the same file — yields true `datetime64[ns, UTC]`, writes parquet cleanly, AND is warning-free. Verified via local repro (recast-shaped frame with one real `expires_at` + one `"Never"`): correct dtype + fastparquet round-trip. Surgical 1-block change; `_parse_iso_utc`/`_normalize_*` untouched. | ecfcdef |
 | 2026-06-08 | tag-vs-env-severity-share-and-vuln-type (260608-cma) | New tag-vs-environment report via two auto-discovered composed modules. `tag_severity_share`: VPR-pure severity (Critical/High/Medium/Low/**None** where None=`vpr_score` null/0, **no native fallback** — deliberate divergence from `vpr_to_severity`, see spec D3); each severity % = tag count ÷ **environment grand total** (forwarded as `env_vuln_total` via gated `**kwargs` in `composed_report.py`, mirroring `_MODULES_NEEDING_FIXED_VULNS`). `vuln_type_distribution`: VTD-01 family-override CPE classifier (Linux distro/MS-Bulletin→OS, then `a/o/h`, else Other), within-tag %, Hardware hidden at 0. Four-channel render contract on both. 102 unit tests pass (VPR boundary/None edges, classifier labelled samples, env-share /0 guard, empty-data guard ×4 channels); `run_all.py --dry-run` validates all 5 groups. Two auditor runbooks added. Spec: `docs/superpowers/specs/2026-06-08-tag-severity-env-share-and-vuln-type-design.md`. **Outstanding:** example YAML group is written to disk + dry-run-validated but NOT committed (`delivery_config.yaml` is gitignored per commit `fb94c60`); operator must add the group to their live config. **Decoupled follow-up:** ROADMAP backlog **SEV-NONE-01** (global `vpr_to_severity` 0/null→None) captured, not yet built. | 3a13011, 8d04320, 4ad9694, fde8b60, 1edd9bc |
+| Phase 12 P01 | 25 | 2 tasks | 2 files |
 
 ## Deferred Items
 
@@ -105,7 +106,7 @@ Carried forward from v1.0 + v1.1; not in scope for v1.2 or v1.3.
 
 ## Session Continuity
 
-Last session: 2026-06-06T10:54:36.953Z
+Last session: 2026-06-08T20:52:38.930Z
 Stopped at: Phase 12 context gathered
-Resume file: .planning/phases/12-trend-snapshot-substrate-s1/12-CONTEXT.md
+Resume file: None
 Next command: `/gsd:plan-phase 12`
