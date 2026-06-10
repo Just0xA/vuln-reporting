@@ -91,7 +91,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 | 10. Install / Update / Rollback | v1.2     | 3/3            | Complete    | 2026-05-19 |
 | 11. Documentation              | v1.2      | 2/2            | Complete    | 2026-05-20 |
 | 12. Trend Snapshot Substrate   | v1.3      | 3/3 | Complete    | 2026-06-08 |
-| 13. Owner Segmentation + Comp. | v1.3      | 5/5 | Complete   | 2026-06-10 |
+| 13. Owner Segmentation + Comp. | v1.3      | 5/5 | Complete    | 2026-06-10 |
 
 ## Backlog
 

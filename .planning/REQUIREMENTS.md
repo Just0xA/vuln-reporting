@@ -30,15 +30,15 @@
 
 ### Owner / BU Segmentation (S2)
 
-- [ ] **SEG-01**: A reusable helper **groups findings/assets by the `Owner` tag category**, returning per-Owner buckets.
-- [ ] **SEG-02**: Assets without an `Owner` tag fall into a single **`Unassigned` catch-all** (label configurable) so per-Owner totals always reconcile to the whole.
-- [ ] **SEG-03**: The substrate produces an **analyst exception list of `Unassigned` assets** as operator-facing detail output (Excel/local), never committed or emailed in violation of D-04-08, to drive tagging cleanup.
-- [ ] **SEG-04**: Segmentation is **fail-soft** when the `Owner` category is absent or partially applied (→ everything `Unassigned`, no crash; empty-data guard per CLAUDE.md).
-- [ ] **SEG-05**: Owner segmentation **composes with the trend primitive** — per-Owner open counts can be snapshotted and trended (proves S1×S2 combine end-to-end).
+- [x] **SEG-01**: A reusable helper **groups findings/assets by the `Owner` tag category**, returning per-Owner buckets.
+- [x] **SEG-02**: Assets without an `Owner` tag fall into a single **`Unassigned` catch-all** (label configurable) so per-Owner totals always reconcile to the whole.
+- [x] **SEG-03**: The substrate produces an **analyst exception list of `Unassigned` assets** as operator-facing detail output (Excel/local), never committed or emailed in violation of D-04-08, to drive tagging cleanup.
+- [x] **SEG-04**: Segmentation is **fail-soft** when the `Owner` category is absent or partially applied (→ everything `Unassigned`, no crash; empty-data guard per CLAUDE.md).
+- [x] **SEG-05**: Owner segmentation **composes with the trend primitive** — per-Owner open counts can be snapshotted and trended (proves S1×S2 combine end-to-end).
 
 ### Documentation
 
-- [ ] **DOC-01**: A substrate calculations/runbook doc (`docs/trend_and_segmentation_calculations.md` or equivalent) records the open-predicate definition, the **~29-day Tenable fixed-retention / forward-accumulation** limitation (no backfill), and the `Owner`/`Unassigned` segmentation model — auditor-facing, matching the `docs/*_calculations.md` pattern.
+- [x] **DOC-01**: A substrate calculations/runbook doc (`docs/trend_and_segmentation_calculations.md` or equivalent) records the open-predicate definition, the **~29-day Tenable fixed-retention / forward-accumulation** limitation (no backfill), and the `Owner`/`Unassigned` segmentation model — auditor-facing, matching the `docs/*_calculations.md` pattern.
 
 ---
 
@@ -66,9 +66,9 @@
 | TREND-05    | 12    | Complete |
 | TREND-06    | 12    | Complete |
 | TREND-07    | 12    | Complete |
-| SEG-01      | 13    | Pending |
-| SEG-02      | 13    | Pending |
-| SEG-03      | 13    | Pending |
-| SEG-04      | 13    | Pending |
-| SEG-05      | 13    | Pending |
-| DOC-01      | 13    | Pending |
+| SEG-01      | 13    | Complete |
+| SEG-02      | 13    | Complete |
+| SEG-03      | 13    | Complete |
+| SEG-04      | 13    | Complete |
+| SEG-05      | 13    | Complete |
+| DOC-01      | 13    | Complete |
