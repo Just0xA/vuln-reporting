@@ -38,7 +38,7 @@ from reports.modules.board_report_utils import (
     compute_bu_risk_scores,
     compute_per_bu_breakdown,
     deduplicate_assets_by_name,
-    extract_business_unit,
+    extract_owner,
     identify_on_time_assets,
     sla_status_from_thresholds,
     ON_TIME_WINDOW_DAYS,
@@ -114,9 +114,9 @@ class HighRiskAssetsModule(BaseModule):
     """
     Percentage of on-time-scanned assets with >= 10 Critical/High vulns open > 30 days.
 
-    Lower is better.  The per-BU breakdown table shows worst performers first
+    Lower is better.  The per-owner breakdown table shows worst performers first
     (highest percentage of high-risk assets at the top) so the PDF and Excel
-    surfaces the business units with the most acute remediation backlog.
+    surfaces the owners with the most acute remediation backlog.
 
     Supported options
     -----------------
@@ -242,8 +242,8 @@ class HighRiskAssetsModule(BaseModule):
                 direction        = _DIRECTION,
             )
 
-            # ---- Step 5: per-BU breakdown ----
-            enriched       = extract_business_unit(on_time)
+            # ---- Step 5: per-owner breakdown ----
+            enriched       = extract_owner(on_time)
             numerator_mask = enriched["asset_uuid"].isin(high_risk_uuids)
             denom_mask     = pd.Series(True, index=enriched.index)
 
@@ -252,7 +252,7 @@ class HighRiskAssetsModule(BaseModule):
                 higher_is_better=False,
             )
 
-            # ---- Step 5a: compute BU risk scores and re-sort ----
+            # ---- Step 5a: compute owner risk scores and re-sort ----
             bu_risk = compute_bu_risk_scores(
                 vulns_df         = vulns_df,
                 qualifying_uuids = high_risk_uuids,
@@ -262,7 +262,7 @@ class HighRiskAssetsModule(BaseModule):
             )
             bu_breakdown = bu_breakdown.merge(
                 bu_risk.rename("risk_score").reset_index(),
-                on="business_unit",
+                on="owner",
                 how="left",
             )
             # F-DTYPE (Plan 03-07 Task 3): use .assign() rather than
@@ -325,7 +325,7 @@ class HighRiskAssetsModule(BaseModule):
                     )
                 )
 
-                # W6 — JOIN real (hostname, business_unit, last_seen) from
+                # W6 — JOIN real (hostname, owner, last_seen) from
                 # assets_df. `deduplicate_assets_by_name` REQUIRES the
                 # `last_seen` column AND uses it to break duplicate-hostname
                 # ties (board_report_utils.py:94, 102-107). We project the
@@ -333,8 +333,8 @@ class HighRiskAssetsModule(BaseModule):
                 # pd.NaT placeholder — placeholders make dedup
                 # nondeterministic when multiple rows share a hostname.
                 asset_cols = assets_df.copy()
-                if "business_unit" not in asset_cols.columns:
-                    asset_cols = extract_business_unit(asset_cols)
+                if "owner" not in asset_cols.columns:
+                    asset_cols = extract_owner(asset_cols)
                 if "last_seen" not in asset_cols.columns:
                     # Defensive — fetch_all_assets() guarantees this column,
                     # but log if the upstream contract is ever broken.
@@ -345,7 +345,7 @@ class HighRiskAssetsModule(BaseModule):
                         self._log_prefix(),
                     )
                 asset_cols = (
-                    asset_cols[["asset_uuid", "hostname", "business_unit", "last_seen"]]
+                    asset_cols[["asset_uuid", "hostname", "owner", "last_seen"]]
                     .drop_duplicates("asset_uuid")
                 )
                 analyst_df = grouped.merge(asset_cols, on="asset_uuid", how="left")
@@ -360,7 +360,7 @@ class HighRiskAssetsModule(BaseModule):
 
                 analyst_df = analyst_df.reindex(columns=[
                     "hostname",
-                    "business_unit",
+                    "owner",
                     "crit_high_open_count",
                     "contributing_finding_ids",
                 ])
@@ -370,7 +370,7 @@ class HighRiskAssetsModule(BaseModule):
                 ).reset_index(drop=True)
 
                 # T-03-04-02 — CSV-formula injection guard (text columns)
-                for _col in ("hostname", "business_unit", "contributing_finding_ids"):
+                for _col in ("hostname", "owner", "contributing_finding_ids"):
                     analyst_df.loc[:, _col] = analyst_df[_col].astype("string").map(
                         lambda s: ("'" + s)
                         if isinstance(s, str) and s[:1] in ("=", "+", "-", "@")
@@ -389,22 +389,22 @@ class HighRiskAssetsModule(BaseModule):
             if high_risk_count > 0 and analyst_rows_payload:
                 bu_counts = (
                     analyst_rows_payload[0][1]
-                    .groupby("business_unit", dropna=False, as_index=False)
+                    .groupby("owner", dropna=False, as_index=False)
                     .size()
                     .rename(columns={"size": "asset_count"})
                 )
-                bu_counts.loc[:, "business_unit"] = (
-                    bu_counts["business_unit"].fillna("Untagged").replace("", "Untagged")
+                bu_counts = bu_counts.assign(
+                    owner=bu_counts["owner"].fillna("Unassigned").replace("", "Unassigned")
                 )
                 bu_counts = bu_counts.sort_values(
-                    ["asset_count", "business_unit"], ascending=[False, True],
+                    ["asset_count", "owner"], ascending=[False, True],
                 )
-                worst_bu_name  = str(bu_counts.iloc[0]["business_unit"])
+                worst_bu_name  = str(bu_counts.iloc[0]["owner"])
                 worst_bu_count = int(bu_counts.iloc[0]["asset_count"])
                 driver = (
                     f"{safe_int(high_risk_count)} assets crossed the high-risk threshold "
                     f"(>={_HIGH_RISK_COUNT} Crit/High open >{_AGED_DAYS_THRESHOLD}d); "
-                    f"worst BU: {worst_bu_name} with {safe_int(worst_bu_count)} assets."
+                    f"worst Owner: {worst_bu_name} with {safe_int(worst_bu_count)} assets."
                 )
             else:
                 driver = NO_DATA_DRIVER
@@ -581,7 +581,7 @@ class HighRiskAssetsModule(BaseModule):
         if top5:
             rows_html = ""
             for row in top5:
-                bu_name  = str(row.get("business_unit", ""))
+                bu_name  = str(row.get("owner", ""))
                 bu_num   = int(row.get("numerator",    0))
                 bu_den   = int(row.get("denominator",  0))
                 bu_score = int(row.get("risk_score",   0))
@@ -594,11 +594,11 @@ class HighRiskAssetsModule(BaseModule):
                     f'</tr>'
                 )
             bu_table_html = f"""
-<h3 class="subsection-heading">Top 5 Worst-Performing Business Units</h3>
+<h3 class="subsection-heading">Top 5 Worst-Performing Owners</h3>
 <table class="data-table">
   <thead>
     <tr>
-      <th>Business Unit</th>
+      <th>Owner</th>
       <th style="text-align:right;">High-Risk Assets</th>
       <th style="text-align:right;">On-Time Assets</th>
       <th style="text-align:right;">Risk Score</th>
@@ -609,8 +609,8 @@ class HighRiskAssetsModule(BaseModule):
         else:
             bu_table_html = (
                 '<p class="explanatory-text" style="color:#888; font-style:italic;">'
-                'No business-unit breakdown available — '
-                'assets may lack Application tags or no high-risk assets were found.'
+                'No owner breakdown available — '
+                'assets may lack Owner tags or no high-risk assets were found.'
                 '</p>'
             )
 
@@ -628,8 +628,8 @@ class HighRiskAssetsModule(BaseModule):
   the highest sustained risk exposure — they are actively managed yet have significant
   unresolved findings well past normal triage timelines.  Board target is
   &le;{green_str}% (green).  &le;{yellow_str}% is at-risk (amber).
-  Above {yellow_str}% is off-target (red).  Business-unit breakdown uses
-  the Tenable &ldquo;Application&rdquo; tag category.
+  Above {yellow_str}% is off-target (red).  Owner breakdown uses
+  the Tenable &ldquo;Owner&rdquo; tag category.
 </p>"""
 
         return two_column_metric_section(
@@ -714,10 +714,10 @@ class HighRiskAssetsModule(BaseModule):
                    f"Amber <={_YELLOW_THRESHOLD:.1f}%  |  "  # safe: module-level float constant, never None
                    f"Red >{_YELLOW_THRESHOLD:.1f}%")  # safe: module-level float constant, never None
 
-            # ---- BU breakdown table (starts at row 11, worst first) ----
+            # ---- Owner breakdown table (starts at row 11, worst first) ----
             header_row = 11
             headers = [
-                "Business Unit", "High-Risk Assets", "On-Time Assets", "Risk Score"
+                "Owner", "High-Risk Assets", "On-Time Assets", "Risk Score"
             ]
             for col_idx, header in enumerate(headers, start=1):
                 cell           = ws.cell(row=header_row, column=col_idx, value=header)
@@ -729,7 +729,7 @@ class HighRiskAssetsModule(BaseModule):
                 data_row = header_row + row_offset
 
                 ws.cell(row=data_row, column=1,
-                        value=str(row.get("business_unit", ""))).alignment = (
+                        value=str(row.get("owner", ""))).alignment = (
                     Alignment(horizontal="left")
                 )
                 ws.cell(row=data_row, column=2,
