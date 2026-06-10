@@ -71,8 +71,8 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
   5. `docs/trend_and_segmentation_calculations.md` exists, documents the two-interval open predicate, the ~29-day Tenable fixed-retention constraint and forward-accumulation model, and the Owner/Unassigned segmentation model in the established `docs/*_calculations.md` style
 **Plans**: 4 plans
 - [x] 13-01-PLAN.md — generalize board_report_utils.py to Owner-primary helper + SEG-01/02/04 unit tests [SEG-01, SEG-02, SEG-04]
-- [ ] 13-02-PLAN.md — repoint the 4 board consumer modules to Owner; remove duplicate _extract_owner_tag [SEG-01, SEG-02, SEG-04]
-- [ ] 13-03-PLAN.md — dimension="owner" trend composition + combined analyst supplemental Excel/CSV [SEG-03, SEG-05]
+- [x] 13-02-PLAN.md — repoint the 4 board consumer modules to Owner; remove duplicate _extract_owner_tag [SEG-01, SEG-02, SEG-04]
+- [x] 13-03-PLAN.md — dimension="owner" trend composition + combined analyst supplemental Excel/CSV [SEG-03, SEG-05]
 - [ ] 13-04-PLAN.md — DOC-01 auditor runbook (docs/trend_and_segmentation_calculations.md) [DOC-01]
 
 ## Progress
@@ -91,7 +91,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 | 10. Install / Update / Rollback | v1.2     | 3/3            | Complete    | 2026-05-19 |
 | 11. Documentation              | v1.2      | 2/2            | Complete    | 2026-05-20 |
 | 12. Trend Snapshot Substrate   | v1.3      | 3/3 | Complete    | 2026-06-08 |
-| 13. Owner Segmentation + Comp. | v1.3      | 1/4 | In Progress|  |
+| 13. Owner Segmentation + Comp. | v1.3      | 3/4 | In Progress|  |
 
 ## Backlog
 
