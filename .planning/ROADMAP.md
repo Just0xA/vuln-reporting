@@ -40,7 +40,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 
 - [x] **Phase 12: Trend Snapshot Substrate (S1)** — Canonical open-count primitive (reopened-aware), monthly snapshot capture/read, store continuity with `data/trend/`, idempotency, PII discipline, and cron-friendly entry point (3 plans)
  (completed 2026-06-08)
-- [ ] **Phase 13: Owner Segmentation + Composition (S2 + Doc)** — Owner/BU grouping helper, Unassigned catch-all, analyst exception list, fail-soft guard, S1×S2 composition proof, and auditor runbook (verification: gaps_found 4/5, SEG-03 supplemental blocked by CR-01)
+- [x] **Phase 13: Owner Segmentation + Composition (S2 + Doc)** — Owner/BU grouping helper, Unassigned catch-all, analyst exception list, fail-soft guard, S1×S2 composition proof, and auditor runbook (verification: gaps_found 4/5, SEG-03 supplemental blocked by CR-01) (completed 2026-06-10)
 
 ## Phase Details
 
@@ -91,7 +91,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 | 10. Install / Update / Rollback | v1.2     | 3/3            | Complete    | 2026-05-19 |
 | 11. Documentation              | v1.2      | 2/2            | Complete    | 2026-05-20 |
 | 12. Trend Snapshot Substrate   | v1.3      | 3/3 | Complete    | 2026-06-08 |
-| 13. Owner Segmentation + Comp. | v1.3      | 4/4 | Gaps Found | —          |
+| 13. Owner Segmentation + Comp. | v1.3      | 5/5 | Complete   | 2026-06-10 |
 
 ## Backlog
 
