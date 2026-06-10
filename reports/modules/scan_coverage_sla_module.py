@@ -2,7 +2,7 @@
 reports/modules/scan_coverage_sla_module.py — Scan Coverage SLA metric module.
 
 Computes the percentage of managed assets that received a licensed Tenable scan
-within the last 30 days, with a per-business-unit breakdown.
+within the last 30 days, with a per-owner breakdown.
 
 Module ID:    scan_coverage_sla
 Display Name: Scan Coverage SLA
@@ -14,10 +14,10 @@ SLA thresholds (board-defined):
 
 Data source:  assets_df.last_licensed_scan_date  (fetch_all_assets cache)
 
-Business-unit dimension:
-    Derived from the Tenable tag category "Application" via
-    board_report_utils.extract_business_unit().  Assets without an
-    Application tag are grouped under "Untagged".
+Owner dimension:
+    Derived from the Tenable tag category "Owner" via
+    board_report_utils.extract_owner().  Assets without an
+    Owner tag are grouped under "Unassigned".
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from reports.modules.board_pdf_layout import two_column_metric_section
 from reports.modules.board_report_utils import (
     compute_per_bu_breakdown,
     deduplicate_assets_by_name,
-    extract_business_unit,
+    extract_owner,
     populate_rag_strip,  # noqa: F401  # re-exported for plan 03-02 contract surface
     sla_status_from_thresholds,
     ON_TIME_WINDOW_DAYS,
@@ -298,21 +298,21 @@ class ScanCoverageSLAModule(BaseModule):
 
             # ---- Step 4: per-BU breakdown (licensed assets only) ----
             # Unlicensed assets are excluded from the denominator entirely.
-            # [Rule 1 - Bug] extract_business_unit and compute_per_bu_breakdown
+            # [Rule 1 - Bug] extract_owner and compute_per_bu_breakdown
             # both call `df.loc[:, col] = scalar` patterns that crash on a
-            # zero-row DataFrame. Short-circuit the BU computation when there
+            # zero-row DataFrame. Short-circuit the owner computation when there
             # are no licensed assets in scope.
             if licensed.empty:
                 enriched     = licensed.copy()
                 bu_breakdown = pd.DataFrame(
                     columns=[
-                        "business_unit", "numerator", "denominator",
+                        "owner", "numerator", "denominator",
                         "percentage",   "affected",
                     ],
                 )
                 table_data = []
             else:
-                enriched = extract_business_unit(licensed)
+                enriched = extract_owner(licensed)
 
                 on_time_uuids   = set(on_time["asset_uuid"].dropna())
                 on_time_mask_bu = enriched["asset_uuid"].isin(on_time_uuids)
@@ -356,11 +356,11 @@ class ScanCoverageSLAModule(BaseModule):
             # ON_TIME_WINDOW_DAYS scan-recency window).
             if not not_on_time.empty:
                 analyst_df = not_on_time.copy()
-                # BU is already extracted into business_unit by extract_business_unit()
+                # owner is already extracted into owner by extract_owner()
                 # earlier in compute() (step 4); fall back defensively for the
                 # not_on_time slice which is sourced from `licensed` pre-enrichment.
-                if "business_unit" not in analyst_df.columns:
-                    analyst_df = extract_business_unit(analyst_df)
+                if "owner" not in analyst_df.columns:
+                    analyst_df = extract_owner(analyst_df)
                 # days_since_licensed_scan
                 analyst_df = analyst_df.assign(
                     days_since_licensed_scan = (
@@ -378,7 +378,7 @@ class ScanCoverageSLAModule(BaseModule):
                     "fqdn",
                     "last_licensed_scan_date",
                     "days_since_licensed_scan",
-                    "business_unit",
+                    "owner",
                 ])
                 # D-11 — sort by days_since_licensed_scan desc; NaN last
                 analyst_df = analyst_df.sort_values(
@@ -389,9 +389,9 @@ class ScanCoverageSLAModule(BaseModule):
                 # T-03-02-02 — CSV-formula injection guard. Prepend a single
                 # quote to any cell whose first char would trigger Excel
                 # formula evaluation (=, +, -, @). Hostname/ipv4/fqdn are
-                # external-source strings; business_unit is Tenable-normalised
+                # external-source strings; owner is Tenable-normalised
                 # but we apply the guard uniformly for defence-in-depth.
-                for _col in ("hostname", "ipv4", "fqdn", "business_unit"):
+                for _col in ("hostname", "ipv4", "fqdn", "owner"):
                     if _col in analyst_df.columns:
                         analyst_df.loc[:, _col] = analyst_df[_col].astype("string").map(
                             lambda s: ("'" + s)
@@ -411,26 +411,26 @@ class ScanCoverageSLAModule(BaseModule):
             #    overdue)."
             # Sources:
             #   - good_bu_*  : bu_breakdown row with the highest percentage
-            #                  (ties broken by alphabetical business_unit name)
+            #                  (ties broken by alphabetical owner name)
             #   - worst_bu_* : bu_breakdown row with the lowest percentage
-            #                  (ties broken by alphabetical business_unit name)
+            #                  (ties broken by alphabetical owner name)
             #   - overdue_count = not_scanned_on_time
             #   - total_count   = total_licensed
             # W4 — `bu_breakdown` is the DataFrame produced earlier in compute()
             # at step 4 by compute_per_bu_breakdown(...). Its columns are
-            # business_unit / numerator / denominator / percentage / affected.
+            # owner / numerator / denominator / percentage / affected.
             if total_licensed > 0 and not bu_breakdown.empty:
                 sorted_bu_asc  = bu_breakdown.sort_values(
-                    ["percentage", "business_unit"], ascending=[True,  True]
+                    ["percentage", "owner"], ascending=[True,  True]
                 )
                 sorted_bu_desc = bu_breakdown.sort_values(
-                    ["percentage", "business_unit"], ascending=[False, True]
+                    ["percentage", "owner"], ascending=[False, True]
                 )
                 worst_row = sorted_bu_asc.iloc[0]
                 good_row  = sorted_bu_desc.iloc[0]
                 driver = (
-                    f"Best BU: {good_row['business_unit']} at {safe_pct(good_row['percentage'])}; "
-                    f"worst BU: {worst_row['business_unit']} at {safe_pct(worst_row['percentage'])} "
+                    f"Best Owner: {good_row['owner']} at {safe_pct(good_row['percentage'])}; "
+                    f"worst Owner: {worst_row['owner']} at {safe_pct(worst_row['percentage'])} "
                     f"({safe_int(not_scanned_on_time)} of {safe_int(total_licensed)} "
                     f"licensed assets overdue)."
                 )
@@ -626,7 +626,7 @@ class ScanCoverageSLAModule(BaseModule):
             rows_html = ""
             for row in top5:
                 bu_pct  = float(row.get("percentage", 0.0))
-                bu_name = str(row.get("business_unit", ""))
+                bu_name = str(row.get("owner", ""))
                 bu_num  = int(row.get("numerator",    0))
                 bu_den  = int(row.get("denominator",  0))
                 row_bg  = _row_bg(bu_pct, _GREEN_THRESHOLD, _YELLOW_THRESHOLD,
@@ -641,11 +641,11 @@ class ScanCoverageSLAModule(BaseModule):
                     f'</tr>'
                 )
             bu_table_html = f"""
-<h3 class="subsection-heading">Top 5 Worst-Performing Business Units</h3>
+<h3 class="subsection-heading">Top 5 Worst-Performing Owners</h3>
 <table class="data-table">
   <thead>
     <tr>
-      <th>Business Unit</th>
+      <th>Owner</th>
       <th style="text-align:right;">Scanned On Time</th>
       <th style="text-align:right;">Licensed Assets</th>
       <th style="text-align:right;">Coverage %</th>
@@ -656,8 +656,8 @@ class ScanCoverageSLAModule(BaseModule):
         else:
             bu_table_html = (
                 '<p class="explanatory-text" style="color:#888; font-style:italic;">'
-                'No business-unit breakdown available — '
-                'assets may lack Application tags.'
+                'No owner breakdown available — '
+                'assets may lack Owner tags.'
                 '</p>'
             )
 
@@ -672,8 +672,8 @@ class ScanCoverageSLAModule(BaseModule):
   scan completes.  Denominator is the deduplicated licensed asset inventory (one row
   per hostname; most-recent <em>last_seen</em> retained).  Board target is &ge;95%
   (green).  &ge;90% is at-risk (amber).  Below 90% is off-target (red).
-  Business-unit breakdown uses the Tenable &ldquo;Application&rdquo; tag category.
-  Assets without an Application tag are grouped under &ldquo;Untagged&rdquo;.
+  Owner breakdown uses the Tenable &ldquo;Owner&rdquo; tag category.
+  Assets without an Owner tag are grouped under &ldquo;Unassigned&rdquo;.
 </p>"""
 
         return two_column_metric_section(
@@ -757,9 +757,9 @@ class ScanCoverageSLAModule(BaseModule):
             _xl_kv(ws, 9, "Window:",                 "Last 30 days (last_licensed_scan_date)")
             _xl_kv(ws, 10, "SLA Thresholds:",        "Green ≥95%  |  Amber ≥90%  |  Red <90%")
 
-            # ---- BU breakdown table (starts at row 12) ----
+            # ---- Owner breakdown table (starts at row 12) ----
             header_row = 12
-            headers    = ["Business Unit", "Scanned On Time", "Licensed Assets", "Coverage %"]
+            headers    = ["Owner", "Scanned On Time", "Licensed Assets", "Coverage %"]
 
             for col_idx, header in enumerate(headers, start=1):
                 cell             = ws.cell(row=header_row, column=col_idx, value=header)
@@ -774,7 +774,7 @@ class ScanCoverageSLAModule(BaseModule):
                                     direction="higher_is_better")
 
                 ws.cell(row=data_row, column=1,
-                        value=str(row.get("business_unit", ""))).alignment = (
+                        value=str(row.get("owner", ""))).alignment = (
                     Alignment(horizontal="left")
                 )
                 ws.cell(row=data_row, column=2,
@@ -983,16 +983,16 @@ class ScanCoverageSLAModule(BaseModule):
                     "direction='higher_is_better'). "
                     "None → 'no_data'."
                 ),
-                "BU_breakdown": (
+                "owner_breakdown": (
                     "compute_per_bu_breakdown(higher_is_better=True) applied to licensed "
-                    "deduplicated assets enriched with business_unit from Application tag. "
-                    "Per-BU numerator = count of on-time assets in that BU; "
-                    "denominator = licensed asset count in that BU. "
-                    "Unlicensed assets are excluded from all BU buckets. "
+                    "deduplicated assets enriched with owner from Owner tag. "
+                    "Per-owner numerator = count of on-time assets for that owner; "
+                    "denominator = licensed asset count for that owner. "
+                    "Unlicensed assets are excluded from all owner buckets. "
                     "affected = denominator − numerator (assets NOT scanned on time). "
                     "Primary sort: affected DESC (most un-scanned assets first). "
                     "Secondary sort: percentage ASC (worst coverage % among ties). "
-                    "Assets with no Application tag → 'Untagged' bucket."
+                    "Assets with no Owner tag → 'Unassigned' bucket."
                 ),
                 "deduplication": (
                     "deduplicate_assets_by_name() removes duplicate hostnames, "

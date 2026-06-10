@@ -37,7 +37,7 @@ from reports.modules.board_report_utils import (
     compute_bu_risk_scores,
     compute_per_bu_breakdown,
     deduplicate_assets_by_name,
-    extract_business_unit,
+    extract_owner,
     identify_on_time_assets,
     sla_status_from_thresholds,
     ON_TIME_WINDOW_DAYS,
@@ -112,8 +112,8 @@ class AgedVulnsAssetsModule(BaseModule):
     """
     Percentage of on-time-scanned assets with >= 1 Med/High/Crit vuln open > 90 days.
 
-    Lower is better.  Per-BU breakdown sorted worst-first (highest percentage
-    at the top) to surface business units with the deepest aging backlog.
+    Lower is better.  Per-owner breakdown sorted worst-first (highest percentage
+    at the top) to surface owners with the deepest aging backlog.
 
     Supported options
     -----------------
@@ -237,8 +237,8 @@ class AgedVulnsAssetsModule(BaseModule):
                 direction        = _DIRECTION,
             )
 
-            # ---- Step 5: per-BU breakdown ----
-            enriched       = extract_business_unit(on_time)
+            # ---- Step 5: per-owner breakdown ----
+            enriched       = extract_owner(on_time)
             numerator_mask = enriched["asset_uuid"].isin(aged_uuids)
             denom_mask     = pd.Series(True, index=enriched.index)
 
@@ -247,7 +247,7 @@ class AgedVulnsAssetsModule(BaseModule):
                 higher_is_better=False,
             )
 
-            # ---- Step 5a: compute BU risk scores and re-sort ----
+            # ---- Step 5a: compute owner risk scores and re-sort ----
             bu_risk = compute_bu_risk_scores(
                 vulns_df         = vulns_df,
                 qualifying_uuids = aged_uuids,
@@ -257,7 +257,7 @@ class AgedVulnsAssetsModule(BaseModule):
             )
             bu_breakdown = bu_breakdown.merge(
                 bu_risk.rename("risk_score").reset_index(),
-                on="business_unit",
+                on="owner",
                 how="left",
             )
             # F-DTYPE (Plan 03-07 Task 3): use .assign() rather than
@@ -318,7 +318,7 @@ class AgedVulnsAssetsModule(BaseModule):
                     )
                 )
 
-                # W6 — JOIN real (hostname, business_unit, last_seen) from
+                # W6 — JOIN real (hostname, owner, last_seen) from
                 # assets_df. `deduplicate_assets_by_name` REQUIRES the
                 # `last_seen` column AND uses it to break duplicate-hostname
                 # ties (board_report_utils.py:94, 102-107). We project the
@@ -326,8 +326,8 @@ class AgedVulnsAssetsModule(BaseModule):
                 # pd.NaT placeholder — placeholders make dedup
                 # nondeterministic when multiple rows share a hostname.
                 asset_cols = assets_df.copy()
-                if "business_unit" not in asset_cols.columns:
-                    asset_cols = extract_business_unit(asset_cols)
+                if "owner" not in asset_cols.columns:
+                    asset_cols = extract_owner(asset_cols)
                 if "last_seen" not in asset_cols.columns:
                     # Defensive — fetch_all_assets() guarantees this column,
                     # but log if the upstream contract is ever broken.
@@ -338,7 +338,7 @@ class AgedVulnsAssetsModule(BaseModule):
                         self._log_prefix(),
                     )
                 asset_cols = (
-                    asset_cols[["asset_uuid", "hostname", "business_unit", "last_seen"]]
+                    asset_cols[["asset_uuid", "hostname", "owner", "last_seen"]]
                     .drop_duplicates("asset_uuid")
                 )
                 analyst_df = grouped.merge(asset_cols, on="asset_uuid", how="left")
@@ -353,7 +353,7 @@ class AgedVulnsAssetsModule(BaseModule):
 
                 analyst_df = analyst_df.reindex(columns=[
                     "hostname",
-                    "business_unit",
+                    "owner",
                     "oldest_finding_age_days",
                     "count_of_aged_findings",
                     "contributing_plugins",
@@ -365,7 +365,7 @@ class AgedVulnsAssetsModule(BaseModule):
                 ).reset_index(drop=True)
 
                 # T-03-05-02 — CSV-formula injection guard (text columns)
-                for _col in ("hostname", "business_unit", "contributing_plugins", "worst_severity"):
+                for _col in ("hostname", "owner", "contributing_plugins", "worst_severity"):
                     analyst_df.loc[:, _col] = analyst_df[_col].astype("string").map(
                         lambda s: ("'" + s)
                         if isinstance(s, str) and s[:1] in ("=", "+", "-", "@")
@@ -386,22 +386,22 @@ class AgedVulnsAssetsModule(BaseModule):
                 oldest_age = int(df_for_driver["oldest_finding_age_days"].max())
                 bu_counts = (
                     df_for_driver
-                    .groupby("business_unit", dropna=False, as_index=False)
+                    .groupby("owner", dropna=False, as_index=False)
                     .size()
                     .rename(columns={"size": "asset_count"})
                 )
-                bu_counts.loc[:, "business_unit"] = (
-                    bu_counts["business_unit"].fillna("Untagged").replace("", "Untagged")
+                bu_counts = bu_counts.assign(
+                    owner=bu_counts["owner"].fillna("Unassigned").replace("", "Unassigned")
                 )
                 bu_counts = bu_counts.sort_values(
-                    ["asset_count", "business_unit"], ascending=[False, True],
+                    ["asset_count", "owner"], ascending=[False, True],
                 )
-                worst_bu_name  = str(bu_counts.iloc[0]["business_unit"])
+                worst_bu_name  = str(bu_counts.iloc[0]["owner"])
                 worst_bu_count = int(bu_counts.iloc[0]["asset_count"])
                 driver = (
                     f"{safe_int(aged_assets_count)} assets carry at least one Med+ vuln open "
                     f">{_AGED_DAYS_THRESHOLD} days; oldest finding: {safe_int(oldest_age)} days; "
-                    f"worst BU: {worst_bu_name} with {safe_int(worst_bu_count)} assets."
+                    f"worst Owner: {worst_bu_name} with {safe_int(worst_bu_count)} assets."
                 )
             else:
                 driver = NO_DATA_DRIVER
@@ -577,7 +577,7 @@ class AgedVulnsAssetsModule(BaseModule):
         if top5:
             rows_html = ""
             for row in top5:
-                bu_name  = str(row.get("business_unit", ""))
+                bu_name  = str(row.get("owner", ""))
                 bu_num   = int(row.get("numerator",    0))
                 bu_den   = int(row.get("denominator",  0))
                 bu_score = int(row.get("risk_score",   0))
@@ -590,11 +590,11 @@ class AgedVulnsAssetsModule(BaseModule):
                     f'</tr>'
                 )
             bu_table_html = f"""
-<h3 class="subsection-heading">Top 5 Worst-Performing Business Units</h3>
+<h3 class="subsection-heading">Top 5 Worst-Performing Owners</h3>
 <table class="data-table">
   <thead>
     <tr>
-      <th>Business Unit</th>
+      <th>Owner</th>
       <th style="text-align:right;">Assets with Aged Vulns</th>
       <th style="text-align:right;">On-Time Assets</th>
       <th style="text-align:right;">Risk Score</th>
@@ -605,8 +605,8 @@ class AgedVulnsAssetsModule(BaseModule):
         else:
             bu_table_html = (
                 '<p class="explanatory-text" style="color:#888; font-style:italic;">'
-                'No business-unit breakdown available — '
-                'assets may lack Application tags or no aged findings were found.'
+                'No owner breakdown available — '
+                'assets may lack Owner tags or no aged findings were found.'
                 '</p>'
             )
 
@@ -624,8 +624,8 @@ class AgedVulnsAssetsModule(BaseModule):
   severity — represent persistent, accepted risk exposure and can indicate systemic
   remediation gaps.  Board target is &le;{green_str}% (green).
   &le;{yellow_str}% is at-risk (amber).  Above {yellow_str}%
-  is off-target (red).  Business-unit breakdown uses the Tenable
-  &ldquo;Application&rdquo; tag category.
+  is off-target (red).  Owner breakdown uses the Tenable
+  &ldquo;Owner&rdquo; tag category.
 </p>"""
 
         return two_column_metric_section(
@@ -710,10 +710,10 @@ class AgedVulnsAssetsModule(BaseModule):
                    f"Amber <={_YELLOW_THRESHOLD:.0f}%  |  "  # safe: module-level int constant, never None
                    f"Red >{_YELLOW_THRESHOLD:.0f}%")  # safe: module-level int constant, never None
 
-            # ---- BU breakdown table (starts at row 11, worst first) ----
+            # ---- Owner breakdown table (starts at row 11, worst first) ----
             header_row = 11
             headers = [
-                "Business Unit", "Assets with Aged Vulns", "On-Time Assets", "Risk Score"
+                "Owner", "Assets with Aged Vulns", "On-Time Assets", "Risk Score"
             ]
             for col_idx, header in enumerate(headers, start=1):
                 cell           = ws.cell(row=header_row, column=col_idx, value=header)
@@ -725,7 +725,7 @@ class AgedVulnsAssetsModule(BaseModule):
                 data_row = header_row + row_offset
 
                 ws.cell(row=data_row, column=1,
-                        value=str(row.get("business_unit", ""))).alignment = (
+                        value=str(row.get("owner", ""))).alignment = (
                     Alignment(horizontal="left")
                 )
                 ws.cell(row=data_row, column=2,
@@ -936,11 +936,11 @@ class AgedVulnsAssetsModule(BaseModule):
                     "severity IN ('critical', 'high', 'medium').  Severity is VPR-derived "
                     "as produced by fetch_all_vulnerabilities()."
                 ),
-                "BU_breakdown": (
+                "owner_breakdown": (
                     "compute_per_bu_breakdown(higher_is_better=False) on on-time assets "
-                    "enriched with Application tag. "
-                    "Numerator = assets with aged finding(s) per BU; "
-                    "denominator = all on-time assets per BU. "
+                    "enriched with Owner tag. "
+                    "Numerator = assets with aged finding(s) per owner; "
+                    "denominator = all on-time assets per owner. "
                     "affected = numerator (raw aged-asset count). "
                     "Primary sort: affected DESC (largest absolute problem first). "
                     "Secondary sort: percentage DESC (worst % among ties)."
