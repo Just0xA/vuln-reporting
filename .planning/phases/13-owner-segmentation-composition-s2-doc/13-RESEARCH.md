@@ -540,7 +540,7 @@ def _write_owner_supplemental(
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Where does `_count_by_owner` get its enriched assets when called from `capture_snapshot`?**
    - What we know: `capture_snapshot(df, assets_df, ...)` receives raw `assets_df`; `_count_by_owner` needs an `owner`-enriched version.
