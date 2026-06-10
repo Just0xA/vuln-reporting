@@ -321,7 +321,7 @@ def run_report(
     _supp_csv:   Optional[Path] = None
     try:
         from reports.owner_supplemental import write_owner_supplemental  # noqa: PLC0415
-        supp = write_owner_supplemental(assets_df, vulns_df, output_dir)
+        supp = write_owner_supplemental(assets_df, vulns_df, output_dir, report_date=generated_at)
         _supp_excel = supp.get("supplemental_excel")
         _supp_csv   = supp.get("supplemental_csv")
     except Exception as exc:  # noqa: BLE001

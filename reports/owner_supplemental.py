@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import csv
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +26,7 @@ import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from reports.modules.board_report_utils import extract_owner
+from utils.open_count import open_findings_at
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,7 @@ def _safe_cell_value(val: object) -> object:
 def _build_owner_app_df(
     assets_df: pd.DataFrame,
     vulns_df: pd.DataFrame,
+    report_date: Optional[datetime] = None,
 ) -> pd.DataFrame:
     """
     Build the flat (owner, application) aggregation frame.
@@ -105,9 +108,22 @@ def _build_owner_app_df(
         asset_counts["open_count"] = 0
         return asset_counts[["owner", "application", "open_count", "asset_count"]]
 
+    # WR-02: filter to the open set at report_date before aggregating, so the
+    # supplemental "Open Findings" column ties out to the owner trend snapshot.
+    # When report_date is None, count raw export rows (back-compat for callers
+    # that do not thread a date).
+    open_vulns = open_findings_at(vulns_df, report_date) if report_date is not None else vulns_df
+
+    # CR-01: dedup before set_index so a non-unique asset_uuid cannot produce
+    # non-deterministic last-wins attribution.  Keep first owner/application per uuid.
+    uuid_to_owner = (
+        enriched[["asset_uuid", "owner", "application"]]
+        .drop_duplicates("asset_uuid")
+        .set_index("asset_uuid")
+    )
+
     # Open findings count per asset_uuid, then join owner/application via enriched
-    vuln_owner = vulns_df[["asset_uuid"]].copy()
-    uuid_to_owner = enriched.set_index("asset_uuid")[["owner", "application"]]
+    vuln_owner = open_vulns[["asset_uuid"]].copy()
     vuln_owner = vuln_owner.join(uuid_to_owner, on="asset_uuid", how="left")
     vuln_owner["owner"]       = vuln_owner["owner"].fillna("Unassigned")
     vuln_owner["application"] = vuln_owner["application"].fillna("")
@@ -180,9 +196,10 @@ def _write_csv(csv_path: Path, df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 
 def write_owner_supplemental(
-    assets_df:  pd.DataFrame,
-    vulns_df:   pd.DataFrame,
-    output_dir: Path,
+    assets_df:   pd.DataFrame,
+    vulns_df:    pd.DataFrame,
+    output_dir:  Path,
+    report_date: Optional[datetime] = None,
 ) -> dict:
     """
     Write the combined Owner/Application supplemental Excel and CSV.
@@ -203,6 +220,12 @@ def write_owner_supplemental(
         Open findings DataFrame for the same scope.
     output_dir : Path
         Run output directory.  Created if missing.
+    report_date : datetime, optional
+        Point-in-time reference for the open-set filter (WR-02).  When provided,
+        "Open Findings" counts only findings open at this date via
+        ``open_findings_at()``, so the supplemental ties out to the owner trend
+        snapshot from the same run.  When ``None``, counts raw export rows
+        (back-compat for callers that do not thread a date).
 
     Returns
     -------
@@ -213,7 +236,7 @@ def write_owner_supplemental(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    df = _build_owner_app_df(assets_df, vulns_df)
+    df = _build_owner_app_df(assets_df, vulns_df, report_date=report_date)
 
     # Excel
     wb = openpyxl.Workbook()
