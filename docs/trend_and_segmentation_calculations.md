@@ -293,7 +293,7 @@ Each row represents one `(Owner, Application)` group:
 |---|---|
 | Owner | `extract_owner` → `owner` column |
 | Application | `extract_owner` → `application` column |
-| Open Findings | Count of open findings (from `vulns_df`) for assets in this group |
+| Open Findings | Count of findings open at the run's `report_date` via `open_findings_at(vulns_df, report_date)`, so this column ties out to the owner trend snapshot from the same run |
 | Asset Count | Count of distinct assets in this group |
 
 Rows with `Owner = "Unassigned"` double as a **tagging-cleanup worklist** — they identify

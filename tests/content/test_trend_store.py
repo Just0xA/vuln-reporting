@@ -447,6 +447,62 @@ def test_owner_counts_reconcile(tmp_path):
     )
 
 
+def test_owner_attribution_deterministic_under_dup_uuid(tmp_path):
+    """
+    WR-05: per-owner attribution is deterministic (first-row wins) when
+    enriched_assets contains the same asset_uuid under two different owners.
+
+    BEFORE the WR-05 fix: dict(zip(...)) with a non-unique asset_uuid is
+    last-wins — the finding for a1 lands under "Team B" (second row).
+
+    AFTER fix: drop_duplicates("asset_uuid") keeps row 0 ("Team A"), so a1's
+    finding is attributed to "Team A".
+
+    Also asserts that the owner-count sum still reconciles to the open-finding
+    total (reconcile-to-whole invariant preserved).
+    """
+    ref = datetime(2026, 6, 1, tzinfo=timezone.utc)
+
+    # a1 appears twice under different owners; a2 under a single owner.
+    enriched = _enriched_assets([
+        ("a1", "Team A"),   # row 0 — first row for a1
+        ("a1", "Team B"),   # row 1 — dup uuid, different owner
+        ("a2", "Team C"),
+    ])
+
+    vulns_df = _open_df_with_uuids([
+        {"asset_uuid": "a1"},
+        {"asset_uuid": "a2"},
+    ])
+    assets_df = _assets_df(n=3)
+
+    path = capture_snapshot(
+        vulns_df, assets_df, ref, "owner", "all_assets",
+        trend_dir=tmp_path, enriched_assets=enriched,
+    )
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    snap = data["snapshots"][0]
+
+    meta_keys = {"month", "tag_filter", "asset_count", "generated_at"}
+
+    # (a) a1's finding must be attributed to "Team A" (first-row), not "Team B".
+    assert snap.get("Team A", 0) >= 1, (
+        f"Expected a1's finding under 'Team A' (first-row wins); snap={snap}"
+    )
+    assert snap.get("Team B", 0) == 0, (
+        f"Expected 0 under 'Team B' (last-row must NOT win); snap={snap}"
+    )
+
+    # (b) reconcile-to-whole invariant preserved.
+    owner_total = sum(v for k, v in snap.items() if k not in meta_keys)
+    open_df = open_findings_at(vulns_df, ref)
+    oracle_total = len(open_df)
+    assert owner_total == oracle_total, (
+        f"Owner count sum {owner_total} must equal open_findings_at oracle {oracle_total}"
+    )
+
+
 def test_owner_snapshot_no_pii(tmp_path):
     """
     Written owner snapshot JSON must contain no PII fields (TREND-06, D-11).

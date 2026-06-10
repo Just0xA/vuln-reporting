@@ -184,11 +184,14 @@ def _count_by_owner(
     """
     if open_df.empty:
         return {}
-    uuid_to_owner = (
-        dict(zip(enriched_assets["asset_uuid"], enriched_assets["owner"]))
-        if not enriched_assets.empty and "owner" in enriched_assets.columns
-        else {}
-    )
+    # WR-05: dedup before building the map so duplicate asset_uuid rows in
+    # enriched_assets do not produce order-dependent (last-wins) attribution.
+    # Keep the first row per uuid for deterministic first-row-wins semantics.
+    if not enriched_assets.empty and "owner" in enriched_assets.columns:
+        ea = enriched_assets.drop_duplicates("asset_uuid")
+        uuid_to_owner = dict(zip(ea["asset_uuid"], ea["owner"]))
+    else:
+        uuid_to_owner = {}
     owner_col = open_df["asset_uuid"].map(uuid_to_owner).fillna("Unassigned")
     counts = owner_col.value_counts().to_dict()
     return {str(k): int(v) for k, v in counts.items()}
