@@ -40,7 +40,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 
 - [x] **Phase 12: Trend Snapshot Substrate (S1)** — Canonical open-count primitive (reopened-aware), monthly snapshot capture/read, store continuity with `data/trend/`, idempotency, PII discipline, and cron-friendly entry point (3 plans)
  (completed 2026-06-08)
-- [ ] **Phase 13: Owner Segmentation + Composition (S2 + Doc)** — Owner/BU grouping helper, Unassigned catch-all, analyst exception list, fail-soft guard, S1×S2 composition proof, and auditor runbook
+- [x] **Phase 13: Owner Segmentation + Composition (S2 + Doc)** — Owner/BU grouping helper, Unassigned catch-all, analyst exception list, fail-soft guard, S1×S2 composition proof, and auditor runbook (completed 2026-06-10)
 
 ## Phase Details
 
@@ -73,7 +73,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 - [x] 13-01-PLAN.md — generalize board_report_utils.py to Owner-primary helper + SEG-01/02/04 unit tests [SEG-01, SEG-02, SEG-04]
 - [x] 13-02-PLAN.md — repoint the 4 board consumer modules to Owner; remove duplicate _extract_owner_tag [SEG-01, SEG-02, SEG-04]
 - [x] 13-03-PLAN.md — dimension="owner" trend composition + combined analyst supplemental Excel/CSV [SEG-03, SEG-05]
-- [ ] 13-04-PLAN.md — DOC-01 auditor runbook (docs/trend_and_segmentation_calculations.md) [DOC-01]
+- [x] 13-04-PLAN.md — DOC-01 auditor runbook (docs/trend_and_segmentation_calculations.md) [DOC-01]
 
 ## Progress
 
@@ -91,7 +91,7 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 | 10. Install / Update / Rollback | v1.2     | 3/3            | Complete    | 2026-05-19 |
 | 11. Documentation              | v1.2      | 2/2            | Complete    | 2026-05-20 |
 | 12. Trend Snapshot Substrate   | v1.3      | 3/3 | Complete    | 2026-06-08 |
-| 13. Owner Segmentation + Comp. | v1.3      | 3/4 | In Progress|  |
+| 13. Owner Segmentation + Comp. | v1.3      | 4/4 | Complete   | 2026-06-10 |
 
 ## Backlog
 
