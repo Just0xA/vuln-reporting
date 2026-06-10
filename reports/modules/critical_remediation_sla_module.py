@@ -52,7 +52,7 @@ from reports.modules.registry import register_module
 from reports.modules.board_pdf_layout import two_column_metric_section
 from reports.modules.board_report_utils import (
     compute_per_bu_breakdown,
-    extract_business_unit,
+    extract_owner,
     identify_on_time_assets,
     sla_status_from_thresholds,
     ON_TIME_WINDOW_DAYS,
@@ -317,8 +317,15 @@ class CriticalRemediationSLAModule(BaseModule):
                     _smod = missed["severity_modification_type"].astype("string").str.lower()
                     missed = missed[~_smod.isin(["accepted", "recasted"])].copy()
                 if not missed.empty:
+                    # Derive owner_tag for each finding row via extract_owner.
+                    # extract_owner operates on an assets-style DataFrame; findings
+                    # carry a 'tags' column in the same "Cat=Val;Cat=Val" format, so
+                    # passing 'missed' directly produces an 'owner' column we rename
+                    # to 'owner_tag' for the analyst drill-down display.
+                    missed_with_owner = extract_owner(missed)
                     missed = missed.assign(
-                        plugin = missed.apply(
+                        owner_tag=missed_with_owner["owner"].values,
+                        plugin=missed.apply(
                             lambda r: f"{r.get('plugin_name', '')} ({r.get('plugin_id', '')})",
                             axis=1,
                         ),
@@ -331,10 +338,6 @@ class CriticalRemediationSLAModule(BaseModule):
                                     missed["first_found"], utc=True, errors="coerce"
                                 )
                                 + pd.Timedelta(days=_CRITICAL_SLA_DAYS)
-                            ),
-                            "owner_tag": (
-                                missed.get("tags", pd.Series([""] * len(missed)))
-                                .map(_extract_owner_tag)
                             ),
                         },
                     )
@@ -585,7 +588,7 @@ class CriticalRemediationSLAModule(BaseModule):
             rows_html = ""
             for row in top5:
                 bu_pct  = float(row.get("percentage", 0.0))
-                bu_name = str(row.get("business_unit", ""))
+                bu_name = str(row.get("owner", ""))
                 bu_num  = int(row.get("numerator",    0))
                 bu_den  = int(row.get("denominator",  0))
                 row_bg  = _row_bg(bu_pct, _GREEN_THRESHOLD, _YELLOW_THRESHOLD)
@@ -599,11 +602,11 @@ class CriticalRemediationSLAModule(BaseModule):
                     f'</tr>'
                 )
             bu_table_html = f"""
-<h3 class="subsection-heading">Top 5 Worst-Performing Business Units</h3>
+<h3 class="subsection-heading">Top 5 Worst-Performing Owners</h3>
 <table class="data-table">
   <thead>
     <tr>
-      <th>Business Unit</th>
+      <th>Owner</th>
       <th style="text-align:right;">Fixed in SLA</th>
       <th style="text-align:right;">Fixed (30d)</th>
       <th style="text-align:right;">SLA Compliance %</th>
@@ -614,9 +617,9 @@ class CriticalRemediationSLAModule(BaseModule):
         else:
             bu_table_html = (
                 '<p class="explanatory-text" style="color:#888; font-style:italic;">'
-                'No business-unit breakdown available '
+                'No owner breakdown available '
                 '(no critical findings fixed in the last 30 days, or '
-                'assets lack Application tags).'
+                'assets lack Owner tags).'
                 '</p>'
             )
 
@@ -720,10 +723,10 @@ class CriticalRemediationSLAModule(BaseModule):
             _xl_kv(ws, 10, "Scope:",
                    "Assets with last_licensed_scan_date within last 30 days only")
 
-            # ---- BU breakdown table ----
+            # ---- Owner breakdown table ----
             header_row = 12
             headers = [
-                "Business Unit", "Fixed in SLA", "Fixed (30d)", "SLA Compliance %"
+                "Owner", "Fixed in SLA", "Fixed (30d)", "SLA Compliance %"
             ]
             for col_idx, header in enumerate(headers, start=1):
                 cell           = ws.cell(row=header_row, column=col_idx, value=header)
@@ -737,7 +740,7 @@ class CriticalRemediationSLAModule(BaseModule):
                 bu_fill  = _xl_fill(bu_pct, _GREEN_THRESHOLD, _YELLOW_THRESHOLD)
 
                 ws.cell(row=data_row, column=1,
-                        value=str(row.get("business_unit", ""))).alignment = (
+                        value=str(row.get("owner", ""))).alignment = (
                     Alignment(horizontal="left")
                 )
                 ws.cell(row=data_row, column=2,
@@ -957,10 +960,10 @@ class CriticalRemediationSLAModule(BaseModule):
                     f">= report_date − {ON_TIME_WINDOW_DAYS} days. "
                     "Applied to assets_df BEFORE filtering findings."
                 ),
-                "BU_breakdown": (
+                "owner_breakdown": (
                     "compute_per_bu_breakdown(higher_is_better=True) via _compute_bu_breakdown(). "
-                    "Per-BU: numerator = fixed within SLA; denominator = total fixed in last 30 days. "
-                    "BU derived from Application tag on on-time assets. "
+                    "Per-owner: numerator = fixed within SLA; denominator = total fixed in last 30 days. "
+                    "Owner derived from Owner tag on on-time assets. "
                     "affected = denominator − numerator (criticals NOT fixed within SLA). "
                     "Primary sort: affected DESC (most missed-SLA criticals first). "
                     "Secondary sort: percentage ASC (worst compliance % among ties)."
@@ -972,23 +975,6 @@ class CriticalRemediationSLAModule(BaseModule):
 # ===========================================================================
 # Module-private helpers
 # ===========================================================================
-
-def _extract_owner_tag(tags_str: Any) -> str:
-    """
-    Parse the Owner tag value from a Tenable-style tags string.
-
-    Tenable serializes tags as ``"Category=Value;Category=Value"``. When no
-    Owner category is present, returns ``""`` (empty string).
-    """
-    if not isinstance(tags_str, str) or not tags_str.strip():
-        return ""
-    for piece in tags_str.split(";"):
-        if "=" not in piece:
-            continue
-        cat, _, val = piece.partition("=")
-        if cat.strip().lower() == "owner":
-            return val.strip()
-    return ""
 
 
 def _filter_critical(
@@ -1049,27 +1035,27 @@ def _compute_bu_breakdown(
     within_sla_mask:  "pd.Series[bool] | None",
 ) -> pd.DataFrame:
     """
-    Build per-BU breakdown for the remediation SLA metric.
+    Build per-owner breakdown for the remediation SLA metric.
 
-    Maps each finding in ``fixed_in_window`` to its asset's business unit
-    using the on_time_assets enriched with the Application tag.
+    Maps each finding in ``fixed_in_window`` to its asset's owner
+    using the on_time_assets enriched with the Owner tag.
 
     Returns an empty DataFrame if ``fixed_in_window`` is empty.
     """
     if fixed_in_window.empty:
         return pd.DataFrame(
-            columns=["business_unit", "numerator", "denominator", "percentage", "affected"]
+            columns=["owner", "numerator", "denominator", "percentage", "affected"]
         )
 
-    # Enrich on-time assets with BU labels
-    enriched_assets = extract_business_unit(on_time_assets)
-    uuid_to_bu      = dict(
-        zip(enriched_assets["asset_uuid"], enriched_assets["business_unit"])
+    # Enrich on-time assets with owner labels
+    enriched_assets = extract_owner(on_time_assets)
+    uuid_to_owner   = dict(
+        zip(enriched_assets["asset_uuid"], enriched_assets["owner"])
     )
 
     fw = fixed_in_window.copy()
-    fw.loc[:, "business_unit"] = (
-        fw["asset_uuid"].map(uuid_to_bu).fillna("Untagged")
+    fw = fw.assign(
+        owner=fw["asset_uuid"].map(uuid_to_owner).fillna("Unassigned")
     )
 
     # CR-01 fix — defensively realign the within-SLA mask onto fw.index.
