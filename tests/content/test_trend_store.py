@@ -297,3 +297,203 @@ def test_empty_df_writes_zero_counts(tmp_path):
     assert entry["medium"] == 0
     assert entry["low"] == 0
     assert entry["asset_count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Owner-dimension tests (SEG-05) — require Task 1 implementation
+# ---------------------------------------------------------------------------
+
+
+def _open_df_with_uuids(rows: list[dict]) -> pd.DataFrame:
+    """
+    Return an open-findings DataFrame with known asset_uuid values.
+
+    Each row dict must include: asset_uuid, severity.
+    Date columns are coerced to datetime64[ns, UTC].
+    """
+    base_rows = []
+    for r in rows:
+        base_rows.append({
+            "asset_uuid":    r["asset_uuid"],
+            "first_found":   datetime(2026, 5, 1, tzinfo=timezone.utc),
+            "last_fixed":    None,
+            "resurfaced_date": None,
+            "state":         "open",
+            "severity":      r.get("severity", "critical"),
+        })
+    df = pd.DataFrame(base_rows)
+    df = df.assign(**{
+        col: pd.to_datetime(df[col], utc=True, errors="coerce")
+        for col in ("first_found", "last_fixed", "resurfaced_date")
+    })
+    return df
+
+
+def _enriched_assets(uuid_owner_pairs: list[tuple[str, str]]) -> pd.DataFrame:
+    """Return a minimal enriched assets DataFrame with asset_uuid + owner columns."""
+    return pd.DataFrame(
+        [{"asset_uuid": u, "owner": o} for u, o in uuid_owner_pairs]
+    )
+
+
+def test_capture_owner_writes_owner_file(tmp_path):
+    """
+    capture_snapshot with dimension='owner' writes trend_owner_all_assets.json
+    and the file exists (SEG-05, D-12).
+    """
+    vulns_df = _open_df_with_uuids([
+        {"asset_uuid": "a1", "severity": "critical"},
+        {"asset_uuid": "a2", "severity": "high"},
+    ])
+    assets_df = _assets_df(n=5)
+    enriched = _enriched_assets([("a1", "Team A"), ("a2", "Team B")])
+
+    path = capture_snapshot(
+        vulns_df, assets_df, datetime(2026, 6, 1), "owner", "all_assets",
+        trend_dir=tmp_path, enriched_assets=enriched,
+    )
+
+    assert path.name == "trend_owner_all_assets.json", (
+        f"Expected trend_owner_all_assets.json, got {path.name}"
+    )
+    assert path.exists(), "capture_snapshot must return an existing path"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert "snapshots" in data
+    assert len(data["snapshots"]) == 1
+
+
+def test_read_trend_owner_roundtrip(tmp_path):
+    """
+    After an owner-dimension capture, read_trend('owner', 'all_assets')
+    returns a dict with snapshot count keys that are owner names — NOT
+    critical/high/medium/low (SEG-05, D-12).
+    """
+    vulns_df = _open_df_with_uuids([
+        {"asset_uuid": "a1", "severity": "critical"},
+        {"asset_uuid": "a2", "severity": "high"},
+    ])
+    assets_df = _assets_df(n=5)
+    enriched = _enriched_assets([("a1", "Team Alpha"), ("a2", "Team Beta")])
+
+    capture_snapshot(
+        vulns_df, assets_df, datetime(2026, 6, 1), "owner", "all_assets",
+        trend_dir=tmp_path, enriched_assets=enriched,
+    )
+
+    result = read_trend("owner", "all_assets", months=6, trend_dir=tmp_path)
+    assert "snapshots" in result
+    assert len(result["snapshots"]) >= 1
+
+    snap = result["snapshots"][0]
+    # Owner keys must be present; standard severity keys must NOT
+    assert "Team Alpha" in snap or "Team Beta" in snap, (
+        f"Expected owner keys in snapshot, got: {list(snap.keys())}"
+    )
+    assert "critical" not in snap, "Owner snapshot must not have severity key 'critical'"
+    assert "high" not in snap, "Owner snapshot must not have severity key 'high'"
+
+
+def test_owner_requires_enriched_assets(tmp_path):
+    """
+    capture_snapshot with dimension='owner' and enriched_assets=None
+    must raise ValueError (D-12, T-13-12).
+    """
+    vulns_df = _open_df_with_uuids([{"asset_uuid": "a1"}])
+    assets_df = _assets_df(n=2)
+
+    with pytest.raises(ValueError, match="enriched_assets"):
+        capture_snapshot(
+            vulns_df, assets_df, datetime(2026, 6, 1), "owner", "all_assets",
+            trend_dir=tmp_path, enriched_assets=None,
+        )
+
+
+def test_owner_counts_reconcile(tmp_path):
+    """
+    Sum of per-owner counts in the written snapshot equals the open-finding
+    count from open_findings_at for the same df/date.
+
+    Findings for assets absent from enriched count under 'Unassigned'.
+    (SEG-05, TREND-06)
+    """
+    ref = datetime(2026, 6, 1, tzinfo=timezone.utc)
+
+    vulns_df = _open_df_with_uuids([
+        {"asset_uuid": "a1"},
+        {"asset_uuid": "a2"},
+        {"asset_uuid": "a3"},   # no owner in enriched → Unassigned
+    ])
+    assets_df = _assets_df(n=5)
+    enriched = _enriched_assets([("a1", "Team A"), ("a2", "Team A")])
+
+    path = capture_snapshot(
+        vulns_df, assets_df, ref, "owner", "all_assets",
+        trend_dir=tmp_path, enriched_assets=enriched,
+    )
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    snap = data["snapshots"][0]
+
+    # Sum all owner counts (excludes metadata keys)
+    meta_keys = {"month", "tag_filter", "asset_count", "generated_at"}
+    owner_total = sum(v for k, v in snap.items() if k not in meta_keys)
+
+    # Oracle: open_findings_at on the same df/date
+    open_df = open_findings_at(vulns_df, ref)
+    oracle_total = len(open_df)
+
+    assert owner_total == oracle_total, (
+        f"Owner count sum {owner_total} must equal open_findings_at oracle {oracle_total}"
+    )
+
+
+def test_owner_snapshot_no_pii(tmp_path):
+    """
+    Written owner snapshot JSON must contain no PII fields (TREND-06, D-11).
+
+    Allowed keys in each entry: owner names + month + tag_filter + asset_count
+    + generated_at. Disallowed: hostname, ipv4, fqdn, asset_uuid, plugin_name,
+    plugin_id.
+    """
+    vulns_df = _open_df_with_uuids([
+        {"asset_uuid": "a1"},
+        {"asset_uuid": "a2"},
+    ])
+    assets_df = _assets_df(n=5)
+    enriched = _enriched_assets([("a1", "Team A"), ("a2", "Team B")])
+
+    path = capture_snapshot(
+        vulns_df, assets_df, datetime(2026, 6, 1), "owner", "all_assets",
+        trend_dir=tmp_path, enriched_assets=enriched,
+    )
+
+    text = path.read_text(encoding="utf-8")
+    for field in _PII_FIELDS:
+        assert field not in text, (
+            f"PII field {field!r} found in owner snapshot file (TREND-06/D-11)"
+        )
+
+
+def test_owner_cold_start_safe(tmp_path):
+    """
+    read_trend('owner', 'all_assets') with <=1 snapshot returns available
+    history with insufficient_data=True — does not raise (TREND-04 carried).
+    """
+    # Zero snapshots: file does not exist
+    result = read_trend("owner", "all_assets", months=6, trend_dir=tmp_path)
+    assert result["snapshots"] == []
+    assert result["insufficient_data"] is True
+
+    # One snapshot: insufficient_data still True
+    vulns_df = _open_df_with_uuids([{"asset_uuid": "a1"}])
+    assets_df = _assets_df(n=2)
+    enriched = _enriched_assets([("a1", "Team A")])
+
+    capture_snapshot(
+        vulns_df, assets_df, datetime(2026, 6, 1), "owner", "all_assets",
+        trend_dir=tmp_path, enriched_assets=enriched,
+    )
+
+    result2 = read_trend("owner", "all_assets", months=6, trend_dir=tmp_path)
+    assert len(result2["snapshots"]) == 1
+    assert result2["insufficient_data"] is True

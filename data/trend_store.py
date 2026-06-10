@@ -168,6 +168,32 @@ def _atomic_write_json(path: Path, data: dict) -> None:
         raise
 
 
+def _count_by_owner(
+    open_df: pd.DataFrame,
+    enriched_assets: pd.DataFrame,
+) -> dict[str, int]:
+    """
+    Return {owner_name: open_finding_count} for the open findings set.
+
+    Joins open_df to enriched_assets on asset_uuid to derive owner labels.
+    Findings for assets absent from enriched_assets count under "Unassigned".
+    Empty open_df returns {}.
+
+    Uses .to_dict() BEFORE any .get() call to avoid calling .get() on a
+    pandas Series (Pitfall 3 carried from _count_by_severity).
+    """
+    if open_df.empty:
+        return {}
+    uuid_to_owner = (
+        dict(zip(enriched_assets["asset_uuid"], enriched_assets["owner"]))
+        if not enriched_assets.empty and "owner" in enriched_assets.columns
+        else {}
+    )
+    owner_col = open_df["asset_uuid"].map(uuid_to_owner).fillna("Unassigned")
+    counts = owner_col.value_counts().to_dict()
+    return {str(k): int(v) for k, v in counts.items()}
+
+
 def _count_by_severity(open_df: pd.DataFrame) -> dict[str, int]:
     """
     Return a dict of {critical, high, medium, low} open-finding counts.
@@ -197,6 +223,7 @@ def capture_snapshot(
     dimension: str = "severity",
     tag_filter: str = "all_assets",
     trend_dir: Optional[Path] = None,
+    enriched_assets: Optional[pd.DataFrame] = None,
 ) -> Path:
     """
     Write an atomic monthly snapshot of open-finding counts.
@@ -227,12 +254,17 @@ def capture_snapshot(
     This is safe under the intended once-per-month cron invocation; if concurrent
     invocation ever becomes possible, add a sidecar lockfile.
     dimension : str
-        Grouping dimension — ``"severity"`` for Phase 12.
+        Grouping dimension — ``"severity"`` (default) or ``"owner"``.
     tag_filter : str
         Tag scope label — ``"all_assets"`` for Phase 12; a sanitised
         ``Category_Value`` string for Phase 13.
     trend_dir : Path, optional
         Override the default ``TREND_DIR`` (useful in tests without monkeypatching).
+    enriched_assets : pd.DataFrame, optional
+        Pre-enriched assets DataFrame with an ``owner`` column (from
+        ``extract_owner``).  Required when ``dimension="owner"``; ignored for
+        ``dimension="severity"``.  The caller is responsible for pre-enriching
+        so this module stays free of ``reports/modules/`` imports (RESEARCH A1).
 
     Returns
     -------
@@ -244,9 +276,6 @@ def capture_snapshot(
     # Compute the open subset via the Plan 01 predicate.
     open_df = open_findings_at(df, date)
 
-    # Aggregate counts — safe on empty open_df (guard inside _count_by_severity).
-    sev_counts = _count_by_severity(open_df)
-
     # D-04: record the in-scope asset count alongside severity counts.
     asset_count = int(len(assets_df))
 
@@ -254,13 +283,28 @@ def capture_snapshot(
     month_str = date.strftime("%Y-%m")  # LOCAL — no tz conversion
     generated_at_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # Dimension dispatch — build count_entry dict with appropriate keys.
+    if dimension == "severity":
+        sev_counts = _count_by_severity(open_df)
+        count_entry: dict = {
+            "critical": sev_counts["critical"],
+            "high":     sev_counts["high"],
+            "medium":   sev_counts["medium"],
+            "low":      sev_counts["low"],
+        }
+    elif dimension == "owner":
+        if enriched_assets is None:
+            raise ValueError(
+                "capture_snapshot: enriched_assets is required for dimension='owner'"
+            )
+        count_entry = _count_by_owner(open_df, enriched_assets)
+    else:
+        raise ValueError(f"capture_snapshot: unknown dimension {dimension!r}")
+
     new_entry: dict = {
         "month":        month_str,
         "tag_filter":   tag_filter,
-        "critical":     sev_counts["critical"],
-        "high":         sev_counts["high"],
-        "medium":       sev_counts["medium"],
-        "low":          sev_counts["low"],
+        **count_entry,
         "asset_count":  asset_count,
         "generated_at": generated_at_str,
     }
