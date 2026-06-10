@@ -313,6 +313,23 @@ def run_report(
         )
 
     # ------------------------------------------------------------------
+    # Combined Owner/Application supplemental (SEG-03, D-09).
+    # Fail-soft: a supplemental error must not abort the board run.
+    # Written to output_dir only (gitignored) — never to data/trend/.
+    # ------------------------------------------------------------------
+    _supp_excel: Optional[Path] = None
+    _supp_csv:   Optional[Path] = None
+    try:
+        from reports.owner_supplemental import write_owner_supplemental  # noqa: PLC0415
+        supp = write_owner_supplemental(assets_df, vulns_df, output_dir)
+        _supp_excel = supp.get("supplemental_excel")
+        _supp_csv   = supp.get("supplemental_csv")
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "board_summary: supplemental writer failed (non-fatal): %s", exc, exc_info=True
+        )
+
+    # ------------------------------------------------------------------
     # PDF — bytes come from bundle["pdf_html"]; WeasyPrint render path
     # unchanged
     # ------------------------------------------------------------------
@@ -367,6 +384,11 @@ def run_report(
         # show up in any consumer that doesn't explicitly look at
         # metrics["kpis"].
         "email_kpis":       kpis,
+        # NEW in Phase 13 (SEG-03, D-09) — additive keys only; do NOT mutate
+        # existing key shapes.  Written to output/ (gitignored) only; never
+        # data/trend/ (D-11).  Fail-soft: None when supplemental writer errors.
+        "supplemental_excel": _supp_excel,
+        "supplemental_csv":   _supp_csv,
     }
     # _bundle: private key for tests/baseline_utils + smoke_board_summary_cutover.py (Plan 04-04). NOT part of the public contract.
     # Carries the in-memory composer pipeline output (pdf_html string,
