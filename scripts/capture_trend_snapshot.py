@@ -192,8 +192,9 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as e:
         # argparse already logged the real reason via _SnapshotArgumentParser.error
         # (or this is a --help exit, code 0, which we pass through).
-        code = e.code if isinstance(e.code, int) else 2
-        return code if code != 0 else 0
+        # SystemExit.code is an int for usage/help exits and None when raised
+        # bare; map the non-int case to 2 (usage error) and pass ints through.
+        return e.code if isinstance(e.code, int) else 2
 
     logger = _configure_logging(args.verbose)
     start = _log_started(logger, sys.argv)
@@ -236,10 +237,24 @@ def main(argv: list[str] | None = None) -> int:
     # Build the snapshot reference date so capture_snapshot derives the correct
     # month key.  When --month is given, construct a datetime whose %Y-%m matches
     # month_str; otherwise pass datetime.now() (LOCAL, matching the default month_str).
+    #
+    # WR-04 — local-vs-UTC cutoff is deliberately mixed and documented here:
+    #   * The month KEY is derived local (date.strftime("%Y-%m") in capture_snapshot).
+    #   * The open-set CUTOFF D is derived in open_findings_at, which coerces a
+    #     tz-naive datetime to UTC.  So for a `--month 2026-06` run the cutoff is
+    #     2026-06-01T00:00:00Z (UTC midnight on day 01), NOT local midnight.
+    # This is acceptable for monthly snapshots (a few hours of UTC offset does not
+    # move a once-per-month count meaningfully), but it must be auditable — hence
+    # the resolved snapshot_date is logged below.
     if args.month:
         snapshot_date = datetime.strptime(month_str + "-01", "%Y-%m-%d")
     else:
         snapshot_date = datetime.now()
+    logger.info(
+        "Snapshot reference date=%s (tz-naive; open-set cutoff coerced to UTC "
+        "midnight in open_findings_at); month key=%s",
+        snapshot_date.isoformat(), month_str,
+    )
 
     try:
         path = capture_snapshot(df, assets_df, snapshot_date, "severity", "all_assets")
