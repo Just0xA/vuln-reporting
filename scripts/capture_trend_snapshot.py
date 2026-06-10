@@ -258,10 +258,27 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         path = capture_snapshot(df, assets_df, snapshot_date, "severity", "all_assets")
-        logger.info("Snapshot written: %s", path)
+        logger.info("Severity snapshot written: %s", path)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("capture_snapshot failed: %s", exc)
+        logger.exception("capture_snapshot (severity) failed: %s", exc)
         _log_completed(logger, start, "failed", f"snapshot: {exc}")
+        return 3
+
+    # Owner-dimension snapshot (SEG-05, D-12).
+    # Caller pre-enriches assets so data/trend_store.py stays free of
+    # reports/modules/ imports (RESEARCH A1 / Pitfall 5).
+    try:
+        from reports.modules.board_report_utils import extract_owner  # noqa: PLC0415
+        enriched = extract_owner(assets_df)
+        owner_path = capture_snapshot(
+            df, assets_df, snapshot_date, "owner", "all_assets",
+            enriched_assets=enriched,
+        )
+        logger.info("Owner snapshot written: %s", owner_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("capture_snapshot (owner) failed: %s", exc)
+        # Non-fatal: severity snapshot already succeeded; log and continue.
+        _log_completed(logger, start, "partial", f"owner-snapshot: {exc}")
         return 3
 
     _log_completed(logger, start, "success")
