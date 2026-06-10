@@ -98,6 +98,20 @@ def test_fixed_state_excluded() -> None:
     assert len(result) == 0
 
 
+def test_fixed_state_nat_last_fixed_excluded() -> None:
+    """A FIXED finding with last_fixed=NaT must STILL be excluded at D (WR-01).
+
+    Tenable occasionally exports a terminal FIXED row with an empty/missing
+    last_fixed.  State is authoritative for terminal-fixed: such a row must not
+    fall through to "open" (which would silently over-count opens).
+    """
+    row = _finding("fixed", first_found_days_ago=60, last_fixed_days_ago=None)
+    assert row["last_fixed"] is None  # confirm fixture
+    df = _df([row])
+    result = open_findings_at(df, _REF)
+    assert len(result) == 0
+
+
 # ---------------------------------------------------------------------------
 # REOPENED state — three sub-cases
 # ---------------------------------------------------------------------------
@@ -157,6 +171,44 @@ def test_born_after_D_excluded() -> None:
     df = _df([_finding("open", first_found_days_ago=-1)])
     result = open_findings_at(df, _REF)
     assert len(result) == 0
+
+
+# ---------------------------------------------------------------------------
+# first_found=NaT — counted as present, not silently dropped (WR-02)
+# ---------------------------------------------------------------------------
+
+def test_nat_first_found_open_included() -> None:
+    """An OPEN finding with first_found=NaT must be counted, not dropped (WR-02).
+
+    Policy: a missing first_found is not grounds to drop an otherwise-open
+    finding.  NaT-first_found rows are treated as born/present (a warning is
+    logged) rather than silently undercounting opens.
+    """
+    row = _finding("open", first_found_days_ago=None)
+    assert row["first_found"] is None  # confirm fixture
+    df = _df([row])
+    result = open_findings_at(df, _REF)
+    assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Defensive state dtype coercion (WR-03)
+# ---------------------------------------------------------------------------
+
+def test_non_string_state_dtype_does_not_raise() -> None:
+    """A non-object state column (all-NaN float) must not raise on .str.upper() (WR-03).
+
+    .astype(str) coerces defensively: a NaN state stringifies to "NAN", matches
+    no terminal-state clause, and falls through to "open" (the safe default).
+    """
+    row = _finding("open", first_found_days_ago=10)
+    df = _df([row])
+    # Force the state column to a non-object (float) dtype, as pandas would infer
+    # for an all-NaN column — this is the dtype that breaks a naive .str.upper().
+    df["state"] = pd.Series([float("nan")], dtype="float64")
+    result = open_findings_at(df, _REF)
+    # NaN state stringifies to "NAN" → no fixed clause matches → counted open.
+    assert len(result) == 1
 
 
 # ---------------------------------------------------------------------------

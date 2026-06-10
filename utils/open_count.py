@@ -65,22 +65,48 @@ def open_findings_at(df: pd.DataFrame, date: datetime) -> pd.DataFrame:
         else pd.Timestamp(date)
     )
 
-    # Born before or on the reference date
-    born = df["first_found"] <= D
+    # Born before or on the reference date.  A row with first_found=NaT would
+    # evaluate (NaT <= D) as False and be dropped unconditionally, silently
+    # undercounting opens (WR-02).  Policy decision: a missing first_found is not
+    # grounds to drop an otherwise-open finding — we treat NaT-first_found as
+    # born (present) and log a warning so the data-quality issue is observable
+    # rather than silent.  Errs toward inclusion, consistent with WR-01's
+    # over-count-prevention intent.
+    missing_first_found = int(df["first_found"].isna().sum())
+    if missing_first_found:
+        logger.warning(
+            "open_findings_at: %d row(s) have first_found=NaT; counting them as "
+            "born/present rather than dropping them",
+            missing_first_found,
+        )
+    born = df["first_found"].isna() | (df["first_found"] <= D)
 
-    # Normalise state to uppercase once (fetcher stores lowercase per _OPEN_STATES)
-    st = df["state"].str.upper()
+    # Normalise state to uppercase once (fetcher stores lowercase per _OPEN_STATES).
+    # Coerce via .astype(str) first so a non-object state column (e.g. all-NaN
+    # float or categorical inferred by pandas) does not raise AttributeError on
+    # .str.upper() (WR-03).  .astype(str) keeps regular Python-str comparisons:
+    # a genuine NaN state stringifies to "NAN", which matches no terminal-state
+    # clause and therefore falls through to "open" — the safe default for an
+    # unknown state.  We deliberately avoid .astype("string"), whose nullable-NA
+    # semantics would propagate <NA> through the == comparisons and complicate
+    # the boolean masks.
+    st = df["state"].astype(str).str.upper()
     lf = df["last_fixed"]
     rs = df["resurfaced_date"]
 
     # A finding is "fixed at D" under any of three clauses:
-    #   1. state=FIXED and last_fixed <= D
+    #   1. state=FIXED — terminal-fixed; state is authoritative regardless of
+    #      last_fixed presence.  Tenable occasionally exports a FIXED row with an
+    #      empty/missing last_fixed (fetcher stores vuln.get("last_fixed", "") →
+    #      NaT).  Gating clause 1 on lf.notna() would let such a row fall through
+    #      to "open", silently over-counting the exact direction of error this
+    #      phase exists to prevent (WR-01).  A terminal FIXED state means closed.
     #   2. state=REOPENED, last_fixed <= D, resurfaced_date is known, and D < resurfaced_date
     #      (finding is in the gap between fix and resurface — closed at D)
     #   3. state=REOPENED, last_fixed <= D, resurfaced_date is NaT
     #      (was fixed, never resurfaced — treat as closed)
     fixed = (
-        ((st == "FIXED")    & lf.notna() & (lf <= D))
+        (st == "FIXED")
         | ((st == "REOPENED") & lf.notna() & (lf <= D) & rs.notna() & (D < rs))
         | ((st == "REOPENED") & lf.notna() & (lf <= D) & rs.isna())
     )
@@ -96,7 +122,7 @@ if __name__ == "__main__":
 
     _REF = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
 
-    def _ts(days_ago: int | None) -> "pd.Timestamp | pd.NaT":  # noqa: F821
+    def _ts(days_ago: int | None) -> pd.Timestamp | None:
         if days_ago is None:
             return pd.NaT
         # _REF is already tz-aware; pd.Timestamp honours its tzinfo directly.
