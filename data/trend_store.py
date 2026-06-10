@@ -104,15 +104,38 @@ def _load_trend_json(path: Path) -> list[dict]:
     Returns an empty list if the file does not exist or cannot be parsed.
     Never raises.  Named differently from the MS private helper
     ``_load_trend_history`` to avoid any collision.
+
+    Contract (IN-05): the file root must be a JSON object of the shape
+    ``{"snapshots": [...]}``.  Any other shape (a bare list, a scalar, etc.)
+    causes ``.get`` to fail and is treated as unparseable — see the corrupt-file
+    handling below.
+
+    Corrupt-file handling (IN-02): the caller (``capture_snapshot``) does
+    read-modify-write, so returning ``[]`` on a parse failure would let the next
+    write OVERWRITE the corrupt file and permanently discard recoverable
+    history.  To avoid silent destruction we rename the bad file to
+    ``*.corrupt`` (best-effort) before returning ``[]`` and log at ERROR.
     """
     if not path.exists():
         return []
     try:
         with path.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
+        # Root must be {"snapshots": [...]}.  A non-dict root (e.g. a bare list)
+        # raises AttributeError on .get and is handled as a parse failure below.
         return data.get("snapshots", [])
     except Exception as exc:
-        logger.warning("Could not load trend file %s: %s", path, exc)
+        logger.error(
+            "Could not parse trend file %s: %s — preserving it as *.corrupt so "
+            "accumulated history is not overwritten on the next write",
+            path, exc,
+        )
+        try:
+            path.replace(path.with_suffix(path.suffix + ".corrupt"))
+        except OSError as rename_exc:
+            logger.error(
+                "Could not preserve corrupt trend file %s: %s", path, rename_exc
+            )
         return []
 
 
@@ -183,11 +206,26 @@ def capture_snapshot(
     df : pd.DataFrame
         Open+reopened findings (already fetched and date-normalised).
         Must have columns: first_found, last_fixed, resurfaced_date, state, severity.
+        IN-06: ``df`` and ``assets_df`` MUST already be filtered to the same tag
+        scope by the caller.  This function does no scoping of its own — it
+        records open counts from ``df`` and an asset count from ``assets_df``
+        verbatim, so a caller that filters one but not the other would silently
+        record counts for mismatched scopes with no error.
     assets_df : pd.DataFrame
-        All in-scope assets (already fetched).  Used only for asset_count (D-04).
+        In-scope assets (already fetched AND filtered to the same scope as
+        ``df`` — see IN-06 above).  Used only for asset_count (D-04).
     date : datetime
         Snapshot reference date.  Month key uses SERVER-LOCAL time
         (``date.strftime("%Y-%m")``); ``generated_at`` uses UTC.
+
+    Concurrency (IN-01)
+    -------------------
+    SINGLE-WRITER assumption: this function does read-modify-write (load the
+    existing snapshot list, mutate, atomic-write) with no lock.  The ``os.replace``
+    is atomic but the read-modify-write around it is not, so two concurrent
+    captures for the same ``(dimension, tag_filter)`` could lose one update.
+    This is safe under the intended once-per-month cron invocation; if concurrent
+    invocation ever becomes possible, add a sidecar lockfile.
     dimension : str
         Grouping dimension — ``"severity"`` for Phase 12.
     tag_filter : str
@@ -285,7 +323,20 @@ def read_trend(
     all_snaps = _load_trend_json(file_path)
 
     # Filter to matching tag_filter, sort ascending by month, take last N.
+    # The file is already tag-scoped via its filename (trend_{dim}_{tag_filter}.json),
+    # so this filter is redundant in the happy path.  It is retained as a guard
+    # but made observable: if entries exist yet none match tag_filter, the
+    # filename suffix and the stored tag_filter field have diverged (e.g. a
+    # Phase-13 sanitised filename suffix vs. a raw stored value).  Without this
+    # log line read_trend would silently report insufficient_data on a fully
+    # populated file (WR-05).
     relevant = [s for s in all_snaps if s.get("tag_filter") == tag_filter]
+    if all_snaps and not relevant:
+        logger.warning(
+            "read_trend: %d entries in %s but none match tag_filter=%r "
+            "(filename/field mismatch?)",
+            len(all_snaps), file_path, tag_filter,
+        )
     relevant.sort(key=lambda s: s.get("month", ""))
     recent = relevant[-months:]
 
