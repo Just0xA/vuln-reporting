@@ -12,7 +12,7 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 ## Current State
 
-**In progress:** v1.3 Trend & Segmentation Substrate — Phase 12 (Trend Snapshot Substrate, S1) complete (2026-06-08): canonical reopened-aware open-count primitive `utils/open_count.py`, forward-accumulating snapshot engine `data/trend_store.py` (atomic writes, per-month idempotency, cold-start-safe reader, PII-discipline), and cron entry point `scripts/capture_trend_snapshot.py`. 7/7 TREND-NN requirements verified; 19 unit+content tests green. Phase 13 (Owner Segmentation + Composition, S2) next.
+**In progress:** v1.3 Trend & Segmentation Substrate — Phase 13 (Owner Segmentation + Composition, S2 + Doc) complete (2026-06-10): Owner/BU grouping helper with a lossless Unassigned catch-all, analyst exception list (`reports/owner_supplemental.py`), fail-soft guard, S1×S2 composition proof, and an auditor-facing runbook (`docs/trend_and_segmentation_calculations.md`). Gap-closure plan 13-05 closed the duplicate-`asset_uuid` correctness cluster (CR-01/WR-05/WR-02): dedup-before-`set_index`, deterministic per-owner attribution, and `open_findings_at` open-set reconciliation. 6/6 phase requirements (SEG-01–05, DOC-01) verified, 5/5 must-haves passed; 158 tests green. Two non-blocking follow-ups deferred (WR-01 asset_count dedup; F-DTYPE chained-assignment at `owner_supplemental.py:139`). Phase 12 (Trend Snapshot Substrate, S1) completed 2026-06-08. v1.3 milestone phases complete.
 
 **Shipped:** v1.2 Deployment & Self-Update Infrastructure (2026-05-22) — see [`MILESTONES.md`](MILESTONES.md).
 
@@ -126,4 +126,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-08 — Phase 12 (Trend Snapshot Substrate, S1) complete*
+*Last updated: 2026-06-10 — Phase 13 (Owner Segmentation + Composition, S2 + Doc) complete*
