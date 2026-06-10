@@ -14,18 +14,20 @@ a semicolon-delimited ``"Category=Value"`` string::
 
     "Application=Finance;Environment=Production;Owner=Network Defense"
 
-``extract_business_unit()`` parses this format to derive the business-unit label.
-This is an important distinction from the spec's ``tags_raw`` design — there is
-no list-of-dicts column in the normalised asset DataFrame; only the string form
-is stored in parquet.
+``extract_owner()`` parses this format to derive the primary grouping label from
+the ``Owner`` tag category (the Application Support team / patching-responsible
+party, per D-01) and the nested ``Application`` value for analyst drill-down
+(D-05).  This is an important distinction from the spec's ``tags_raw`` design —
+there is no list-of-dicts column in the normalised asset DataFrame; only the
+string form is stored in parquet.
 
 Shared utilities
 ----------------
 - ``deduplicate_assets_by_name``  — remove duplicate hostnames, keep most-recent
 - ``identify_on_time_assets``     — split into on-time / not-on-time subsets
-- ``extract_business_unit``       — add ``business_unit`` column from Application tag
-- ``compute_per_bu_breakdown``    — per-BU numerator/denominator/percentage table
-- ``compute_bu_risk_scores``      — weighted Risk Score per BU for qualifying assets
+- ``extract_owner``               — add ``owner`` + ``application`` columns from Owner/Application tags
+- ``compute_per_bu_breakdown``    — per-owner numerator/denominator/percentage table
+- ``compute_bu_risk_scores``      — weighted Risk Score per owner for qualifying assets
 - ``sla_status_from_thresholds``  — classify a value as green/yellow/red/no_data
 - ``populate_rag_strip``           — populate ModuleData.rag_strip via shared classifier
 """
@@ -44,8 +46,14 @@ logger = logging.getLogger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-#: Tenable tag category that identifies the business unit.
-BU_TAG_CATEGORY: str = "Application"
+#: Tenable tag category for the primary Owner grouping dimension (D-01).
+OWNER_TAG_CATEGORY: str = "Owner"
+
+#: Tenable tag category for the nested Application drill-down column (D-05).
+APPLICATION_TAG_CATEGORY: str = "Application"
+
+#: Default label for assets that carry no Owner tag (D-06).
+_DEFAULT_UNASSIGNED_LABEL: str = "Unassigned"
 
 #: Default scan-recency window in days for the on-time filter.
 ON_TIME_WINDOW_DAYS: int = 30
@@ -200,82 +208,101 @@ def identify_on_time_assets(
 
 
 # ===========================================================================
-# Business-unit extraction
+# Owner extraction
 # ===========================================================================
 
-def extract_business_unit(
-    assets_df:       pd.DataFrame,
-    tag_column_name: str = "tags",
+def extract_owner(
+    assets_df:        pd.DataFrame,
+    tag_column_name:  str = "tags",
+    unassigned_label: str = _DEFAULT_UNASSIGNED_LABEL,
 ) -> pd.DataFrame:
     """
-    Add a ``business_unit`` column derived from the ``Application`` tag category.
+    Add an ``owner`` column (primary) and an ``application`` column (nested) from
+    the ``Owner`` and ``Application`` tag categories respectively.
 
     The ``tags`` column in ``assets_df`` (as produced by ``fetch_all_assets()``)
     stores tags as a semicolon-delimited ``"Category=Value"`` string, for example::
 
         "Application=Finance;Environment=Production;Owner=Network Defense"
 
-    This function scans each ``"Category=Value"`` token, identifies any where the
-    category (case-insensitively) matches ``BU_TAG_CATEGORY`` (``"Application"``),
-    and extracts the value as the business-unit label.
+    This function makes a single pass over each tag string, extracting:
 
-    Assignment rules:
+    - **owner** — value(s) of any ``Owner=…`` tokens (case-insensitive category
+      match).  No match → ``unassigned_label`` (default ``"Unassigned"``).
+    - **application** — value(s) of any ``Application=…`` tokens.  No match →
+      ``""`` (empty string; callers may use this for nested drill-down).
 
-    - No ``Application`` tag → ``"Untagged"``
-    - Exactly one ``Application`` tag value → that value (e.g. ``"Finance"``)
-    - Multiple distinct ``Application`` tag values (unusual but possible) →
-      values joined with ``"; "`` in alphabetical order
+    When multiple distinct values exist for the same category (unusual but
+    possible), they are joined with ``"; "`` in alphabetical order.
+
+    Fail-soft behaviour (SEG-04 / D-07): if the column named ``tag_column_name``
+    is absent from ``assets_df``, a warning is logged, ``owner`` is set to
+    ``unassigned_label`` for all rows, and ``application`` to ``""``.  No
+    exception is raised.
 
     Parameters
     ----------
     assets_df : pd.DataFrame
-        Asset DataFrame.  The column named ``tag_column_name`` must hold the
+        Asset DataFrame.  The column named ``tag_column_name`` should hold the
         semicolon-delimited tag string.
     tag_column_name : str
         Name of the tags column.  Default ``"tags"`` matches ``fetch_all_assets()``
-        output.  The design spec refers to this as ``tags_raw``, but the
-        normalised DataFrame stores it as a string under ``"tags"``.
+        output.
+    unassigned_label : str
+        Label for assets that carry no ``Owner`` tag.  Default ``"Unassigned"``
+        (D-06).  Pass a custom string to override (e.g. ``"No Owner"``).
 
     Returns
     -------
     pd.DataFrame
-        Copy of ``assets_df`` with a ``business_unit`` column appended.
+        Copy of ``assets_df`` with ``owner`` and ``application`` columns appended.
         The original DataFrame is not modified.
     """
     df = assets_df.copy()
 
-    def _bu_from_tags(tags_val) -> str:
-        """Extract Application tag value(s) from a semicolon-delimited tag string."""
+    def _parse_tags(tags_val) -> tuple[str, str]:
+        """Return (owner_label, application_label) from a semicolon-delimited tag string."""
         if not isinstance(tags_val, str) or not tags_val.strip():
-            return "Untagged"
+            return unassigned_label, ""
 
-        tokens = [t.strip() for t in tags_val.split(";") if t.strip()]
-        app_values: list[str] = []
+        owner_values: list[str] = []
+        app_values:   list[str] = []
 
-        for token in tokens:
-            if "=" not in token:
+        for token in tags_val.split(";"):
+            token = token.strip()
+            if not token or "=" not in token:
                 continue
             cat, _, val = token.partition("=")
-            if cat.strip().casefold() == BU_TAG_CATEGORY.casefold() and val.strip():
-                app_values.append(val.strip())
+            cat_cf = cat.strip().casefold()
+            val_s  = val.strip()
+            if not val_s:
+                continue
+            if cat_cf == OWNER_TAG_CATEGORY.casefold():
+                owner_values.append(val_s)
+            elif cat_cf == APPLICATION_TAG_CATEGORY.casefold():
+                app_values.append(val_s)
 
-        if not app_values:
-            return "Untagged"
-        if len(app_values) == 1:
-            return app_values[0]
-        # Multiple values — sort and join (rare; flagged via "; " separator so
-        # downstream callers can detect and handle if needed)
-        return "; ".join(sorted(set(app_values)))
+        owner_label = (
+            "; ".join(sorted(set(owner_values)))
+            if owner_values
+            else unassigned_label
+        )
+        app_label = "; ".join(sorted(set(app_values))) if app_values else ""
+        return owner_label, app_label
 
     if tag_column_name in df.columns:
-        df.loc[:, "business_unit"] = df[tag_column_name].apply(_bu_from_tags)
+        parsed = df[tag_column_name].apply(_parse_tags)
+        df.loc[:, "owner"]       = [p[0] for p in parsed]
+        df.loc[:, "application"] = [p[1] for p in parsed]
     else:
         logger.warning(
-            "extract_business_unit: column %r not present in DataFrame — "
-            "all assets will be labelled 'Untagged'.",
+            "extract_owner: column %r not present in DataFrame — "
+            "all assets will be labelled %r.",
             tag_column_name,
+            unassigned_label,
         )
-        df.loc[:, "business_unit"] = "Untagged"
+        df.loc[:, "owner"]       = unassigned_label
+        df.loc[:, "application"] = ""
 
     return df
 
@@ -288,11 +315,11 @@ def compute_per_bu_breakdown(
     df:               pd.DataFrame,
     numerator_mask:   "pd.Series[bool]",
     denominator_mask: "pd.Series[bool]",
-    bu_column:        str  = "business_unit",
+    bu_column:        str  = "owner",
     higher_is_better: bool = True,
 ) -> pd.DataFrame:
     """
-    Compute per-business-unit numerator/denominator/percentage for a metric.
+    Compute per-owner numerator/denominator/percentage for a metric.
 
     Both masks must be boolean ``pd.Series`` aligned with ``df`` by index.
     The easiest way to guarantee alignment is to derive them from ``df``
@@ -309,7 +336,7 @@ def compute_per_bu_breakdown(
     denominator_mask : pd.Series[bool]
         ``True`` for rows that contribute to the denominator total.
     bu_column : str
-        Column name holding the business-unit label.  Default: ``"business_unit"``.
+        Column name holding the owner label.  Default: ``"owner"``.
     higher_is_better : bool
         Ranking direction for the metric.
 
@@ -329,7 +356,7 @@ def compute_per_bu_breakdown(
     Returns
     -------
     pd.DataFrame
-        Columns: ``business_unit``, ``numerator`` (int), ``denominator`` (int),
+        Columns: ``owner``, ``numerator`` (int), ``denominator`` (int),
         ``percentage`` (float, 1 decimal place), ``affected`` (int — sort key,
         see *higher_is_better* above).
 
@@ -367,7 +394,7 @@ def compute_per_bu_breakdown(
             denominator=("_den", "sum"),
         )
         .reset_index()
-        .rename(columns={bu_column: "business_unit"})
+        .rename(columns={bu_column: "owner"})
     )
 
     # Exclude BUs with zero denominator
@@ -426,7 +453,7 @@ def compute_bu_risk_scores(
     qualifying_uuids : set
         UUIDs of assets that met the module threshold (high-risk or aged).
     enriched : pd.DataFrame
-        On-time assets with a ``business_unit`` column (from extract_business_unit).
+        On-time assets with an ``owner`` column (from extract_owner).
     severities : frozenset[str]
         Lower-cased severity labels to include (e.g. frozenset({"critical", "high"})).
     weights : dict[str, int]
@@ -435,7 +462,7 @@ def compute_bu_risk_scores(
     Returns
     -------
     pd.Series
-        Indexed by ``business_unit``, values are integer Risk Scores.
+        Indexed by ``owner``, values are integer Risk Scores.
         BUs with no qualifying assets are absent from the result.
     """
     if not qualifying_uuids or vulns_df.empty:
@@ -457,7 +484,7 @@ def compute_bu_risk_scores(
     bu_map = (
         enriched.loc[
             enriched["asset_uuid"].isin(qualifying_uuids),
-            ["asset_uuid", "business_unit"],
+            ["asset_uuid", "owner"],
         ]
         .drop_duplicates("asset_uuid")
     )
@@ -476,7 +503,7 @@ def compute_bu_risk_scores(
         risk_score=bu_asset["risk_score"].fillna(0).astype(int),
     )
 
-    return bu_asset.groupby("business_unit")["risk_score"].sum()
+    return bu_asset.groupby("owner")["risk_score"].sum()
 
 
 # ===========================================================================
