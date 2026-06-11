@@ -96,9 +96,19 @@ def _build_owner_app_df(
 
     enriched = extract_owner(assets_df)
 
-    # Asset count per (owner, application)
+    # Dedup on asset_uuid (keep-first owner/application) so one physical asset
+    # contributes to exactly ONE (owner, application) row.  This is the same
+    # CR-01 keep-first pattern used by the open-count path below — applying it
+    # once here makes both the asset-count and open-count paths consistent.
+    enriched_deduped = (
+        enriched[["asset_uuid", "owner", "application"]]
+        .drop_duplicates("asset_uuid")
+    )
+
+    # Asset count per (owner, application) — built from deduped frame so a
+    # duplicate asset_uuid is counted exactly once (Phase-13 WR-01 fix).
     asset_counts = (
-        enriched
+        enriched_deduped
         .groupby(["owner", "application"], dropna=False)["asset_uuid"]
         .nunique()
         .reset_index(name="asset_count")
@@ -114,13 +124,9 @@ def _build_owner_app_df(
     # that do not thread a date).
     open_vulns = open_findings_at(vulns_df, report_date) if report_date is not None else vulns_df
 
-    # CR-01: dedup before set_index so a non-unique asset_uuid cannot produce
-    # non-deterministic last-wins attribution.  Keep first owner/application per uuid.
-    uuid_to_owner = (
-        enriched[["asset_uuid", "owner", "application"]]
-        .drop_duplicates("asset_uuid")
-        .set_index("asset_uuid")
-    )
+    # CR-01: reuse the already-deduped frame for the uuid→owner index so that
+    # the open-count path uses the same first-row-wins attribution as asset_counts.
+    uuid_to_owner = enriched_deduped.set_index("asset_uuid")
 
     # Open findings count per asset_uuid, then join owner/application via enriched
     vuln_owner = open_vulns[["asset_uuid"]].copy()

@@ -253,6 +253,50 @@ def test_open_findings_uses_open_set(tmp_path: Path) -> None:
     )
 
 
+def test_dup_uuid_asset_count_counts_once(tmp_path: Path) -> None:
+    """
+    Phase-13 WR-01 regression: a duplicate asset_uuid carrying two different
+    Owner/Application tags must be counted as exactly ONE physical asset in
+    the Asset Count column.
+
+    Fixture: "dup-uuid" appears in two rows (First Owner / Second Owner) and
+    "unique-uuid" appears once (Infra / Ops).  Distinct physical assets = 2.
+
+    BEFORE fix: asset_counts is built from the un-deduped enriched frame.
+    nunique("asset_uuid") per group counts "dup-uuid" once under First Owner
+    AND once under Second Owner → sum = 3 (phantom over-count), AND a phantom
+    row (Second Owner, asset_count=1, open_count=0) is created.
+
+    AFTER fix: enriched is deduped on asset_uuid (keep-first) BEFORE the
+    asset_counts groupby, so "dup-uuid" is attributed only to First Owner
+    and the sum of Asset Count = 2 = distinct physical assets.
+    """
+    assets_df = _assets_df_with_dup_uuid()
+    vulns_df  = _vulns_df_simple(["unique-uuid"])  # no vulns for dup-uuid
+
+    result = write_owner_supplemental(assets_df, vulns_df, tmp_path)
+
+    csv_path = Path(result["supplemental_csv"])
+    assert csv_path.exists()
+
+    with csv_path.open(newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        rows = list(reader)
+
+    # (a) No phantom row: "Second Owner" must NOT appear at all (deduped away)
+    second_owner_rows = [r for r in rows if r.get("owner") == "Second Owner"]
+    assert not second_owner_rows, (
+        f"Phantom 'Second Owner' row must not exist after dedup; got: {second_owner_rows}"
+    )
+
+    # (b) Total Asset Count == count of distinct physical asset_uuids (2)
+    total_asset_count = sum(int(r["asset_count"]) for r in rows)
+    assert total_asset_count == 2, (
+        f"Sum of Asset Count must equal distinct physical asset_uuids (2); "
+        f"got {total_asset_count}. Rows: {rows}"
+    )
+
+
 def test_empty_assets_returns_paths(tmp_path: Path) -> None:
     """
     CLAUDE.md empty-data guard: write_owner_supplemental on empty assets_df and
