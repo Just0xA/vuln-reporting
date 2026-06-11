@@ -243,3 +243,51 @@ def test_gate_intersection_logic_empty_modules():
     assert not _MODULES_NEEDING_RECAST_RULES.intersection([]), (
         "empty module list must yield falsy intersection (no recast fetch)"
     )
+
+
+# ---------------------------------------------------------------------------
+# WR-02: gate fetch failures must fail soft (not propagate out of run_report)
+# ---------------------------------------------------------------------------
+
+def test_gate_fetch_failure_does_not_propagate(monkeypatch, tmp_path):
+    """
+    WR-02 regression: a raise from read_trend / fetch_recast_rules must degrade
+    to "kwarg absent" — run_report() still returns a bundle dict rather than
+    letting the exception abort the whole group (fail-soft batch semantics).
+
+    The eager fetchers are stubbed to return empty synthetic frames (no network);
+    the two gate fetches are monkeypatched to raise. The sc4_kwargs_stub module
+    (in both frozensets) then fail-softs on the absent kwargs via _empty_result.
+    """
+    # Stub the eager fetchers so no Tenable/network call happens (synthetic only).
+    monkeypatch.setattr(_cr, "fetch_all_vulnerabilities",
+                        lambda tio, cache_dir: _EMPTY_VULNS_DF.copy())
+    monkeypatch.setattr(_cr, "fetch_all_assets",
+                        lambda tio, cache_dir: _EMPTY_ASSETS_DF.copy())
+
+    # Make BOTH gate fetches raise at their source-module call sites
+    # (run_report imports them lazily from these modules).
+    import data.trend_store as _trend_store
+    import data.fetchers as _fetchers
+
+    def _boom_trend(*args, **kwargs):
+        raise RuntimeError("synthetic trend read failure")
+
+    def _boom_recast(*args, **kwargs):
+        raise RuntimeError("synthetic recast fetch failure")
+
+    monkeypatch.setattr(_trend_store, "read_trend", _boom_trend)
+    monkeypatch.setattr(_fetchers, "fetch_recast_rules", _boom_recast)
+
+    result = run_report(
+        tio          = object(),          # never used — fetchers are stubbed
+        run_id       = "2026-06-01",
+        modules      = ["sc4_kwargs_stub"],
+        generated_at = _REPORT_DATE,
+        output_dir   = tmp_path,
+        cache_dir    = tmp_path,
+    )
+
+    # The bundle must come back as a dict despite both gate fetches raising.
+    assert isinstance(result, dict)
+    assert "pdf" in result and "excel" in result and "charts" in result

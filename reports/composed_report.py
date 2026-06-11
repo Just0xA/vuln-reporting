@@ -206,24 +206,43 @@ def run_report(
     need_trend = bool(_MODULES_NEEDING_TREND_SNAPSHOTS.intersection(modules))
     trend_snapshots: Optional[dict] = None
     if need_trend:
-        from data.trend_store import read_trend, _sanitise_tag_for_filename  # noqa: PLC0415
-        _trend_tag_filter = _sanitise_tag_for_filename(tag_category, tag_value)
-        logger.info(
-            "composed_report: reading trend snapshots (scope=%s) …",
-            _trend_tag_filter,
-        )
-        trend_snapshots = read_trend(
-            dimension  = "severity",
-            tag_filter = _trend_tag_filter,
-            months     = 13,
-        )
+        # Fail-soft (WR-02): a trend read failure (corrupt cache, parse error)
+        # must degrade to "kwarg absent" — the consuming module then fail-softs
+        # on the missing kwarg via _empty_result — rather than propagate out of
+        # run_report() and sink the whole group's bundle.
+        try:
+            from data.trend_store import read_trend, _sanitise_tag_for_filename  # noqa: PLC0415
+            _trend_tag_filter = _sanitise_tag_for_filename(tag_category, tag_value)
+            logger.info(
+                "composed_report: reading trend snapshots (scope=%s) …",
+                _trend_tag_filter,
+            )
+            trend_snapshots = read_trend(
+                dimension  = "severity",
+                tag_filter = _trend_tag_filter,
+                months     = 13,
+            )
+        except Exception as exc:
+            logger.error(
+                "composed_report: trend snapshot read failed: %s", exc, exc_info=True
+            )
+            trend_snapshots = None
 
     need_recast = bool(_MODULES_NEEDING_RECAST_RULES.intersection(modules))
     recast_rules_df: Optional[pd.DataFrame] = None
     if need_recast:
-        from data.fetchers import fetch_recast_rules  # noqa: PLC0415
-        logger.info("composed_report: fetching recast rules …")
-        recast_rules_df = fetch_recast_rules(tio, cache_dir)
+        # Fail-soft (WR-02): a recast fetch failure (transient API/network error
+        # after tenacity exhausts, parquet write error) degrades to "kwarg
+        # absent" rather than aborting the batch.
+        try:
+            from data.fetchers import fetch_recast_rules  # noqa: PLC0415
+            logger.info("composed_report: fetching recast rules …")
+            recast_rules_df = fetch_recast_rules(tio, cache_dir)
+        except Exception as exc:
+            logger.error(
+                "composed_report: recast rules fetch failed: %s", exc, exc_info=True
+            )
+            recast_rules_df = None
 
     logger.info(
         "composed_report: data loaded — vulns=%d, assets=%d, fixed=%s",
