@@ -278,11 +278,16 @@ class NewVsRemediatedModule(BaseModule):
             # Normalise date columns (expect already normalised by fetcher,
             # but coerce defensively per QUAL-03)
             # ----------------------------------------------------------------
-            ff_ts = pd.to_datetime(vulns_df["first_found"], utc=True, errors="coerce")
+            # WR-02: strip tz before the later .dt.to_period("M") calls — pandas 3.x
+            # emits a UserWarning when to_period() drops tz info from a tz-aware
+            # series (mirrors the accepted_recast_module fix).
+            ff_ts = pd.to_datetime(
+                vulns_df["first_found"], utc=True, errors="coerce"
+            ).dt.tz_localize(None)
             rs_ts = pd.to_datetime(
                 vulns_df.get("resurfaced_date", pd.Series(dtype="object")),
                 utc=True, errors="coerce",
-            )
+            ).dt.tz_localize(None)
 
             # ----------------------------------------------------------------
             # Per-month inflow computation (D-15-01/02)

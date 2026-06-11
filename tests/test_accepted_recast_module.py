@@ -590,6 +590,26 @@ class TestZeroExceptionSafeRender:
         assert data.error is None
         assert data.rag_strip
 
+    def test_nonempty_df_missing_smt_column_returns_safe_result(self):
+        """
+        WR-04: a NON-empty vulns_df that lacks the severity_modification_type
+        column must guard into the zero-exception result, not KeyError into the
+        outer error handler. The classification step requires that column.
+        """
+        mod       = AcceptedRecastModule()
+        vulns_df  = pd.DataFrame({
+            "asset_uuid": [_uuid(1), _uuid(2)],
+            "state":      ["OPEN", "OPEN"],
+            # severity_modification_type intentionally absent
+        })
+        assets_df = _make_assets([])
+        data = mod.compute(vulns_df, assets_df, _REPORT_DATE, _config())
+
+        assert data.error is None
+        assert data.metrics["accepted_count"] == 0
+        assert data.metrics["recast_count"]   == 0
+        assert data.rag_strip
+
 
 # ===========================================================================
 # 7. RATE DENOMINATOR

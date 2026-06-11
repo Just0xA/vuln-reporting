@@ -213,9 +213,16 @@ class AcceptedRecastModule(BaseModule):
             # ----------------------------------------------------------------
             # QUAL-03 — empty-data guard: zero exceptions is valid, not an error
             # ----------------------------------------------------------------
-            if vulns_df.empty or "state" not in vulns_df.columns:
-                # Return a coherent zero-exception result rather than _empty_result,
-                # because empty scope is a valid operational state for this module.
+            if (
+                vulns_df.empty
+                or "state" not in vulns_df.columns
+                or "severity_modification_type" not in vulns_df.columns
+            ):
+                # WR-04: also guard the severity_modification_type column the
+                # classification below requires — a non-empty frame missing it
+                # would otherwise KeyError at the .astype() call. Return a
+                # coherent zero-exception result rather than _empty_result,
+                # because empty/uninformative scope is a valid operational state.
                 return self._build_zero_exception_result(config, green_threshold, yellow_threshold)
 
             # ----------------------------------------------------------------
@@ -821,7 +828,7 @@ class AcceptedRecastModule(BaseModule):
                 for col_idx in range(1, 5):
                     ws.cell(row=row_idx, column=col_idx).fill = fill
 
-            widths = [28, 14, 14, 14, 20]
+            widths = [28, 14, 14, 14]  # WR-05: 4 columns (Owner, Accepted, Recasted, Total)
             for col_idx, w in enumerate(widths, start=1):
                 ws.column_dimensions[get_column_letter(col_idx)].width = w
 

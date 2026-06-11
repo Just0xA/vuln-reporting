@@ -823,3 +823,36 @@ class TestRagStrip:
         )
         assert data.error is None
         assert data.metrics.get("rag_status") == "no_data"
+
+
+class TestNoTimezoneWarning:
+    def test_compute_emits_no_tz_to_period_warning(self):
+        """WR-02: tz-aware first_found / resurfaced_date flow through
+        .dt.to_period('M') in the MoM inflow loop. pandas 3.x emits a UserWarning
+        when to_period() drops tz info; the module strips tz first, so none
+        should surface."""
+        import warnings
+
+        snapshots = [
+            _make_snapshot("2026-05", new_findings_count=2, fixed_findings_count=1),
+            _make_snapshot("2026-06", new_findings_count=3, fixed_findings_count=2),
+        ]
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            data = _run(
+                vulns_rows=[
+                    {"state": "open",     "first_found": _ts(2026, 6)},
+                    {"state": "reopened", "first_found": _ts(2026, 3),
+                     "resurfaced_date": _ts(2026, 6)},
+                ],
+                snapshots=snapshots,
+            )
+
+        tz_warnings = [
+            w for w in caught
+            if any(t in str(w.message).lower() for t in ("timezone", "tz", "to_period"))
+        ]
+        assert not tz_warnings, (
+            f"unexpected tz/to_period warning(s): {[str(w.message) for w in tz_warnings]}"
+        )
+        assert data.error is None

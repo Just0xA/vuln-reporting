@@ -337,14 +337,22 @@ def capture_snapshot(
     new_findings_count: Optional[int] = None
     fixed_findings_count: Optional[int] = None
     if fixed_vulns_df is not None:
+        # WR-01: month_str is LOCAL (line above), but findings are stored UTC.
+        # Convert findings to local time before the month compare so a finding
+        # near a month-boundary midnight is attributed to the same month the
+        # snapshot is labelled with (otherwise UTC/local skew mis-buckets it on
+        # any non-UTC server).
+        local_tz = datetime.now().astimezone().tzinfo
         if "first_found" in df.columns:
             ff = pd.to_datetime(df["first_found"], utc=True, errors="coerce")
-            new_findings_count = int((ff.dt.strftime("%Y-%m") == month_str).sum())
+            ff_month = ff.dt.tz_convert(local_tz).dt.strftime("%Y-%m")
+            new_findings_count = int((ff_month == month_str).sum())
         if not fixed_vulns_df.empty:
             lf = pd.to_datetime(fixed_vulns_df["last_fixed"], utc=True, errors="coerce")
+            lf_month = lf.dt.tz_convert(local_tz).dt.strftime("%Y-%m")
             state_upper = fixed_vulns_df["state"].astype(str).str.upper()
             fixed_findings_count = int(
-                ((lf.dt.strftime("%Y-%m") == month_str) & (state_upper == "FIXED")).sum()
+                ((lf_month == month_str) & (state_upper == "FIXED")).sum()
             )
 
     new_entry: dict = {

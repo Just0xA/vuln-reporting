@@ -321,9 +321,12 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("Owner snapshot written: %s", owner_path)
     except Exception as exc:  # noqa: BLE001
         logger.exception("capture_snapshot (owner) failed: %s", exc)
-        # Non-fatal: severity snapshot already succeeded; log and continue.
+        # WR-03: Non-fatal — the severity snapshot (the primary deliverable)
+        # already succeeded, so the run is a success for cron purposes. Record
+        # the partial status for observability but exit 0; returning 3 here would
+        # make the scheduler treat the whole run as a fetch/write failure.
         _log_completed(logger, start, "partial", f"owner-snapshot: {exc}")
-        return 3
+        return 0
 
     _log_completed(logger, start, "success")
     return 0

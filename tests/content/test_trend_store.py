@@ -582,7 +582,8 @@ def _open_df_with_states(rows: list[dict]) -> pd.DataFrame:
     base_rows = []
     for r in rows:
         base_rows.append({
-            "first_found":               datetime(2026, 6, 1, tzinfo=timezone.utc),
+            "first_found":               r.get("first_found",
+                                               datetime(2026, 6, 1, tzinfo=timezone.utc)),
             "last_fixed":                None,
             "resurfaced_date":           None,
             "state":                     r.get("state", "open"),
@@ -761,13 +762,15 @@ def test_new_findings_count_derivation(tmp_path):
     """
     snapshot_date = datetime(2026, 6, 15)  # month = 2026-06
 
-    # 3 rows with first_found in June 2026, 1 in May 2026 (should not count)
+    # 3 rows first-found mid-June 2026 (mid-month → same calendar month in any tz,
+    # so this asserts intent without sitting on the UTC/local boundary — WR-01).
+    june = datetime(2026, 6, 15, tzinfo=timezone.utc)
     df_rows = [
-        {"state": "open", "severity": "critical"},
-        {"state": "open", "severity": "high"},
-        {"state": "open", "severity": "medium"},
+        {"state": "open", "severity": "critical", "first_found": june},
+        {"state": "open", "severity": "high",     "first_found": june},
+        {"state": "open", "severity": "medium",   "first_found": june},
     ]
-    df = _open_df_with_states(df_rows)  # first_found default = 2026-06-01 → all in June
+    df = _open_df_with_states(df_rows)
     assets_df = _assets_df(n=4)
 
     fixed = _fixed_df(n=3, month="2026-06")  # 3 fixed in June
@@ -798,6 +801,39 @@ def test_new_findings_count_derivation(tmp_path):
     )
     assert entry["fixed_findings_count"] == 3, (
         f"Expected 3 fixed findings in June, got {entry['fixed_findings_count']}"
+    )
+
+
+def test_new_findings_count_buckets_by_local_month(tmp_path):
+    """WR-01: a finding first-found late on the last LOCAL day of the month must
+    be attributed to that LOCAL month (matching the local month_str label), even
+    though its UTC instant falls in the next month on behind-UTC servers.
+
+    The finding is built in the system's local tz at 23:30 on Jun 30, so it is
+    June locally on every machine; on a behind-UTC server (e.g. US/Eastern) its
+    UTC instant is Jul 1, which the pre-fix code mis-bucketed into July.
+    """
+    local_tz = datetime.now().astimezone().tzinfo
+    snapshot_date = datetime(2026, 6, 30)  # local month = 2026-06
+
+    boundary = datetime(2026, 6, 30, 23, 30, tzinfo=local_tz)
+    df = _open_df_with_states([
+        {"state": "open", "severity": "critical", "first_found": boundary},
+    ])
+    assets_df = _assets_df(n=1)
+    # fixed_vulns_df must be non-None to trigger new_findings_count derivation;
+    # its single June row is irrelevant to the new-count assertion below.
+    fixed = _fixed_df(n=1)
+
+    path = capture_snapshot(
+        df, assets_df, snapshot_date, "severity", "all_assets",
+        trend_dir=tmp_path,
+        fixed_vulns_df=fixed,
+    )
+    entry = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+    assert entry["new_findings_count"] == 1, (
+        "boundary finding must bucket into its LOCAL month (2026-06), "
+        f"got {entry['new_findings_count']}"
     )
 
 
