@@ -209,3 +209,9 @@ Cross-milestone backlog is tracked in [`PROJECT.md`](PROJECT.md) ("Backlog" / "D
 - **SEV-NONE-01 — Global `vpr_to_severity` "None" tier** — `vpr_score` 0/null → None everywhere; cross-cutting change, sized as its own phase.
 - **EXT-WAS-01** — WAS findings in External Exposure — gated on pyTenable upgrade decision.
 - **EXT-TREND-01** — External Exposure MoM trend via S1 parameterized dimension.
+- **P15-CLEANUP — Phase-15 code-review Info findings** (non-functional; see [`phases/15-independent-new-modules/15-REVIEW.md`](phases/15-independent-new-modules/15-REVIEW.md)):
+  - IN-01 — `safe_format` imported but unused in 4 of 5 new modules (only `vuln_density` calls it).
+  - IN-02 — `_rag_fill` defined but unused in `reopened_vulns`, `external_dmz`, `new_vs_remediated` modules.
+  - IN-03 — `_safe_mom_delta` defined but never called in `new_vs_remediated_module.py` (superseded by inline `safe_int`).
+  - IN-04 — `NO_DATA_DRIVER`, `STATUS_COLOR`, `STATUS_LABEL` imported but unused in `reopened_vulns_module.py`.
+  - IN-05 — owner-dimension `capture_snapshot` call in `capture_trend_snapshot.py` omits the Phase-15 aggregate counts the severity call passes (no current consumer; documented inconsistency).
