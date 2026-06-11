@@ -434,9 +434,14 @@ def test_owner_counts_reconcile(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     snap = data["snapshots"][0]
 
-    # Sum all owner counts (excludes metadata keys)
-    meta_keys = {"month", "tag_filter", "asset_count", "generated_at"}
-    owner_total = sum(v for k, v in snap.items() if k not in meta_keys)
+    # Sum all owner counts (excludes metadata keys — including Phase-15 aggregate fields
+    # which are None in owner-dimension snapshots when not explicitly supplied)
+    meta_keys = {
+        "month", "tag_filter", "asset_count", "generated_at",
+        "on_time_asset_count", "reopened_count", "accepted_count",
+        "recast_count", "new_findings_count", "fixed_findings_count",
+    }
+    owner_total = sum(v for k, v in snap.items() if k not in meta_keys and v is not None)
 
     # Oracle: open_findings_at on the same df/date
     open_df = open_findings_at(vulns_df, ref)
@@ -484,7 +489,11 @@ def test_owner_attribution_deterministic_under_dup_uuid(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     snap = data["snapshots"][0]
 
-    meta_keys = {"month", "tag_filter", "asset_count", "generated_at"}
+    meta_keys = {
+        "month", "tag_filter", "asset_count", "generated_at",
+        "on_time_asset_count", "reopened_count", "accepted_count",
+        "recast_count", "new_findings_count", "fixed_findings_count",
+    }
 
     # (a) a1's finding must be attributed to "Team A" (first-row), not "Team B".
     assert snap.get("Team A", 0) >= 1, (
@@ -495,7 +504,7 @@ def test_owner_attribution_deterministic_under_dup_uuid(tmp_path):
     )
 
     # (b) reconcile-to-whole invariant preserved.
-    owner_total = sum(v for k, v in snap.items() if k not in meta_keys)
+    owner_total = sum(v for k, v in snap.items() if k not in meta_keys and v is not None)
     open_df = open_findings_at(vulns_df, ref)
     oracle_total = len(open_df)
     assert owner_total == oracle_total, (
@@ -553,3 +562,269 @@ def test_owner_cold_start_safe(tmp_path):
     result2 = read_trend("owner", "all_assets", months=6, trend_dir=tmp_path)
     assert len(result2["snapshots"]) == 1
     assert result2["insufficient_data"] is True
+
+
+# ---------------------------------------------------------------------------
+# Phase 15 Plan 02 — new aggregate fields (D-15-04/05/06, QUAL-05)
+# ---------------------------------------------------------------------------
+
+pd.options.mode.copy_on_write = True
+
+
+def _open_df_with_states(rows: list[dict]) -> pd.DataFrame:
+    """
+    Build an open-findings DataFrame with explicit state and
+    severity_modification_type columns for aggregate field tests.
+
+    Each row dict must include: state, severity, optional smt
+    (severity_modification_type).  first_found defaults to 2026-06-01 UTC.
+    """
+    base_rows = []
+    for r in rows:
+        base_rows.append({
+            "first_found":               datetime(2026, 6, 1, tzinfo=timezone.utc),
+            "last_fixed":                None,
+            "resurfaced_date":           None,
+            "state":                     r.get("state", "open"),
+            "severity":                  r.get("severity", "critical"),
+            "severity_modification_type": r.get("smt", ""),
+        })
+    df = pd.DataFrame(base_rows)
+    df = df.assign(**{
+        col: pd.to_datetime(df[col], utc=True, errors="coerce")
+        for col in ("first_found", "last_fixed", "resurfaced_date")
+    })
+    return df
+
+
+def _fixed_df(n: int, month: str = "2026-06") -> pd.DataFrame:
+    """
+    Build a minimal fixed-vulns DataFrame with n rows whose last_fixed is in
+    the given month and state=FIXED (for fixed_findings_count derivation).
+    """
+    rows = [
+        {
+            "last_fixed": datetime(int(month[:4]), int(month[5:7]), 15,
+                                   tzinfo=timezone.utc),
+            "state": "FIXED",
+            "severity": "high",
+            "first_found": datetime(2026, 1, 1, tzinfo=timezone.utc),
+            "resurfaced_date": None,
+            "severity_modification_type": "",
+        }
+        for _ in range(n)
+    ]
+    df = pd.DataFrame(rows)
+    df = df.assign(**{
+        col: pd.to_datetime(df[col], utc=True, errors="coerce")
+        for col in ("last_fixed", "first_found", "resurfaced_date")
+    })
+    return df
+
+
+# --- D-15-05: new params accepted and written to new_entry ---
+
+
+def test_new_aggregate_fields_written(tmp_path):
+    """
+    capture_snapshot called WITH all new params writes new_entry containing
+    those aggregate fields as ints (D-15-05, QUAL-05 aggregate-only).
+    """
+    df = _open_df_with_states([
+        {"state": "open"},
+        {"state": "open"},
+    ])
+    assets_df = _assets_df(n=5)
+
+    path = capture_snapshot(
+        df, assets_df, datetime(2026, 6, 1), "severity", "all_assets",
+        trend_dir=tmp_path,
+        on_time_asset_count=4,
+        reopened_count=1,
+        accepted_count=2,
+        recast_count=3,
+    )
+
+    entry = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+    assert entry["on_time_asset_count"] == 4
+    assert entry["reopened_count"] == 1
+    assert entry["accepted_count"] == 2
+    assert entry["recast_count"] == 3
+
+
+# --- D-15-06: backward compat — missing new params write None, no crash ---
+
+
+def test_new_params_default_to_none(tmp_path):
+    """
+    capture_snapshot called WITHOUT new params writes new_entry with new
+    fields as None (D-15-06 backward-compat).
+    """
+    df = _open_df(n=3)
+    assets_df = _assets_df(n=5)
+
+    path = capture_snapshot(
+        df, assets_df, datetime(2026, 6, 1), "severity", "all_assets",
+        trend_dir=tmp_path,
+    )
+
+    entry = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+    assert entry["on_time_asset_count"] is None
+    assert entry["reopened_count"] is None
+    assert entry["accepted_count"] is None
+    assert entry["recast_count"] is None
+    assert entry["new_findings_count"] is None
+    assert entry["fixed_findings_count"] is None
+
+
+# --- D-15-06: old snapshot dict without new fields readable without crash ---
+
+
+def test_old_snapshot_readable_without_new_fields(tmp_path):
+    """
+    A pre-extension snapshot dict (no new fields) loaded by read_trend is
+    readable without error, and snap.get("on_time_asset_count") returns None
+    — valid cold-start, no KeyError (D-15-06).
+    """
+    # Write a hand-built "old" snapshot file that lacks the new Phase-15 keys.
+    old_snap = {
+        "snapshots": [{
+            "month":        "2026-05",
+            "tag_filter":   "all_assets",
+            "critical":     3,
+            "high":         1,
+            "medium":       0,
+            "low":          0,
+            "asset_count":  10,
+            "generated_at": "2026-05-01T00:00:00Z",
+        }]
+    }
+    snap_file = tmp_path / "trend_severity_all_assets.json"
+    snap_file.write_text(json.dumps(old_snap), encoding="utf-8")
+
+    # read_trend must not raise
+    result = read_trend("severity", "all_assets", trend_dir=tmp_path)
+    assert len(result["snapshots"]) == 1
+
+    snap = result["snapshots"][0]
+    # New-field access via .get() returns None — cold-start safe
+    assert snap.get("on_time_asset_count") is None
+    assert snap.get("reopened_count") is None
+
+
+# --- QUAL-05: new fields are ints/None, never DataFrames or lists ---
+
+
+def test_new_fields_are_ints_or_none(tmp_path):
+    """
+    New aggregate keys in the written JSON are either Python ints or None —
+    never DataFrames, lists, or other complex objects (QUAL-05 / T-15-02-PII).
+    """
+    df = _open_df_with_states([
+        {"state": "REOPENED"},
+        {"smt": "ACCEPTED"},
+        {"smt": "RECASTED"},
+    ])
+    fixed = _fixed_df(n=2)
+    assets_df = _assets_df(n=7)
+
+    path = capture_snapshot(
+        df, assets_df, datetime(2026, 6, 15), "severity", "all_assets",
+        trend_dir=tmp_path,
+        on_time_asset_count=6,
+        reopened_count=1,
+        accepted_count=1,
+        recast_count=1,
+        fixed_vulns_df=fixed,
+    )
+
+    entry = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+    new_keys = [
+        "on_time_asset_count", "reopened_count", "accepted_count",
+        "recast_count", "new_findings_count", "fixed_findings_count",
+    ]
+    for key in new_keys:
+        val = entry[key]
+        assert val is None or isinstance(val, int), (
+            f"Key {key!r} must be int or None; got {type(val).__name__!r}: {val!r}"
+        )
+
+
+# --- D-15-05: new_findings_count + fixed_findings_count derived correctly ---
+
+
+def test_new_findings_count_derivation(tmp_path):
+    """
+    new_findings_count = count of df rows whose first_found month == snapshot month.
+    fixed_findings_count = count of fixed_vulns_df rows whose last_fixed month
+    == snapshot month AND state == FIXED (case-insensitive).
+    """
+    snapshot_date = datetime(2026, 6, 15)  # month = 2026-06
+
+    # 3 rows with first_found in June 2026, 1 in May 2026 (should not count)
+    df_rows = [
+        {"state": "open", "severity": "critical"},
+        {"state": "open", "severity": "high"},
+        {"state": "open", "severity": "medium"},
+    ]
+    df = _open_df_with_states(df_rows)  # first_found default = 2026-06-01 → all in June
+    assets_df = _assets_df(n=4)
+
+    fixed = _fixed_df(n=3, month="2026-06")  # 3 fixed in June
+    # Add 1 row fixed in May — should NOT count
+    may_row = pd.DataFrame([{
+        "last_fixed":                datetime(2026, 5, 10, tzinfo=timezone.utc),
+        "state":                     "FIXED",
+        "severity":                  "low",
+        "first_found":               datetime(2026, 1, 1, tzinfo=timezone.utc),
+        "resurfaced_date":           None,
+        "severity_modification_type": "",
+    }])
+    may_row = may_row.assign(**{
+        col: pd.to_datetime(may_row[col], utc=True, errors="coerce")
+        for col in ("last_fixed", "first_found", "resurfaced_date")
+    })
+    fixed = pd.concat([fixed, may_row], ignore_index=True)
+
+    path = capture_snapshot(
+        df, assets_df, snapshot_date, "severity", "all_assets",
+        trend_dir=tmp_path,
+        fixed_vulns_df=fixed,
+    )
+
+    entry = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+    assert entry["new_findings_count"] == 3, (
+        f"Expected 3 new findings in June, got {entry['new_findings_count']}"
+    )
+    assert entry["fixed_findings_count"] == 3, (
+        f"Expected 3 fixed findings in June, got {entry['fixed_findings_count']}"
+    )
+
+
+# --- No regression: existing severity+owner dimension snapshots unchanged ---
+
+
+def test_existing_severity_fields_unchanged(tmp_path):
+    """
+    Existing severity counts and asset_count are NOT changed by the extension
+    (no regression to count_entry / asset_count fields, D-15-06).
+    """
+    df = _open_df(n=5)
+    assets_df = _assets_df(n=10)
+
+    path = capture_snapshot(
+        df, assets_df, datetime(2026, 6, 1), "severity", "all_assets",
+        trend_dir=tmp_path,
+        on_time_asset_count=8,
+    )
+
+    entry = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+    # Original fields still present and correct
+    assert "critical" in entry
+    assert "high" in entry
+    assert "medium" in entry
+    assert "low" in entry
+    assert entry["asset_count"] == 10
+    assert "month" in entry
+    assert "tag_filter" in entry
+    assert "generated_at" in entry

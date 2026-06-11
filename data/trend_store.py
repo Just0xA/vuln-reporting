@@ -227,6 +227,11 @@ def capture_snapshot(
     tag_filter: str = "all_assets",
     trend_dir: Optional[Path] = None,
     enriched_assets: Optional[pd.DataFrame] = None,
+    on_time_asset_count: Optional[int] = None,
+    reopened_count: Optional[int] = None,
+    accepted_count: Optional[int] = None,
+    recast_count: Optional[int] = None,
+    fixed_vulns_df: Optional[pd.DataFrame] = None,
 ) -> Path:
     """
     Write an atomic monthly snapshot of open-finding counts.
@@ -268,6 +273,28 @@ def capture_snapshot(
         ``extract_owner``).  Required when ``dimension="owner"``; ignored for
         ``dimension="severity"``.  The caller is responsible for pre-enriching
         so this module stays free of ``reports/modules/`` imports (RESEARCH A1).
+    on_time_asset_count : int or None, optional
+        Count of on-time-scanned licensed assets (Phase-14 D-02 denominator).
+        Supplied by the caller from ``count_on_time_assets()``; None when the
+        caller does not provide it (backward-compat cold-start, D-15-06).
+    reopened_count : int or None, optional
+        Count of findings whose state == REOPENED in ``df``. None if not supplied.
+    accepted_count : int or None, optional
+        Count of findings with severity_modification_type == ACCEPTED. None if not
+        supplied.
+    recast_count : int or None, optional
+        Count of findings with severity_modification_type == RECASTED. None if not
+        supplied.
+    fixed_vulns_df : pd.DataFrame or None, optional
+        Fixed/remediated findings for this snapshot period. Used to derive
+        ``fixed_findings_count`` (count where last_fixed month == snapshot month
+        AND state == FIXED). None when not available.
+
+    Notes
+    -----
+    New aggregate fields (D-15-05 / QUAL-05): all six new keys store int or None
+    only — never DataFrames, lists, or row-level data.  Existing snapshots that
+    lack these keys are valid cold-starts for the new dimensions (D-15-06).
 
     Returns
     -------
@@ -304,12 +331,34 @@ def capture_snapshot(
     else:
         raise ValueError(f"capture_snapshot: unknown dimension {dimension!r}")
 
+    # D-15-05: derive new_findings_count / fixed_findings_count only when
+    # fixed_vulns_df is supplied (they form a paired inflow/outflow metric).
+    # Both derivations store aggregate ints (or None) — never DataFrames (QUAL-05).
+    new_findings_count: Optional[int] = None
+    fixed_findings_count: Optional[int] = None
+    if fixed_vulns_df is not None:
+        if "first_found" in df.columns:
+            ff = pd.to_datetime(df["first_found"], utc=True, errors="coerce")
+            new_findings_count = int((ff.dt.strftime("%Y-%m") == month_str).sum())
+        if not fixed_vulns_df.empty:
+            lf = pd.to_datetime(fixed_vulns_df["last_fixed"], utc=True, errors="coerce")
+            state_upper = fixed_vulns_df["state"].astype(str).str.upper()
+            fixed_findings_count = int(
+                ((lf.dt.strftime("%Y-%m") == month_str) & (state_upper == "FIXED")).sum()
+            )
+
     new_entry: dict = {
-        "month":        month_str,
-        "tag_filter":   tag_filter,
+        "month":               month_str,
+        "tag_filter":          tag_filter,
         **count_entry,
-        "asset_count":  asset_count,
-        "generated_at": generated_at_str,
+        "asset_count":         asset_count,
+        "on_time_asset_count": on_time_asset_count,
+        "reopened_count":      reopened_count,
+        "accepted_count":      accepted_count,
+        "recast_count":        recast_count,
+        "new_findings_count":  new_findings_count,
+        "fixed_findings_count": fixed_findings_count,
+        "generated_at":        generated_at_str,
     }
 
     # Build substrate file path — trend_ prefix distinguishes from management_summary_*.json
