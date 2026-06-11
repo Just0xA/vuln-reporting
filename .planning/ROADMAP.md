@@ -5,7 +5,7 @@
 - ✅ **v1.0 Modular Reporting Framework** — Phases 1–4 (shipped 2014-05-08) — [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md)
 - ✅ **v1.1 PDF Chrome Redesign** — Phases 5–6 (shipped 2014-05-13) — [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 Deployment & Self-Update Infrastructure** — Phases 7–11 (shipped 2014-05-22) — [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
-- 🔵 **v1.3 Trend & Segmentation Substrate** — Phases 12–13 (in progress)
+- ✅ **v1.3 Trend & Segmentation Substrate** — Phases 12–13 (shipped 2026-06-11) — [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 
 ## Phases
 
@@ -36,44 +36,17 @@ Full detail: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 
 </details>
 
-### v1.3 Trend & Segmentation Substrate (Phases 12–13)
+<details>
+<summary>✅ v1.3 Trend & Segmentation Substrate (Phases 12–13) — SHIPPED 2026-06-11</summary>
 
-- [x] **Phase 12: Trend Snapshot Substrate (S1)** — Canonical open-count primitive (reopened-aware), monthly snapshot capture/read, store continuity with `data/trend/`, idempotency, PII discipline, and cron-friendly entry point (3 plans)
- (completed 2014-06-08)
-- [x] **Phase 13: Owner Segmentation + Composition (S2 + Doc)** — Owner/BU grouping helper, Unassigned catch-all, analyst exception list, fail-soft guard, S1×S2 composition proof, and auditor runbook (verification: gaps_found 4/5, SEG-03 supplemental blocked by CR-01) (completed 2014-06-10)
+- [x] Phase 12: Trend Snapshot Substrate (S1) (3/3 plans) — reopened-aware open-count primitive + monthly snapshot capture/read, `data/trend/` continuity, idempotency, PII discipline, cron entry point (TREND-01..07)
+- [x] Phase 13: Owner Segmentation + Composition (S2 + Doc) (5/5 plans, incl. 13-05 gap-closure) — Owner helper + Unassigned catch-all, analyst worklist, fail-soft guard, S1×S2 composition proof, auditor runbook (SEG-01..05, DOC-01)
 
-## Phase Details
+Post-milestone: substrate tech debt closed via quick task `260611-b1x` (owner_supplemental asset-count dedup + pandas-3.0 CoW).
 
-### Phase 12: Trend Snapshot Substrate (S1)
-**Goal**: The codebase has a canonical, tested open-count primitive and a snapshot-capture engine that begins accumulating monthly trend history in the existing `data/trend/` store
-**Depends on**: Phase 11 (v1.2 complete)
-**Requirements**: TREND-01, TREND-02, TREND-03, TREND-04, TREND-05, TREND-06, TREND-07
-**Success Criteria** (what must be TRUE):
-  1. `open_findings_at(df, date)` returns the correct open count at any date using the reopened-aware two-interval predicate, passes unit tests covering OPEN / REOPENED / FIXED labelled cases, and matches the actual live open count exactly
-  2. Running the snapshot entry point twice for the same calendar month produces one snapshot (idempotent overwrite), and running it for a new month appends without touching prior months
-  3. A second report that calls `read_trend()` after two monthly snapshots exist receives a month-over-month series without crashing; calling it with only one snapshot (cold-start) returns available history and a flag, not an exception
-  4. Snapshot files live under `data/trend/`, share the JSON shape already consumed by `management_summary`, and the existing `management_summary` trend output is byte-for-byte unchanged after the substrate is wired in
-  5. Snapshot payloads contain only aggregate counts (no hostnames, IPs, plugin names, or other row-level fields); operator can confirm by inspecting a written file
-**Plans**: 3 plans
-- [x] 12-01-PLAN.md — open_findings_at predicate (reopened-aware two-interval) + unit tests [TREND-01]
-- [x] 12-02-PLAN.md — data/trend_store.py snapshot engine (atomic capture/read, idempotency, cold-start, PII) + content tests [TREND-02..06]
-- [x] 12-03-PLAN.md — scripts/capture_trend_snapshot.py cron entry point [TREND-07]
+Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 
-### Phase 13: Owner Segmentation + Composition (S2 + Doc)
-**Goal**: Findings and assets can be grouped by Owner tag with a lossless Unassigned catch-all, the combination with the trend primitive is proven end-to-end, and an auditor-facing runbook documents both substrates
-**Depends on**: Phase 12
-**Requirements**: SEG-01, SEG-02, SEG-03, SEG-04, SEG-05, DOC-01
-**Success Criteria** (what must be TRUE):
-  1. Calling the segmentation helper on a real or synthetic findings DataFrame returns per-Owner buckets whose counts sum to the total, with all untagged assets collected under a single `Unassigned` bucket (label configurable)
-  2. When the `Owner` tag category is entirely absent or zero assets carry it, the helper returns everything under `Unassigned` and does not raise — existing reports that call it continue to deliver
-  3. The analyst exception list of untagged assets is written as a local Excel/CSV file; it is not attached to any email or committed to the repository
-  4. `capture_snapshot` accepts an `owner` dimension argument and writes per-Owner open counts into the snapshot store; `read_trend` can retrieve a month-over-month series for a specific Owner — proving S1 and S2 compose end-to-end
-  5. `docs/trend_and_segmentation_calculations.md` exists, documents the two-interval open predicate, the ~29-day Tenable fixed-retention constraint and forward-accumulation model, and the Owner/Unassigned segmentation model in the established `docs/*_calculations.md` style
-**Plans**: 4 plans
-- [x] 13-01-PLAN.md — generalize board_report_utils.py to Owner-primary helper + SEG-01/02/04 unit tests [SEG-01, SEG-02, SEG-04]
-- [x] 13-02-PLAN.md — repoint the 4 board consumer modules to Owner; remove duplicate _extract_owner_tag [SEG-01, SEG-02, SEG-04]
-- [x] 13-03-PLAN.md — dimension="owner" trend composition + combined analyst supplemental Excel/CSV [SEG-03, SEG-05]
-- [x] 13-04-PLAN.md — DOC-01 auditor runbook (docs/trend_and_segmentation_calculations.md) [DOC-01]
+</details>
 
 ## Progress
 

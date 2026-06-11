@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Trend & Segmentation Substrate
-status: completed
+status: Awaiting next milestone
 stopped_at: Phase 13 context gathered
-last_updated: "2026-06-11T11:45:29.525Z"
-last_activity: 2026-06-10
+last_updated: "2026-06-11T12:41:02.148Z"
+last_activity: 2026-06-11 — Milestone v1.3 completed and archived
 progress:
   total_phases: 2
   completed_phases: 2
   total_plans: 8
   completed_plans: 8
-  percent: 67
+  percent: 100
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-05)
 
 ## Current Position
 
-Phase: 13
-Plan: Not started
-Status: Milestone complete — substrate tech debt closed (quick task 260611-b1x)
-Last activity: 2026-06-11 - Completed quick task 260611-b1x: owner_supplemental tech-debt closure
+Phase: Milestone v1.3 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-11 — Milestone v1.3 completed and archived
 
 ## Shipped Milestones
 
@@ -111,9 +111,19 @@ Carried forward from v1.0 + v1.1; not in scope for v1.2 or v1.3.
 | cleanup | Phase 3 W3 deprecated aliases (`_PDF_RAG_STRIP_TEMPLATE`, `_build_rag_strip_page`) | deferred (cosmetic) | 2026-05-08 |
 | backlog | composed_report output filenames are hardcoded to `composed_report.{pdf,xlsx}` — every group with `reports: [composed_report]` writes the same basenames in its run folder. Need per-group disambiguation (slugified `report_title`, explicit `output_basename:` YAML field, or slugified group name). Captured during Phase 6 chrome rollout once multiple composed groups became plausible. | deferred | 2026-05-13 |
 
+### Acknowledged at v1.3 close (2026-06-11)
+
+`gsd-sdk query audit-open` flags 12 quick tasks as "missing summary" — a **detector false positive**, not open work. This project's quick-task SUMMARY frontmatter omits a `status:` field, so `audit-open` cannot see them as complete; every quick task ever run here is flagged identically (v1.2 already shipped on top of 8 of them). All 12 are complete, logged above in "Quick Tasks Completed" with commits. Acknowledged and proceeded with the v1.3 close.
+
+- Follow-up (cosmetic, optional): have the quick-task executor write `status: complete` into SUMMARY frontmatter so `audit-open` stops false-flagging future closes.
+
 ## Session Continuity
 
 Last session: 2026-06-10T13:09:54.789Z
 Stopped at: Phase 13 context gathered
 Resume file: .planning/phases/13-owner-segmentation-composition-s2-doc/13-CONTEXT.md
 Next command: /gsd-complete-milestone v1.3
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

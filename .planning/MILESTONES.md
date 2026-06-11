@@ -6,18 +6,34 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 
 ## v1.3 — Trend & Segmentation Substrate
 
-**Status:** In progress (started 2026-06-05)
-**Phases:** 2 (12–13) | **Plans:** TBD
-**Requirements:** 13 (TREND-01..07, SEG-01..05, DOC-01)
+**Shipped:** 2026-06-11
+**Phases:** 2 (12–13) | **Plans:** 8
+**Timeline:** 2026-06-08 → 2026-06-11
+**Git range:** `90b02bb` (Phase 12 start) → `966a2da`
+**Files changed:** 52 | **LOC delta:** +8,811 / −373
+**Requirements:** 13/13 satisfied (TREND-01..07, SEG-01..05, DOC-01); milestone audit passed
 
-**Goal:** Build the two shared substrates under the June-2026 report batch — a forward-accumulating monthly snapshot mechanism (S1) and an Owner/BU segmentation helper (S2) — so the v1.4 report modules become thin consumers instead of re-inventing trend and segmentation independently.
+**Delivered:** The two shared substrates under the June-2026 report batch — a forward-accumulating trend-snapshot mechanism (S1) and an Owner/Application segmentation helper (S2) — so v1.4 report modules become thin consumers instead of re-inventing trend and segmentation each time.
+
+**Key accomplishments:**
+
+- **Forward-accumulating trend substrate (TREND-01..07):** reopened-aware two-interval `open_findings_at()` predicate (`utils/open_count.py`) — the naive single-interval form silently dropped ~19% of findings (the entire REOPENED population); `data/trend_store.py` capture/read with `scripts/capture_trend_snapshot.py`. Cold-start-safe, idempotent, aggregate-counts-only (D-04-08 PII), extends `data/trend/` without regressing `management_summary`'s private path.
+- **Owner segmentation helper (SEG-01/02/04):** `extract_owner(assets_df)` parses `Owner=`/`Application=` tags (one row per asset, fail-soft); migrated all board/management modules from "Business Unit" → Owner terminology.
+- **Owner/Application analyst worklist (SEG-03):** combined `reports/owner_supplemental.py` Excel+CSV writer (gitignored `output/` only, never emailed/committed), wired fail-soft into `board_summary`; `Unassigned` rows double as the tagging-cleanup worklist.
+- **S1×S2 composition (SEG-05):** owner-dimension snapshots via `capture_snapshot(dimension="owner", …)` with deterministic dedup; `read_trend` round-trip verified.
+- **Calculation runbooks (DOC-01):** auditor-facing docs for the trend and owner-segmentation substrates.
+
+**Post-milestone tech debt closed:** quick task `260611-b1x` deduped the owner_supplemental asset-count path (phantom-row over-count) and removed the pandas-3.0 CoW chained-assignment on the open-count column; the third audit item (`open_findings_at` NaT-FIXED over-count) was verified already-fixed (`71207e6`) and regression-tested, not re-touched.
 
 **Key design constraints (settled by spikes):**
+
 - S1 is snapshot-capture only — Tenable's ~29-day fixed-retention wall forbids backfill (Spike 002). Cold start is real.
 - The open-count primitive must use the reopened-aware two-interval predicate; the naive form silently drops ~19% of findings (all REOPENED).
 - Snapshots extend the existing `data/trend/` store; no parallel store; `management_summary` must not regress.
 - Snapshot payloads are aggregate counts only (D-04-08 PII discipline).
 - SEG-03 analyst exception list is operator-facing local output; never committed or emailed.
+
+**Known deferred items at close:** 12 (see STATE.md Deferred Items) — all are completed quick tasks whose SUMMARY frontmatter omits a `status:` field, so `audit-open` reports them as "missing"; acknowledged as a detector false positive, not open work.
 
 **Founding analysis:** [`notes/report-requests-batch-2026-06.md`](notes/report-requests-batch-2026-06.md), [`notes/trend-reconstruction-engine.md`](notes/trend-reconstruction-engine.md), [`spikes/MANIFEST.md`](spikes/MANIFEST.md) (Spikes 001–003).
 
@@ -35,6 +51,7 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 **Delivered:** A production deployment and self-update story for the suite. A non-author operator can install, upgrade, and roll back on a single Linux server from a signed release tarball — no git clone — driven by `scripts/update_from_github.sh`, with a CI pipeline that publishes those tarballs automatically and authoritative deployment docs.
 
 **Key accomplishments (by phase):**
+
 - **Phase 7 — Foundations:** `/opt/vuln-reporting/{current,releases,shared}` symlink layout; `.gitattributes` `export-ignore` boundary defining the slim release tarball; hardened `deploy/vuln-reports.service` systemd unit (`ProtectSystem=strict` + explicit `ReadWritePaths`, runtime-cache `HOME`/`XDG_CACHE_HOME`/`MPLCONFIGDIR`).
 - **Phase 8 — Warm Cache:** `scripts/warm_cache.py` pre-fetch so scheduled batches hit `[CACHE HIT]` instead of redundant Tenable exports.
 - **Phase 9 — CI / Release Automation:** `.github/workflows/release.yml` — pushing a `v*` tag builds `vuln-reporting-vX.Y.Z-slim.tar.gz` + `.sha256`, blocks forbidden paths, marks `-rc/-beta/-alpha` as prereleases, and publishes a GitHub Release.
@@ -51,11 +68,13 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 | `v1.2.4` | 2026-05-22 | Fixes `rich.errors.LiveError` when concurrent scheduled groups run in daemon mode — per-call `Console` + disable live display on non-TTY. |
 
 **Verification:**
+
 - 5/5 phase verifications passed (Phases 7–11); 39/39 requirements satisfied.
 - Milestone audit `v1.2-MILESTONE-AUDIT.md` status: passed (original `gaps_found` closed by quick task `260520-mp4`).
 - v1.2.0 → v1.2.4 each validated end-to-end on a real Rocky 9 VM: install, upgrade, rollback, force-overwrite, real-symlink prune (incl. rollback-target preservation), daemon-mode concurrency (no `LiveError`), and live email delivery.
 
 **Notable surprises (all caught on the real RHEL VM, not the Windows dev box):**
+
 - systemd `ExecStart` pointed at a flat `.venv` while the updater builds per-release `current/.venv` (ship-blocker; quick task `260520-a29`).
 - `ProtectSystem=strict` made `ReadWritePaths` load-bearing — `management_summary`'s trend-JSON write was denied until `shared/data/trend` was added (`260520-mp4`).
 - A normal RHEL host can have versioned Python only, no `python3` command → updater `command not found` under `sudo` (v1.2.2).
@@ -64,6 +83,7 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 - Two hand-edited `shared/.env` typos (`GITHUB_RELEASE_REPO`, SMTP) caused a 404 and a connection-refused; reinforced "check the VM's `.env` first."
 
 **Archive:**
+
 - [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md) — full phase + plan detail
 - [`milestones/v1.2-REQUIREMENTS.md`](milestones/v1.2-REQUIREMENTS.md) — 39-requirement traceability
 - [`v1.2-MILESTONE-AUDIT.md`](v1.2-MILESTONE-AUDIT.md) — milestone audit (status: passed)
@@ -82,6 +102,7 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 **Delivered:** A shared PDF chrome design system applied to every page of every chrome-aware PDF report. The chrome lives in `reports/modules/pdf_chrome.py` and is wired through `ReportComposer` via an optional `pdf_chrome=` constructor kwarg. Two slugs (`board_summary` and `composed_report`) opt into chrome via the `_CHROME_AWARE_SLUGS` allowlist — meaning every future metric module added to a `composed_report` group inherits chrome with **zero per-slug Python**.
 
 **Key accomplishments:**
+
 - **`PdfChrome` utility** ships a single design-system surface: frozen `PdfChromeConfig` dataclass (`title`, `subtitle`, `generated_at`, `header_bg`, `logo_path`, `privacy_label`) feeds a `PdfChrome` class that emits CSS + header HTML + footer-separator HTML. Silent fallback to title-only when `LOGO_PATH` is unset/missing (CHROME-CFG-03, no log spam).
 - **`position: fixed` chrome overlays** paint a full-width 15mm header band and a 1px footer separator edge-to-edge on every page. Replaced the initial margin-box approach after UAT revealed empty `@top-*` margin boxes collapse to zero width in WeasyPrint.
 - **Cover body trimmed** to `Scope: <value>` subtitle + RAG strip (now headed "Key Performance Metrics"). Inline title, divider, `.cover-meta`, "Generated:" line, "Sections:" line all removed — those moved to chrome.
@@ -91,6 +112,7 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 - **Operator-supplied logo** lives at `assets/logo.png` (`.gitignore`'d); `config.LOGO_PATH` resolves to it; silent-fallback if missing.
 
 **Verification:**
+
 - 2/2 phase verifications PASSED (Phase 5 PASS, Phase 6 PASS WITH NOTES)
 - 16/16 requirements satisfied (3-source cross-reference clean)
 - 37/37 tests green on the v1.1 surface
@@ -98,16 +120,19 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 - 0-byte diff on `reports/management_summary.py` + `reports/ops_remediation.py` across the milestone
 
 **Notable surprises:**
+
 - **Empty margin boxes collapse in WeasyPrint.** Initial header design painted backgrounds on `@top-left/-center/-right`; empty boxes rendered zero-width, leaving visible gaps. Pivoted to `position: fixed` overlays with negative side offsets — predictable, pixel-perfect.
 - **Latent `pdf_subtitle` double-prefix bug in composed_report.** When the cover template was changed to bake "Scope: " into itself, `composed_report` would have rendered "Scope: Scope: Production". Caught during the chrome-parity extension.
 - **`_format_scope_subtitle` circular import.** Both consumers are imported via `importlib` from `run_all`, so they can't import the helper back. Inlined the 3-line helper in both. Defer factoring until > 2 consumers.
 - **Same-day end-to-end delivery.** Milestone setup → close in 1 day. v1.0 was 4 days; v1.1 was 1 day because the milestone was scoped tight (chrome + one consumer + framework parity) and the v1.0 module contract did most of the heavy lifting.
 
 **Carried to next milestone (acknowledged backlog):**
+
 - composed_report output filename disambiguation (every group writes `composed_report.{pdf,xlsx}` today; needs per-group basenames).
 - All v1.0 backlog still open: GEN-01/02, GEN-03/04, PERF-01..04, LEGACY-01, cosmetic janitorial.
 
 **Archive:**
+
 - [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md) — full phase + plan + UAT-cycle details
 - [`milestones/v1.1-REQUIREMENTS.md`](milestones/v1.1-REQUIREMENTS.md) — all 16 requirements traceability
 - [`v1.1-MILESTONE-AUDIT.md`](v1.1-MILESTONE-AUDIT.md) — aggregated milestone audit (status: passed)
@@ -125,6 +150,7 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 **Delivered:** A modular metric-rendering framework where each `BaseModule` subclass renders itself into 4 channels (PDF section, Excel tabs, email panel, analyst drill-down) — proven end-to-end against the Board Summary report's 4 metric modules with backward-compatible delivery to existing recipient groups.
 
 **Key accomplishments:**
+
 - **Module render contract** extended `BaseModule` with three new abstract methods (`render_email_panel`, `render_analyst_tabs`, `render_rag_strip_entry`) plus three new `ModuleData` fields (`driver_narrative`, `analyst_rows`, `rag_strip`). Empty-data guard pattern codified in CLAUDE.md and exercised by every render method.
 - **`ReportComposer` upgrades** added `assemble_email_body()` (per-module HTML panels), `assemble_analyst_workbook()` (per-module Excel tabs + `_Metadata`), unified RAG-strip cover page, and `run_full_pipeline()` orchestrator that emits a typed bundle. D-22 bundle-driven email/analyst routing — no slug allowlists.
 - **Board Summary migration** ported all 4 metric modules (`scan_coverage_sla`, `critical_remediation_sla`, `high_risk_assets`, `aged_vulns_assets`) to the new contract. Real-Tenable UAT-confirmed: PDF + standard Excel + analyst Excel + email panels all render correctly; populated and zero-data paths both clean.
@@ -133,17 +159,20 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 - **Cutover smoke** (`scripts/smoke_board_summary_cutover.py`) is a sub-5-second deterministic structural-shape regression bar against 3 committed baselines. `_NoLiveTenable` sentinel hard-guards against accidental live API calls. Baselines store counts + booleans only — no metric values, no row-level data — per D-04-08 PII guard.
 
 **Verification:**
+
 - 4/4 phase verifications PASSED
 - 3/3 phase UATs CLOSED (Phase 1 verifier-only; 2/3/4 with explicit UATs at 6/6 and 7/7)
 - 38 tests green across 4 suites at milestone close
 - 0 DRIFT against committed structural baselines
 
 **Notable surprises:**
+
 - WeasyPrint flex implementation consumes ~33-37mm of phantom space beyond the visible cell-width math in 65.1 — discovered via empirical bisect during a UAT-driven cover-layout fix. Pinned cells at 55mm with documented inline comment.
 - Headline metric values drift daily with vulnerability churn — locking them in baselines would create false-positive alerts. D-04-05 was REVISED before Phase 4 planning to structural-only snapshots; visual operator confirmation remains the value-correctness gate.
 - pandas 3.0 Copy-on-Write shifted the dtype-replacement semantics for chained-setter patterns. `.loc[:, col]=` preserved float64 where `df[col]=` had replaced it with int64. `.assign()` was the only pattern preserving int64 dtype AND zero ChainedAssignmentError warnings — documented at 3 risk_score sites.
 
 **Carried to v2 (acknowledged backlog):**
+
 - GEN-01/02: Migrate `management_summary` and `ops_remediation` to the new module contract.
 - GEN-03/04: YAML-driven module composition (`modules: [...]` lists; `reports.<slug>.modules` map).
 - PERF-01..04: per-batch `enrich_vulns_with_assets` cache, per-day cache midnight handling, log rotation, tag-typo detection.
@@ -152,5 +181,6 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 - Deferred design: cover-page redesign (template-based on Report Title; "Generated" + Data Protection Label to footer).
 
 **Archive:**
+
 - [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md) — full phase + plan details
 - [`milestones/v1.0-REQUIREMENTS.md`](milestones/v1.0-REQUIREMENTS.md) — all 24 requirements traceability

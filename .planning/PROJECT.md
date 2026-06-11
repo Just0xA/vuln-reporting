@@ -12,18 +12,25 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 ## Current State
 
-**In progress:** v1.3 Trend & Segmentation Substrate — Phase 13 (Owner Segmentation + Composition, S2 + Doc) complete (2026-06-10): Owner/BU grouping helper with a lossless Unassigned catch-all, analyst exception list (`reports/owner_supplemental.py`), fail-soft guard, S1×S2 composition proof, and an auditor-facing runbook (`docs/trend_and_segmentation_calculations.md`). Gap-closure plan 13-05 closed the duplicate-`asset_uuid` correctness cluster (CR-01/WR-05/WR-02): dedup-before-`set_index`, deterministic per-owner attribution, and `open_findings_at` open-set reconciliation. 6/6 phase requirements (SEG-01–05, DOC-01) verified, 5/5 must-haves passed; 158 tests green. Two non-blocking follow-ups deferred (WR-01 asset_count dedup; F-DTYPE chained-assignment at `owner_supplemental.py:139`). Phase 12 (Trend Snapshot Substrate, S1) completed 2026-06-08. v1.3 milestone phases complete.
+**Shipped:** v1.3 Trend & Segmentation Substrate (2026-06-11) — see [`MILESTONES.md`](MILESTONES.md).
 
-**Shipped:** v1.2 Deployment & Self-Update Infrastructure (2026-05-22) — see [`MILESTONES.md`](MILESTONES.md).
+- 2 phases (12–13), 8 plans, 52 files / +8,811 / −373 across 2026-06-08 → 2026-06-11; 13/13 requirements satisfied (TREND-01..07, SEG-01..05, DOC-01); milestone audit status: passed
+- **S1 — Trend snapshot substrate:** reopened-aware two-interval `open_findings_at()` open-count primitive (`utils/open_count.py`) — the naive single-interval form silently dropped ~19% of findings (all REOPENED); `data/trend_store.py` atomic capture/read with idempotent monthly overwrite, cold-start safety, and aggregate-only PII discipline; `scripts/capture_trend_snapshot.py` cron entry point. Extends `data/trend/` without regressing `management_summary`'s private path.
+- **S2 — Owner segmentation:** `extract_owner()` Owner/Application tag helper with a lossless `Unassigned` catch-all; combined analyst worklist (`reports/owner_supplemental.py`) wired fail-soft into `board_summary`; owner-dimension trend composition (S1×S2) proven end-to-end. Migrated board/management modules from "Business Unit" → Owner terminology.
+- Auditor runbook `docs/trend_and_segmentation_calculations.md` (DOC-01).
+- Post-milestone: substrate tech debt closed via quick task `260611-b1x` (owner_supplemental asset-count dedup + pandas-3.0 CoW chained-assignment). The third audited item — `open_findings_at` NaT-FIXED over-count — was found already-fixed (commit `71207e6`) and regression-tested, so the Phase 14 created to address it was removed as unnecessary.
+
+<details>
+<summary>Previous shipped: v1.2 Deployment & Self-Update Infrastructure (2026-05-22)</summary>
 
 - 5 phases (7–11), 10 plans, 65 files / +11,667 / −1,245 across 2026-05-19 → 2026-05-22 (released and field-hardened on a Rocky 9 VM)
 - 39/39 requirements satisfied; milestone audit status: passed
-- The suite now installs, updates, and rolls back from signed release tarballs via `scripts/update_from_github.sh` — no git clone; SHA256-verified download, per-release `.venv`, shared-path symlinks, atomic `ln -sfn` swap, `.last` breadcrumb, post-swap health check with auto-rollback, and a printed rollback one-liner (`--prune`/`--keep N` retention added in v1.2.3)
-- `.github/workflows/release.yml` publishes `vuln-reporting-vX.Y.Z-slim.tar.gz` + `.sha256` on every `v*` tag, blocking forbidden paths and marking `-rc/-beta/-alpha` as prereleases
-- `scripts/warm_cache.py` decouples Tenable fetch latency from report-run wall time so scheduled batches hit `[CACHE HIT]`
-- `/opt/vuln-reporting/{current,releases,shared}` symlink layout; hardened `deploy/vuln-reports.service` (`ProtectSystem=strict` + explicit `ReadWritePaths`)
-- Authoritative `DEPLOYMENT.md` + operations-scoped `RUNBOOK.md` + root `README.md` + `deploy/crontab.example`
+- The suite installs, updates, and rolls back from signed release tarballs via `scripts/update_from_github.sh` — no git clone; SHA256-verified download, per-release `.venv`, shared-path symlinks, atomic `ln -sfn` swap, `.last` breadcrumb, post-swap health check with auto-rollback, retention (`--prune`/`--keep N`)
+- `.github/workflows/release.yml` publishes `vuln-reporting-vX.Y.Z-slim.tar.gz` + `.sha256` on every `v*` tag; `scripts/warm_cache.py` decouples Tenable fetch latency from report-run wall time
+- `/opt/vuln-reporting/{current,releases,shared}` symlink layout; hardened `deploy/vuln-reports.service`; authoritative `DEPLOYMENT.md` / `RUNBOOK.md` / `README.md` / `deploy/crontab.example`
 - Released as v1.2.0 – v1.2.4 (post-ship fixes: inert systemd `StartLimit*`, versioned-`python3` resolution, release pruning, daemon-mode `LiveError`)
+
+</details>
 
 <details>
 <summary>Previous shipped: v1.1 PDF Chrome Redesign (2026-05-13)</summary>
@@ -53,15 +60,11 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 **Codebase state (post-v1.2):** Five reports work end-to-end plus the YAML-driven `composed_report` slug. `board_summary` and `composed_report` are chrome-aware. `management_summary` + `ops_remediation` remain on legacy render paths (untouched); they will inherit chrome only after migration to the module contract (GEN-01/02 deferred). The suite is now server-deployable from signed release tarballs with scripted install/update/rollback (`scripts/update_from_github.sh`), CI-published artifacts (`.github/workflows/release.yml`), a standalone warm-cache job, and authoritative `DEPLOYMENT.md` / `RUNBOOK.md` / `README.md`.
 
-## Current Milestone: v1.3 Trend & Segmentation Substrate
+## Next Milestone (planned): v1.4 — June-2026 Report Batch
 
-**Goal:** Build the two shared substrates under the June-2026 report batch — so the report modules become a thin v1.4 batch instead of each re-inventing trend and segmentation.
+With the trend (S1) and Owner-segmentation (S2) substrates shipped in v1.3, v1.4 builds the report modules as thin consumers on top of them. Candidate modules (see ROADMAP Backlog + [`notes/report-requests-batch-2026-06.md`](notes/report-requests-batch-2026-06.md)): VTD-01 Vuln Type Distribution, New-vs-Remediated, Vulnerability Density, Reopened Vulnerabilities, Program Health Overview, Accepted & Recast. External/DMZ + WAS remains gated on the pyTenable-upgrade decision (Spike 003: 1.5.2 `tio.was` has no VPR + no lifecycle fields). GEN-01 `management_summary` migration rides along with the reports that need it.
 
-**Target features:**
-- **S1 — Trend snapshot substrate.** Forward-accumulating monthly snapshots of per-dimension open counts (extends `data/trend/`). Snapshot-capture, NOT reconstruction (Spike 002: ~29-day Tenable fixed-retention wall forbids backfill; cold start is real). Ships the **reopened-aware two-interval "open at date D" predicate** as the canonical open-count primitive (the naive predicate silently drops ~19% of findings).
-- **S2 — Owner/BU segmentation.** Group-by the `Owner` tag category + `Unassigned` self-retiring catch-all + an analyst exception list of untagged assets.
-
-**Out of scope (deferred):** All report modules (VTD-01, New-vs-Remediated, Vuln Density, Reopened, Program Health, Accepted/Recast) → v1.4 batch on top of these substrates. External/DMZ+WAS → gated on the pyTenable-upgrade decision (Spike 003: 1.5.2 `tio.was` has no VPR + no lifecycle). GEN-01 `management_summary` migration → v1.4 with the reports that need it.
+Run `/gsd-new-milestone` to scope v1.4 (questioning → research → requirements → roadmap).
 
 **Founding analysis:** [`notes/report-requests-batch-2026-06.md`](notes/report-requests-batch-2026-06.md), [`notes/trend-reconstruction-engine.md`](notes/trend-reconstruction-engine.md), spikes 001–003 ([`spikes/MANIFEST.md`](spikes/MANIFEST.md)), and the `spike-findings-vuln-reporting` skill.
 
@@ -107,6 +110,10 @@ Carried from the v1.0 backlog (see `milestones/v1.0-REQUIREMENTS.md` v2 section)
 | D-04-02: Replace `_validate_group()` body, no defense-in-depth | Two validators inevitably drift; the hand-rolled checks already missed format/dependencies/additionalProperties that the schema can express. Single source of truth wins. | ✓ Good — richer error messages from `jsonschema.Draft7Validator` |
 | D-04-05 (REVISED): Structural-only baseline — no metric values | Operator clarified that headline % drift daily with vulnerability churn. Locking values would create false-positive alerts. Structural shape catches refactor regressions; visual operator confirmation remains the value-correctness gate. | ✓ Good — zero false-positive alerts on data churn; smoke is a deterministic <5s regression bar |
 | D-04-08: Sensitive data MUST NOT enter conversation context | PII-class fields (hostnames, IPs, plugin names, etc.) belong only on the operator's machine. Default-redact with exact-match list + narrow substring backstop. Test recipients use `example.invalid` (RFC 6761). | ✓ Good — baselines store counts + booleans only; PII guard exercised in 18/18 baseline-extractor tests |
+| v1.3: Substrates before report modules | Building any single June-2026 report first means inventing the trend engine inside it, then refactoring it out from under the others. Build S1/S2 as shared substrates so v1.4 reports are thin consumers. | ✓ Good — S1×S2 compose end-to-end (SEG-05); v1.4 reports consume `open_findings_at` + `extract_owner` directly |
+| v1.3: Trend is snapshot-capture, NOT reconstruction | Spike 002: Tenable's ~29-day fixed-retention wall forbids backfill. History accumulates forward from the first snapshot; cold start is real. | ✓ Good — `data/trend_store.py` forward-accumulating + cold-start safe |
+| v1.3: Reopened-aware two-interval open-count predicate is mandatory | The naive `last_fixed null OR last_fixed>D` form drops the entire REOPENED population (~19% of findings). The two-interval model using `resurfaced_date` resolves it exactly. | ✓ Good — `open_findings_at` unit-tested on OPEN/REOPENED/FIXED edges incl. NaT-FIXED (WR-01) |
+| v1.3: Phase 14 created then removed — tech-debt premise was stale | A milestone-close audit deferred 3 substrate items into a new Phase 14. The headline item (`open_findings_at` NaT-FIXED over-count) was already fixed + regression-tested (`71207e6`); the other 2 were ~15 lines in one file. Phase removed; closed via quick task `260611-b1x`. | ✓ Good — verified before building; avoided a full phase for a trivial fix |
 
 ## Evolution
 
@@ -126,4 +133,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-10 — Phase 13 (Owner Segmentation + Composition, S2 + Doc) complete*
+*Last updated: 2026-06-11 — v1.3 Trend & Segmentation Substrate milestone complete*
