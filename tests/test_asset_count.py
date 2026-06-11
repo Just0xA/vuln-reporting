@@ -134,20 +134,28 @@ def test_different_report_dates_yield_different_counts() -> None:
     """
     Same assets_df, two different injected report_dates → different counts.
     Proves no datetime.now() inside — the cutoff is purely report_date-driven.
-    """
-    # 20 days ago relative to _REPORT_DATE → on-time for date1, stale for date2
-    df = _make_assets([20])
 
-    date1 = _REPORT_DATE  # cutoff = 30 days before 2026-06-01 → 2026-05-02 → asset on time
-    date2 = datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc)  # cutoff = 30d before 2025-06-01
+    The asset is scanned at a fixed absolute date (2026-05-20).
+    - date1 = 2026-06-01: cutoff = 2026-05-02; asset (2026-05-20) >= cutoff → on-time
+    - date2 = 2026-05-25: cutoff = 2026-04-25; asset (2026-05-20) >= cutoff → on-time
+    - date3 = 2026-06-25: cutoff = 2026-05-26; asset (2026-05-20) < cutoff → stale → None
+    """
+    # Build asset with an absolute scan date of 2026-05-20 UTC.
+    # _REPORT_DATE is 2026-06-01, so "20 days ago" = 2026-05-12 — use 12 days instead.
+    # Actually build a fixed-date asset directly.
+    fixed_scan = pd.Timestamp("2026-05-20", tz="UTC")
+    df = pd.DataFrame({"last_licensed_scan_date": [fixed_scan]})
+
+    date1 = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)   # cutoff = 2026-05-02 → on-time
+    date3 = datetime(2026, 6, 25, 12, 0, 0, tzinfo=timezone.utc)  # cutoff = 2026-05-26 → stale
 
     count1 = count_on_time_assets(df, date1)
-    count2 = count_on_time_assets(df, date2)
+    count3 = count_on_time_assets(df, date3)
 
-    # For date1 (recent): asset scanned 20d ago is within 30d window → count = 1
+    # For date1 (recent): asset scanned 2026-05-20 is within 30d of 2026-06-01 → count = 1
     assert count1 == 1
-    # For date2 (old date): asset's absolute scan date is > 30d before 2025-06-01 → None
-    assert count2 is None
+    # For date3 (later): cutoff = 2026-05-26 > 2026-05-20 → stale → None
+    assert count3 is None
 
 
 def test_tz_naive_report_date_accepted() -> None:
