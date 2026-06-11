@@ -350,6 +350,37 @@ def test_missing_both_columns_failsoft():
     assert len(mismatches_df) == 0
 
 
+def test_missing_asset_uuid_column_failsoft(monkeypatch):
+    """
+    WR-03 regression: a frame with tags+ipv4 but no 'asset_uuid' column must
+    fail soft, not raise KeyError.
+
+    Pre-fix the guard only checked tags/ipv4, so this frame passed the guard and
+    then — because the public-IP-untagged gap branch reads gap_raw['asset_uuid']
+    unconditionally — raised KeyError inside the mismatch builder. The public IP
+    is monkeypatched to is_global=True so the populated-gap branch is exercised
+    (the empty-gap branch was already safe).
+    """
+    class _FakeAddr:
+        version = 4
+        is_global = True
+
+    monkeypatch.setattr("utils.external_scope.ipaddress.ip_address", lambda _: _FakeAddr())
+
+    # tags + ipv4 present, asset_uuid ABSENT — synthetic doc-range IP (QUAL-05).
+    assets = pd.DataFrame({
+        "tags": ["Owner=NetOps"],      # public IP but no Location tag -> gap row
+        "ipv4": ["192.0.2.1"],
+    })
+    assert "asset_uuid" not in assets.columns
+
+    scoped_df, mismatches_df = external_scope(assets)  # must not raise
+
+    # Documented safe return: two zero-row DataFrames.
+    assert len(scoped_df) == 0
+    assert len(mismatches_df) == 0
+
+
 # ---------------------------------------------------------------------------
 # Return-type contract
 # ---------------------------------------------------------------------------

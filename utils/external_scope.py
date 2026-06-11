@@ -138,8 +138,13 @@ def external_scope(
         empty = assets_df.iloc[0:0].copy()
         return empty, empty
 
-    if "tags" not in assets_df.columns or "ipv4" not in assets_df.columns:
-        missing = [c for c in ("tags", "ipv4") if c not in assets_df.columns]
+    # ``asset_uuid`` is included because the populated-gap branch below reads
+    # ``gap_raw["asset_uuid"]`` unconditionally (D-11 required output column);
+    # a frame with tags+ipv4 but no asset_uuid would otherwise pass this guard
+    # and raise KeyError inside the mismatch builder (WR-03).
+    _required = ("tags", "ipv4", "asset_uuid")
+    if any(c not in assets_df.columns for c in _required):
+        missing = [c for c in _required if c not in assets_df.columns]
         logger.warning(
             "external_scope: required column(s) %r not present in DataFrame — "
             "returning two zero-row frames (fail-soft).",
