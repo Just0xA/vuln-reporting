@@ -119,10 +119,10 @@ Carried forward from v1.0 + v1.1; not in scope for v1.2 or v1.3.
 
 ## Session Continuity
 
-Last session: 2026-06-10T13:09:54.789Z
-Stopped at: Phase 13 context gathered
-Resume file: .planning/phases/13-owner-segmentation-composition-s2-doc/13-CONTEXT.md
-Next command: /gsd-complete-milestone v1.3
+Last session: 2026-06-11
+Stopped at: v1.3 Trend & Segmentation Substrate milestone closed, archived, tagged (v1.3), and pushed to origin/main
+Resume file: —
+Next command: /gsd-new-milestone (scope v1.4 — June-2026 report batch)
 
 ## Operator Next Steps
 
