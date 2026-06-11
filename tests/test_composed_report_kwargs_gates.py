@@ -9,7 +9,7 @@ Covers SC#3 and SC#4 from the Phase 14 ROADMAP:
         **self._kwargs fan-out when the module ID is in the frozensets.
 
 Tests:
-  - test_frozensets_seeded_with_stub_only (D-17)
+  - test_frozensets_membership (D-17 + Phase 15 module registration)
   - test_run_report_signature_unchanged (D-15)
   - test_stub_compute_receives_both_kwargs (SC#4 unit-level)
   - test_stub_compute_missing_kwarg_failsoft (fail-soft contract)
@@ -89,14 +89,20 @@ def _make_module_config() -> ModuleConfig:
 # SC#3 / D-17: frozenset seeding
 # ---------------------------------------------------------------------------
 
-def test_frozensets_seeded_with_stub_only():
-    """D-17: both frozensets contain exactly the SC#4 stub ID and nothing else."""
-    assert _MODULES_NEEDING_TREND_SNAPSHOTS == frozenset({"sc4_kwargs_stub"}), (
-        "_MODULES_NEEDING_TREND_SNAPSHOTS must be seeded with 'sc4_kwargs_stub' only (D-17)"
-    )
-    assert _MODULES_NEEDING_RECAST_RULES == frozenset({"sc4_kwargs_stub"}), (
-        "_MODULES_NEEDING_RECAST_RULES must be seeded with 'sc4_kwargs_stub' only (D-17)"
-    )
+def test_frozensets_membership():
+    """D-17 + Phase 15: the gate frozensets hold the SC#4 stub plus exactly the
+    Phase-15 modules that legitimately need each fetch. Current-snapshot modules
+    (reopened_vulns, external_dmz) are MoM-free per D-03 and must NOT appear in
+    either set."""
+    assert _MODULES_NEEDING_TREND_SNAPSHOTS == frozenset(
+        {"sc4_kwargs_stub", "new_vs_remediated", "vuln_density", "accepted_recast"}
+    ), "_MODULES_NEEDING_TREND_SNAPSHOTS membership drifted (D-17 / Phase 15)"
+    assert _MODULES_NEEDING_RECAST_RULES == frozenset(
+        {"sc4_kwargs_stub", "accepted_recast"}
+    ), "_MODULES_NEEDING_RECAST_RULES membership drifted (D-17 / Phase 15)"
+    # D-03 negative guard: current-snapshot modules never trigger a trend fetch.
+    assert "reopened_vulns" not in _MODULES_NEEDING_TREND_SNAPSHOTS
+    assert "external_dmz" not in _MODULES_NEEDING_TREND_SNAPSHOTS
 
 
 # ---------------------------------------------------------------------------
