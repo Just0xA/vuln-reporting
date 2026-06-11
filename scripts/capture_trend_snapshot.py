@@ -33,9 +33,11 @@ from config import CACHE_DIR
 from data.fetchers import (
     fetch_all_assets,
     fetch_all_vulnerabilities,
+    fetch_fixed_vulnerabilities,
 )
 from data.trend_store import capture_snapshot
 from tenable_client import get_client
+from utils.asset_count import count_on_time_assets
 
 _LOG_PATH = Path("logs") / "capture_trend_snapshot.log"
 _LOGGER_NAME = "capture_trend_snapshot"
@@ -256,8 +258,50 @@ def main(argv: list[str] | None = None) -> int:
         snapshot_date.isoformat(), month_str,
     )
 
+    # Compute new aggregate counts for Phase-15 snapshot extension (D-15-05).
+    # All values are aggregate counts only — no row-level data logged (QUAL-05).
+
+    # on_time_asset_count: Phase-14 D-02 density denominator
+    on_time_asset_count = count_on_time_assets(assets_df, snapshot_date)
+
+    # reopened_count: findings in REOPENED state
+    reopened_count = int(
+        (df["state"].astype(str).str.upper() == "REOPENED").sum()
+    )
+
+    # accepted_count / recast_count: from severity_modification_type
+    smt_upper = df["severity_modification_type"].astype(str).str.upper() \
+        if "severity_modification_type" in df.columns \
+        else df["state"].astype(str).str.upper().where(False, "")
+    accepted_count = int(smt_upper.isin({"ACCEPTED"}).sum())
+    recast_count = int(smt_upper.isin({"RECASTED"}).sum())
+
+    logger.info(
+        "Aggregate counts — on_time_assets=%s reopened=%d accepted=%d recast=%d",
+        on_time_asset_count, reopened_count, accepted_count, recast_count,
+    )
+
+    # fixed_vulns_df: fetch fail-soft so a fixed-export failure doesn't abort the
+    # severity snapshot (the new/fixed pair cold-starts when fixed_vulns_df=None)
+    fixed_vulns_df = None
     try:
-        path = capture_snapshot(df, assets_df, snapshot_date, "severity", "all_assets")
+        fixed_vulns_df = fetch_fixed_vulnerabilities(tio, cache_dir)
+        logger.info("Fixed vulnerabilities fetched: %d rows", len(fixed_vulns_df))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "fetch_fixed_vulnerabilities failed — fixed_findings_count / "
+            "new_findings_count will cold-start for this snapshot: %s", exc,
+        )
+
+    try:
+        path = capture_snapshot(
+            df, assets_df, snapshot_date, "severity", "all_assets",
+            on_time_asset_count=on_time_asset_count,
+            reopened_count=reopened_count,
+            accepted_count=accepted_count,
+            recast_count=recast_count,
+            fixed_vulns_df=fixed_vulns_df,
+        )
         logger.info("Severity snapshot written: %s", path)
     except Exception as exc:  # noqa: BLE001
         logger.exception("capture_snapshot (severity) failed: %s", exc)
