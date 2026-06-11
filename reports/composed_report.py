@@ -80,14 +80,23 @@ _MODULES_NEEDING_ENV_TOTAL = frozenset({"tag_severity_share"})
 
 # Modules that need pre-read trend snapshots forwarded via **kwargs.
 # trend_snapshots = read_trend() result dict {"snapshots": [...], "insufficient_data": bool}.
-# Phase 14 seeds with the SC#4 stub only; each real v1.4 module adds itself
-# in the phase that builds it (D-17).
-_MODULES_NEEDING_TREND_SNAPSHOTS = frozenset({"sc4_kwargs_stub"})
+# Phase 14 seeds with the SC#4 stub only; Phase 15 registers all three
+# trend-dependent module IDs here (D-17) so plans 15-05 and 15-06 need
+# not touch this file.
+_MODULES_NEEDING_TREND_SNAPSHOTS = frozenset({
+    "sc4_kwargs_stub",
+    "new_vs_remediated",   # D-17 (15-04)
+    "vuln_density",        # D-17 (15-05)
+    "accepted_recast",     # D-17 (15-06 — for MoM delta)
+})
 
 # Modules that need the recast-rules DataFrame forwarded via **kwargs.
 # recast_rules_df = fetch_recast_rules() result DataFrame.
-# Phase 14 seeds with the SC#4 stub only (D-17).
-_MODULES_NEEDING_RECAST_RULES = frozenset({"sc4_kwargs_stub"})
+# Phase 14 seeds with the SC#4 stub only (D-17); Phase 15 adds accepted_recast.
+_MODULES_NEEDING_RECAST_RULES = frozenset({
+    "sc4_kwargs_stub",
+    "accepted_recast",     # D-17 (15-06)
+})
 
 
 # ===========================================================================
