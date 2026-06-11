@@ -434,9 +434,14 @@ def test_owner_counts_reconcile(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     snap = data["snapshots"][0]
 
-    # Sum all owner counts (excludes metadata keys)
-    meta_keys = {"month", "tag_filter", "asset_count", "generated_at"}
-    owner_total = sum(v for k, v in snap.items() if k not in meta_keys)
+    # Sum all owner counts (excludes metadata keys — including Phase-15 aggregate fields
+    # which are None in owner-dimension snapshots when not explicitly supplied)
+    meta_keys = {
+        "month", "tag_filter", "asset_count", "generated_at",
+        "on_time_asset_count", "reopened_count", "accepted_count",
+        "recast_count", "new_findings_count", "fixed_findings_count",
+    }
+    owner_total = sum(v for k, v in snap.items() if k not in meta_keys and v is not None)
 
     # Oracle: open_findings_at on the same df/date
     open_df = open_findings_at(vulns_df, ref)
@@ -484,7 +489,11 @@ def test_owner_attribution_deterministic_under_dup_uuid(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     snap = data["snapshots"][0]
 
-    meta_keys = {"month", "tag_filter", "asset_count", "generated_at"}
+    meta_keys = {
+        "month", "tag_filter", "asset_count", "generated_at",
+        "on_time_asset_count", "reopened_count", "accepted_count",
+        "recast_count", "new_findings_count", "fixed_findings_count",
+    }
 
     # (a) a1's finding must be attributed to "Team A" (first-row), not "Team B".
     assert snap.get("Team A", 0) >= 1, (
@@ -495,7 +504,7 @@ def test_owner_attribution_deterministic_under_dup_uuid(tmp_path):
     )
 
     # (b) reconcile-to-whole invariant preserved.
-    owner_total = sum(v for k, v in snap.items() if k not in meta_keys)
+    owner_total = sum(v for k, v in snap.items() if k not in meta_keys and v is not None)
     open_df = open_findings_at(vulns_df, ref)
     oracle_total = len(open_df)
     assert owner_total == oracle_total, (
