@@ -15,12 +15,12 @@ The June-2026 management/exec trend-cut report batch built as thin four-channel 
 
 ### Report Modules (RPT)
 
-- [ ] **RPT-01**: A reader can see **New vs Remediated** findings per month (incoming vs remediated) trended against prior months, with an Owner cut.
-- [ ] **RPT-02**: A reader can see **Vulnerability Density** (vulns per asset) trended month-over-month, using each month's own asset-count denominator.
-- [ ] **RPT-03**: A reader can see **Reopened Vulnerabilities** (build/config regressions: `state==REOPENED` / `resurfaced_date`) with an Owner cut and an analyst drill-down.
-- [ ] **RPT-04**: A reader can see **Accepted & Recast** posture (ACCEPTED and RECASTED tracked separately) with current vs previous-month ▲▼% change, cut by Owner; sourced from `severity_modification_type` / `recast_rule_uuid` + `fetch_recast_rules()`.
+- [x] **RPT-01**: A reader can see **New vs Remediated** findings per month (incoming vs remediated) trended against prior months, with an Owner cut.
+- [x] **RPT-02**: A reader can see **Vulnerability Density** (vulns per asset) trended month-over-month, using each month's own asset-count denominator.
+- [x] **RPT-03**: A reader can see **Reopened Vulnerabilities** (build/config regressions: `state==REOPENED` / `resurfaced_date`) with an Owner cut and an analyst drill-down.
+- [x] **RPT-04**: A reader can see **Accepted & Recast** posture (ACCEPTED and RECASTED tracked separately) with current vs previous-month ▲▼% change, cut by Owner; sourced from `severity_modification_type` / `recast_rule_uuid` + `fetch_recast_rules()`.
 - [ ] **RPT-05**: A reader can see a **reworked MTTR** (`mttr_trend`, new MODULE_ID) that discloses its ~30-day measurement window, uses a sample-weighted overall mean, is reopened-aware (no reopen-cycle inflation), and adds month-over-month trend + an Owner cut on the four-channel contract.
-- [ ] **RPT-06**: A reader can see an **External / DMZ exposure cut** of host-vuln findings (scope from SUB-01) plus the analyst mismatch list; current-snapshot only (WAS and MoM trend deferred).
+- [x] **RPT-06**: A reader can see an **External / DMZ exposure cut** of host-vuln findings (scope from SUB-01) plus the analyst mismatch list; current-snapshot only (WAS and MoM trend deferred).
 - [ ] **RPT-07**: A reader can see a **Program Health Overview** one-pager composing New-vs-Remediated velocity, MTTR, and SLA posture into a composite RAG with an Owner velocity table; cold-start-safe.
 
 ### management_summary Migration (GEN)
@@ -29,11 +29,11 @@ The June-2026 management/exec trend-cut report batch built as thin four-channel 
 
 ### Quality & Correctness Bars (QUAL)
 
-- [ ] **QUAL-01**: Every month-over-month module branches on the trend store's `insufficient_data` (cold-start) signal and renders a cold-start message instead of `NaN%` or a crash; every new tag/Owner scope is treated as a valid cold start.
-- [ ] **QUAL-02**: All open-count and MTTR logic uses the reopened-aware two-interval predicate (`open_findings_at`) — no ~19% REOPENED drop, no reopen-cycle MTTR inflation.
-- [ ] **QUAL-03**: Every new module renders safely on a zero-row / filtered-to-zero input across all four channels (`safe_pct`/`safe_int`/`safe_format`, `_empty_result()`).
+- [x] **QUAL-01**: Every month-over-month module branches on the trend store's `insufficient_data` (cold-start) signal and renders a cold-start message instead of `NaN%` or a crash; every new tag/Owner scope is treated as a valid cold start.
+- [x] **QUAL-02**: All open-count and MTTR logic uses the reopened-aware two-interval predicate (`open_findings_at`) — no ~19% REOPENED drop, no reopen-cycle MTTR inflation.
+- [x] **QUAL-03**: Every new module renders safely on a zero-row / filtered-to-zero input across all four channels (`safe_pct`/`safe_int`/`safe_format`, `_empty_result()`).
 - [ ] **QUAL-04**: The GEN-01 cutover is guarded by a structural smoke baseline captured **before** any rewrite and visual operator UAT after; the legacy bespoke trend writer is removed in the same change that routes reads through `read_trend()` (no dual-writer window).
-- [ ] **QUAL-05**: Any new persisted trend snapshot, baseline, or committed artifact contains aggregate counts only — no hostnames, IPs, plugin names, or asset-level fields (D-04-08).
+- [x] **QUAL-05**: Any new persisted trend snapshot, baseline, or committed artifact contains aggregate counts only — no hostnames, IPs, plugin names, or asset-level fields (D-04-08).
 
 ### Documentation (DOC)
 
@@ -93,15 +93,15 @@ Final phase assignments (roadmap created 2026-06-11).
 | SUB-01 | Phase 14 | Complete |
 | SUB-02 | Phase 14 | Complete |
 | SUB-03 | Phase 14 | Complete |
-| RPT-01 | Phase 15 | Pending |
-| RPT-02 | Phase 15 | Pending |
-| RPT-03 | Phase 15 | Pending |
-| RPT-04 | Phase 15 | Pending |
-| RPT-06 | Phase 15 | Pending |
-| QUAL-01 | Phase 15 (first verified; enforced Phases 16–18) | Pending |
-| QUAL-02 | Phase 15 (first verified; enforced Phases 16–18) | Pending |
-| QUAL-03 | Phase 15 (first verified; enforced Phases 16–18) | Pending |
-| QUAL-05 | Phase 15 (first verified; enforced Phases 16–18) | Pending |
+| RPT-01 | Phase 15 | Complete |
+| RPT-02 | Phase 15 | Complete |
+| RPT-03 | Phase 15 | Complete |
+| RPT-04 | Phase 15 | Complete |
+| RPT-06 | Phase 15 | Complete |
+| QUAL-01 | Phase 15 (first verified; enforced Phases 16–18) | Complete |
+| QUAL-02 | Phase 15 (first verified; enforced Phases 16–18) | Complete |
+| QUAL-03 | Phase 15 (first verified; enforced Phases 16–18) | Complete |
+| QUAL-05 | Phase 15 (first verified; enforced Phases 16–18) | Complete |
 | RPT-05 | Phase 16 | Pending |
 | RPT-07 | Phase 17 | Pending |
 | GEN-01 | Phase 18 | Pending |
