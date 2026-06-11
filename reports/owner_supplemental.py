@@ -128,11 +128,15 @@ def _build_owner_app_df(
     # the open-count path uses the same first-row-wins attribution as asset_counts.
     uuid_to_owner = enriched_deduped.set_index("asset_uuid")
 
-    # Open findings count per asset_uuid, then join owner/application via enriched
-    vuln_owner = open_vulns[["asset_uuid"]].copy()
-    vuln_owner = vuln_owner.join(uuid_to_owner, on="asset_uuid", how="left")
-    vuln_owner["owner"]       = vuln_owner["owner"].fillna("Unassigned")
-    vuln_owner["application"] = vuln_owner["application"].fillna("")
+    # Open findings count per asset_uuid, then join owner/application via enriched.
+    # Use .assign() for fillna casts (F-DTYPE convention — avoids CoW chained assignment).
+    # Break the join result into a named frame before .assign() so pandas CoW tracking
+    # does not see chained mutation through an intermediate slice.
+    vuln_owner = open_vulns[["asset_uuid"]].copy().join(uuid_to_owner, on="asset_uuid", how="left")
+    vuln_owner = vuln_owner.assign(
+        owner=vuln_owner["owner"].fillna("Unassigned"),
+        application=vuln_owner["application"].fillna(""),
+    )
 
     open_counts = (
         vuln_owner
@@ -142,7 +146,7 @@ def _build_owner_app_df(
     )
 
     result = asset_counts.merge(open_counts, on=["owner", "application"], how="left")
-    result["open_count"] = result["open_count"].fillna(0).astype(int)
+    result = result.assign(open_count=result["open_count"].fillna(0).astype(int))
     result = result.sort_values(["owner", "application"]).reset_index(drop=True)
     return result[["owner", "application", "open_count", "asset_count"]]
 

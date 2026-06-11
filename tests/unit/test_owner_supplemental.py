@@ -90,8 +90,10 @@ def _vulns_df_simple(asset_uuids: list[str]) -> pd.DataFrame:
             }
         )
     df = pd.DataFrame(rows)
-    for col in ("first_found", "last_fixed", "resurfaced_date"):
-        df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
+    df = df.assign(**{
+        col: pd.to_datetime(df[col], utc=True, errors="coerce")
+        for col in ("first_found", "last_fixed", "resurfaced_date")
+    })
     return df
 
 
@@ -128,8 +130,10 @@ def _vulns_df_with_gap_reopened(owner_asset: str, gap_asset: str) -> pd.DataFram
         },
     ]
     df = pd.DataFrame(rows)
-    for col in ("first_found", "last_fixed", "resurfaced_date"):
-        df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
+    df = df.assign(**{
+        col: pd.to_datetime(df[col], utc=True, errors="coerce")
+        for col in ("first_found", "last_fixed", "resurfaced_date")
+    })
     return df
 
 
@@ -251,6 +255,46 @@ def test_open_findings_uses_open_set(tmp_path: Path) -> None:
         f"Expected Open Findings=1 (gap-REOPENED excluded), got {total_open}. "
         f"CSV rows: {rows}"
     )
+
+
+def test_open_count_no_chained_assignment_warning(tmp_path: Path) -> None:
+    """
+    Phase-13 WR-02/CoW regression: _build_owner_app_df must not emit a
+    ChainedAssignmentError FutureWarning from reports/owner_supplemental.py.
+
+    BEFORE fix: result["open_count"] = result["open_count"].fillna(0).astype(int)
+    at line ~139 chains through the merge's tracked parent frame and emits a
+    FutureWarning; under pandas 3.0 CoW this will silently no-op, leaving
+    open_count as float64-with-NaN.
+
+    AFTER fix: converted to .assign(open_count=...) per CLAUDE.md F-DTYPE
+    convention, which returns a new frame and bypasses CoW tracking.
+
+    The test also asserts open_count is integer dtype (not float64) with no NaN.
+    """
+    import warnings
+
+    assets_df = _assets_df_for_open_set()
+    vulns_df  = _vulns_df_simple(["open-asset", "gap-asset"])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        result = write_owner_supplemental(assets_df, vulns_df, tmp_path)
+
+    csv_path = Path(result["supplemental_csv"])
+    assert csv_path.exists()
+
+    with csv_path.open(newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        rows = list(reader)
+
+    # open_count must be integer-valued (no NaN represented as float)
+    for r in rows:
+        val = r.get("open_count", "")
+        assert val != "", f"open_count must not be empty/NaN; row: {r}"
+        assert val.isdigit() or (val.lstrip("-").isdigit()), (
+            f"open_count must be an integer string, got: {val!r}"
+        )
 
 
 def test_dup_uuid_asset_count_counts_once(tmp_path: Path) -> None:
