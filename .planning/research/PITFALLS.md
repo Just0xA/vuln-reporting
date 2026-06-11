@@ -1,445 +1,403 @@
-# Deployment Infrastructure Pitfalls
+# Pitfalls Research
 
-**Domain:** Adding deployment infrastructure to a Python + systemd reporting suite
-**Milestone:** v1.2 Server Update and Install
-**Researched:** 2026-05-19
-**Confidence:** HIGH — grounded in project files, systemd unit, existing gitignore/gitattributes draft, and validated deployment patterns
+**Domain:** Vulnerability-management reporting — v1.4 Management Summary Reporting Improvement
+**Researched:** 2026-06-11
+**Confidence:** HIGH — all pitfalls grounded in this codebase's shipped code, confirmed spike findings, and prior milestone post-mortems
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that cause security incidents, data loss, silent rollback failures, or midnight report misses.
+### Pitfall 1: Cold-Start Mishandling — Promising MoM Metrics Before Two Snapshots Exist
+
+**What goes wrong:**
+A module reads `read_trend()` and renders a MoM delta (▲▼%) without checking `insufficient_data`. On first deploy or after a new tag scope is added, only one snapshot exists. Division by the prior-month value is division by zero or by `None`. The rendered output shows a nonsense percentage or raises a `TypeError` inside a render method, crashing the module and (without the `_empty_result` guard) crashing the whole batch.
+
+**Why it happens:**
+`read_trend()` already returns `{"snapshots": [...], "insufficient_data": bool}`. Developers focus on the happy-path (N snapshots available) and skip the branch. The issue is invisible in development — it only surfaces when the report runs against a recipient group whose tag scope has fewer than 2 captured months. Every new Owner group added to `delivery_config.yaml` is a cold start.
+
+**How to avoid:**
+Every module that renders a MoM delta MUST branch on `insufficient_data` before computing the delta. Return `_empty_result()` or render a "Insufficient history — first snapshot captured, trend available next month" gray RAG cell. The `read_trend()` contract already provides the flag; using it is mandatory, not optional.
+
+Unit-test pattern: inject a single-snapshot trend fixture and assert the module renders the cold-start message rather than crashing or showing `NaN%`.
+
+**Warning signs:**
+- A new tag scope (Owner=X or Environment=Y) is added to `delivery_config.yaml` mid-program; the first run for that scope will always be cold.
+- A trend JSON file is deleted or renamed during a cache cleanup — next run is cold again for that scope.
+- `read_trend()` returns `insufficient_data: True` in logs but the render path has no branch for it.
+
+**Phase to address:** The phase implementing New vs Remediated, Vulnerability Density, and Program Health Overview — all three are the first direct `read_trend()` consumers in v1.4. The cold-start branch must be in each module's `compute()` before those modules are considered shippable.
 
 ---
 
-### CRITICAL-01: `.env` or `data/trend/` leaks into the release tarball
+### Pitfall 2: Double-Counting Reopened Findings in New vs Remediated
 
-**What goes wrong:** `.gitattributes export-ignore` only suppresses paths that are **tracked by git**. `.env` is already `.gitignore`d and therefore untracked — it will NOT appear in a `git archive` tarball regardless of `.gitattributes`. However, `.env.example` IS tracked and WILL appear in the tarball. If `.env.example` contains filled-in placeholder values (real hostnames, real API key prefixes, real SMTP passwords copied from a prior session), those values are now public in the GitHub Release asset.
+**What goes wrong:**
+New-vs-Remediated counts `first_found` in month as "new" and `last_fixed` in month as "remediated." A REOPENED finding has both a `first_found` (original discovery) and a `last_fixed` (the fix before reopening) and a `resurfaced_date`. If the module naively counts `first_found` without filtering to first-time appearances, a finding that was first found in month M, fixed in M+1, and reopened in M+2 will be counted as "new" in M and "remediated" in M+1 — and then absent from "new" in M+2 even though it reappeared. This silently understates new-finding velocity in months with significant reopened volume.
 
-**Why it happens:** Developer fills in `.env.example` as a "living template" to remember field names, then forgets to scrub before tagging. The `.gitignore` on `.env` provides false confidence that secrets are safe.
+**Why it happens:**
+The `first_found` field is always the original discovery date regardless of reopen cycles. There is no `resurfaced_as_new` flag. Developers write `df[df["first_found"].dt.to_period("M") == period]` and get results that look plausible but miss the reopen dimension.
 
-**Consequences:** Tenable API credentials, SMTP credentials, or internal hostnames published on a public GitHub release page. Permanent — tarball assets on GitHub are crawled.
+**How to avoid:**
+Define the population contract explicitly at the module level before any code is written:
 
-**Prevention:**
-- Audit `.env.example` in the pre-release checklist: every value must be a clearly fake placeholder (e.g., `your_access_key_here`, `smtp.yourcompany.com`).
-- Add a CI check in `release.yml`: `grep -E '^(TVM_ACCESS_KEY|TVM_SECRET_KEY|SMTP_PASSWORD)=.+[^_here]$' .env.example && exit 1` to catch non-placeholder values.
-- The sensitive data discipline from D-04-08 applies to the tarball, not just committed code.
+- "New in month M" = findings where `first_found` falls in month M. Accept that a REOPENED finding's re-appearance is tracked by the Reopened Vulnerabilities module, not here. Document this boundary explicitly in the module docstring.
+- "Remediated in month M" = findings where `last_fixed` falls in month M AND `state == 'fixed'`. Exclude REOPENED rows from the remediated count — a fixed-then-reopened finding's `last_fixed` is the fix before resurface, which is ambiguous as a "remediated" signal.
 
-**Detection:** Download the release tarball from GitHub after tagging; extract and inspect `.env.example` before announcing the release.
+Unit-test on a fixture containing: one plain OPEN finding (first_found in month), one FIXED finding (last_fixed in month), one REOPENED finding with both `first_found` and `resurfaced_date` in different months. Assert the counts match the documented population contract.
 
-**Phase:** Addresses in the phase that builds `.github/workflows/release.yml` and writes `DEPLOYMENT.md`. The `.env.example` audit step belongs in the release checklist section of `DEPLOYMENT.md`.
+**Warning signs:**
+- New + Remediated counts drift significantly from the trend-store's open-count deltas — the delta between consecutive open-count snapshots should roughly equal New minus Remediated.
+- The Reopened Vulnerabilities module and New vs Remediated show the same findings counted in two places.
+- Remediated count in a month matches what was in the REOPENED population for that month.
 
----
-
-### CRITICAL-02: `data/trend/` sneaks into the tarball because it is selectively gitignored
-
-**What goes wrong:** `.gitignore` excludes `data/trend/` globally. But if any snapshot file was ever committed before the gitignore rule was added (see git history: `5bdb866 chore(security): untrack data/trend snapshots; add to .gitignore` and `1315c64 docs(quick-260514-mlk): scrub data/trend from history`), the path may still exist in the git object store as a tracked file. `git archive HEAD` includes tracked files regardless of `.gitignore`. If a future developer accidentally `git add data/trend/` before `.gitignore` catches it, the snapshot lands in the next release tarball.
-
-**Why it happens:** `.gitattributes export-ignore` was not added for `data/trend/` because it is already gitignored. The assumption "gitignored = safe" breaks when the file is accidentally staged.
-
-**Consequences:** Real Tenable vulnerability data (asset counts, plugin IDs, trend metrics) published in a release asset. Violates D-04-08 sensitive data discipline.
-
-**Prevention:**
-- Add `data/trend/    export-ignore` to `.gitattributes` as a belt-and-suspenders rule — it costs nothing and guards against accidental staging.
-- Also add `output/    export-ignore`, `logs/    export-ignore`, `data/cache/    export-ignore` for the same reason.
-- In `release.yml`, add a step that runs `git archive` locally and uses `tar -tzf` to assert these paths are absent before uploading the artifact.
-
-**Detection:** `git archive --format=tar.gz HEAD -o /tmp/preview.tar.gz && tar -tzf /tmp/preview.tar.gz | grep -E '^(data/trend|output|logs)'` must return nothing.
-
-**Phase:** Phase that creates `.gitattributes`. Add the tarball content assertion to the release workflow phase.
+**Phase to address:** New vs Remediated module implementation phase. The population contract must be in the module docstring and tested before the module is considered shippable.
 
 ---
 
-### CRITICAL-03: Non-atomic symlink swap leaves the scheduler pointing at a partial extraction
+### Pitfall 3: MTTR Reopened-Aware Gap — days_to_fix Overstates Duration for Reopened Findings
 
-**What goes wrong:** The naive update sequence is:
+**What goes wrong:**
+The existing `mttr_by_severity_module.py` falls back to `(last_fixed - first_found).days` when `time_taken_to_fix` is absent. For a REOPENED finding, `first_found` is the original discovery date and `last_fixed` is the most recent fix date. That span includes the dormant period between the first fix and the resurface — potentially months — inflating MTTR. A finding first found 200 days ago, fixed after 10 days, reopened 180 days later, and fixed again after 10 days shows `(last_fixed - first_found).days = 200` instead of the true remediation effort of ~10 days.
+
+The reworked MTTR module must address this. The `time_taken_to_fix` primary path avoids the issue only if Tenable populates it per-fix-event rather than per-original-discovery — this has not been verified on live data for the REOPENED case.
+
+**Why it happens:**
+The date-span fallback is a natural approximation that is correct for simple OPEN→FIXED cases and silently wrong for REOPENED cases. The existing module's `get_audit_info()` notes the approximation but does not flag the reopened inflation.
+
+**How to avoid:**
+In the MTTR rework:
+1. Exclude REOPENED findings from the `(last_fixed - first_found).days` fallback path. For those rows, use `time_taken_to_fix` only; if absent, flag them as `min_sample` deficient rather than computing a misleading duration.
+2. Alternatively, compute `(last_fixed - resurfaced_date).days` for REOPENED rows where `resurfaced_date` is not NaT — this gives time-from-resurface-to-fix, the operationally meaningful remediation effort.
+3. Lock the resolved-population decision (exclude reopened entirely vs. measure from resurface) in a plan-level context document before implementation begins. This is one of the open decisions flagged in `notes/report-requests-batch-2026-06.md`.
+
+Unit-test: fixture with one REOPENED finding where `first_found` is 200 days ago, `resurfaced_date` is 10 days ago, `last_fixed` is 2 days ago. Assert MTTR is ~8 days, not 198.
+
+**Warning signs:**
+- MTTR for any severity tier is substantially higher than intuition suggests for a well-performing program.
+- The sample-size footnote shows a mix of OPEN, REOPENED, and FIXED states in the denominator.
+- `(last_fixed - first_found).days` produces a value larger than the longest SLA tier by a factor of 2+.
+
+**Phase to address:** MTTR rework phase. The reopened population decision must be locked before any code is written.
+
+---
+
+### Pitfall 4: Vulnerability Density Denominator Drift — Asset Count Changes Month to Month
+
+**What goes wrong:**
+Vulnerability Density = open vulns / asset count. The trend-store snapshot already captures `asset_count` at capture time (D-04 in `trend_store.py`). But if a module reads `assets_df` at render time and divides historical open-count snapshots by the current asset count, every historical density point is recalculated against today's denominator. A scope that added 50 assets last month will show a retroactive density drop across all prior months — an artifact, not a real improvement.
+
+**Why it happens:**
+It is tempting to compute density as `snapshot["critical"] / len(assets_df)` in a loop over snapshots. The current asset count is readily available; the snapshot's `asset_count` field requires reading from the JSON structure, and developers may miss it.
+
+**How to avoid:**
+Always use `snapshot["asset_count"]` from each snapshot entry for that snapshot's density calculation, not the current `assets_df` length. The field is already captured per snapshot by `capture_snapshot()`. Guard against `asset_count == 0` with `safe_int` / a zero-division guard before dividing.
+
+Unit-test: two-snapshot fixture where `asset_count` differs between months. Assert each month's density uses its own snapshot's `asset_count`, not a shared value.
+
+**Warning signs:**
+- All historical density points move uniformly when a large number of assets are onboarded — historical points are immutable; uniform movement means the denominator is live.
+- The density chart shows a sharp retroactive drop at the current month that was not present in last month's render.
+
+**Phase to address:** Vulnerability Density module implementation phase. The denominator source (snapshot-captured `asset_count`, not live `assets_df`) must be explicit in the module's `compute()` docstring.
+
+---
+
+### Pitfall 5: MoM Delta When Prior Snapshot Is Missing — Division by Zero and None Propagation
+
+**What goes wrong:**
+A `▲▼%` calculation of `(current - prior) / prior * 100` fails silently or raises when `prior` is `0` or `None`. This is distinct from the cold-start case: even with 6 months of snapshots, a specific Owner may have had zero findings in one month (new team, new tag scope, genuine zero). Division by zero produces `inf` or raises `ZeroDivisionError`; an f-string format spec applied to `None` raises `TypeError`.
+
+**Why it happens:**
+Developers write `pct_change = (curr - prev) / prev * 100` inline without considering the zero-denominator case. The `safe_pct` utility exists for exactly this but is enforced only by convention.
+
+**How to avoid:**
+Use `safe_pct`, `safe_int`, and `safe_format` from `reports.modules.format_utils` for every computed percentage entering a render method. The CLAUDE.md prohibition is explicit: inline f-string format specs on possibly-`None` values are forbidden. Additionally, define a standard "prior was zero, now N" label (e.g. `"New"` or `"N/A — prior zero"`) rather than showing `inf%`.
+
+Add a `_safe_mom_delta(curr, prev)` module-level helper that returns `(delta, pct_str)` where `pct_str` is `"N/A"` when `prev` is `None` or `0`. Never compute the percentage inline in a render method.
+
+**Warning signs:**
+- Any `ZeroDivisionError` or `TypeError: unsupported format character` in module render logs.
+- An Owner bucket that was absent last month appears in the render with an `inf%` delta.
+- A recipient group filtered to a new tag scope has zero prior-month findings in its snapshot.
+
+**Phase to address:** All MoM delta modules (New vs Remediated, Vulnerability Density, Accepted & Recast, Program Health Overview). The zero-denominator guard must be present before any percentage is rendered.
+
+---
+
+### Pitfall 6: Recast / Accepted Classification Edge Cases
+
+**What goes wrong:**
+Three sub-traps exist:
+
+**a) Expired rules still appear in the findings export.**
+A recast rule with an expiration date continues to show `severity_modification_type != "none"` on findings until the next scan re-evaluates them. The Accepted & Recast module must cross-check expiration against `fetch_recast_rules()` data, not rely solely on `severity_modification_type` on the finding row. Counting an expired accepted risk as "currently accepted" overstates the accepted posture.
+
+**b) `severity_modification_type` values beyond "accepted".**
+The field can be `"accepted"`, `"recasted"`, `"none"`, or empty string. An empty string is not `"none"`. A module filtering `severity_modification_type == "accepted"` misses the empty-string case (which should map to "not modified"). Additionally, recasted findings are not risk-accepted — they have a distinct operational meaning (severity reclassified vs. risk formally accepted). The module must track accepted and recasted as separate counts.
+
+**c) Rule-count vs. finding-count confusion.**
+`fetch_recast_rules()` returns one row per rule; `fetch_all_vulnerabilities()` returns one row per finding. A single recast rule can cover thousands of findings. The Accepted & Recast module's headline metric must be finding count (from `vulns_df`), not rule count. Rule list belongs in the analyst drill-down tab.
+
+**How to avoid:**
+- Filter `severity_modification_type` using `.isin({"accepted", "recasted"})` explicitly; treat empty string and `"none"` as unmodified.
+- Join `vulns_df` against `fetch_recast_rules()` on `recast_rule_uuid` to cross-check expiration. Flag findings whose rule is expired as "pending re-evaluation" rather than "accepted."
+- Keep finding counts in `metrics`, rule counts in `analyst_rows` / `table_data`.
+
+Unit-test: fixture with one accepted finding whose rule is expired; assert it does NOT appear in the current-accepted count.
+
+**Warning signs:**
+- Accepted finding count differs significantly from what the operations team expects — check for expired-rule contamination.
+- `severity_modification_type` shows unexpected values (empty string, `null`) in a live sample; enumerate them before coding the filter.
+
+**Phase to address:** Accepted & Recast module implementation phase. The classification logic (including all three sub-traps) must be locked in the plan context document before implementation begins.
+
+---
+
+### Pitfall 7: External Scope False Positives — CGNAT, Loopback, Link-Local, and Multi-Homed Assets
+
+**What goes wrong:**
+The External / DMZ exposure cut scopes by `Location=External/DMZ` tag OR computed public IPv4 (non-RFC1918). Naively checking "not RFC1918" admits:
+- **CGNAT range**: `100.64.0.0/10` — publicly routable but carrier-grade NAT; not internet-facing.
+- **Loopback**: `127.0.0.0/8` — never external.
+- **Link-local**: `169.254.0.0/16` — APIPA, never external.
+- **Documentation/test ranges**: `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`.
+- **Multi-homed assets**: an asset with one private IP and one public IP is genuinely external-facing; but an asset with a public IP that is actually behind a NAT boundary is not. Tenable reports the scanned IP, which may be the private side of a NAT pair.
+
+For IPv6, link-local (`fe80::/10`) and unique-local (`fc00::/7`) are not internet-facing and must be excluded.
+
+**How to avoid:**
+Use `ipaddress.ip_address(ip).is_global` from the Python standard library rather than a hand-rolled RFC1918 check. `is_global` returns `False` for loopback, link-local, private, CGNAT, and documentation ranges. For IPv6, the same `is_global` check handles `fe80::` and `fc00::` correctly.
+
+The analyst mismatch list (public-IP-but-untagged assets) must include the asset's IP, hostname, and Owner tag so the operations team can validate whether the IP is truly internet-facing or a NAT artifact. Do not auto-classify; surface for human review.
+
+**Warning signs:**
+- The external scope includes assets in `10.x.x.x`, `172.16–31.x.x`, or `192.168.x.x` — the RFC1918 check missed a range.
+- CGNAT addresses (`100.64.x.x`) appear in the external list.
+- A known-internal server appears because it has a link-local IPv6 address that a hand-rolled "not private" check evaluates incorrectly.
+
+**Phase to address:** External / DMZ module implementation phase. The IP classification helper must be unit-tested against CGNAT, loopback, link-local, IPv6 link-local, and documentation ranges before the scope predicate is used in any render.
+
+---
+
+### Pitfall 8: GEN-01 Backward-Compat Regression — management_summary Delivery Breaks During Migration
+
+**What goes wrong:**
+`management_summary` currently delivers to real recipient groups on a bespoke render path. During GEN-01 migration to the module render contract, a partial migration state — where the new module path is wired but the new modules are not fully implemented — causes the report to produce an empty PDF, crash in `ReportComposer.assemble_pdf()`, or emit a structurally different email body that breaks Outlook rendering. The v1.4 milestone constraint requires existing delivery to continue throughout migration.
+
+Additionally, `management_summary.py` has a private `_sanitise_tag_for_filename` and `_load_trend_history` / `_save_trend_snapshot` that duplicate `data/trend_store.py`. If GEN-01 migration adds new modules that read from `read_trend()` while the bespoke path continues writing to `management_summary_*.json`, two parallel trend histories accumulate silently.
+
+**Why it happens:**
+The migration involves two simultaneous changes: adding the module infrastructure AND removing the bespoke render path. If both happen in the same plan without a smoke baseline, a mid-plan failure leaves the report in a broken in-between state with no regression bar.
+
+**How to avoid:**
+Follow the v1.0 board_summary cutover pattern exactly (D-04-05 REVISED):
+1. Capture structural baselines from the current bespoke path before any migration code is written — same pattern as `scripts/smoke_board_summary_cutover.py`.
+2. Build new modules in parallel with the bespoke path; do not remove the bespoke path until modules are proven.
+3. Add a cutover toggle or script that switches the render path atomically.
+4. Run the smoke baseline against the new path; fix structural regressions before any delivery.
+5. In the same plan that routes reads through `read_trend()`, remove `_save_trend_snapshot()` calls from the bespoke path — never run both writers simultaneously.
+6. Operator visual UAT confirms metric values (baselines are structural-only — metric values drift daily and locking them produces false-positive alerts per D-04-05).
+
+**Warning signs:**
+- PDF page count changes between bespoke and migrated paths — a missing page indicates a module returned `""` where content was expected.
+- Email body switches from the modular `email_body_html` path to the legacy KPI-tile shell because `email_body_html` is empty string — check that all migrated modules implement `render_email_panel`.
+- Both `management_summary_*.json` and `trend_*.json` files grow simultaneously — two trend histories are diverging.
+
+**Phase to address:** GEN-01 migration phase. Structural baselines must be captured in the first plan of that phase, before any module code is written.
+
+---
+
+### Pitfall 9: pandas 3.0 Copy-on-Write — In-Place Assignment Silently Changes Dtype or Raises
+
+**What goes wrong:**
+pandas 3.0 Copy-on-Write (CoW) means that chained assignment (`df["col"] = value` after a filter or slice) either raises `ChainedAssignmentError` or silently mutates a copy rather than the original. A post-v1.3 bug (quick task `260611-b1x`) was exactly this: `df.loc[:, col] = value` after a boolean mask produced an `object` dtype column that caused a subsequent `.parquet` write to fail. v1.4 modules are entirely new code; the risk is writing any in-place column addition on a filtered DataFrame.
+
+**Why it happens:**
+The natural pattern for adding a computed column is `df["new_col"] = computed_series`. Under CoW this is fine on the original DataFrame but wrong after `df = df[mask]` or when the DataFrame was produced by a filter call upstream. New module code defaults to the in-place pattern without realizing the input arrived as a filtered view.
+
+**How to avoid:**
+Use `.assign()` for all column additions — the project-blessed pattern (CONVENTIONS.md F-DTYPE):
+
+```python
+df = df.assign(days_open=computed_series)
 ```
-rm /opt/vuln-reporting/current
-ln -s releases/v1.2.0 /opt/vuln-reporting/current
-```
-Between the `rm` and the `ln`, any `scheduler.py --mode run-due` invocation (fired by cron every 5 minutes) resolves `WorkingDirectory=/opt/vuln-reporting` from the systemd unit — but `current` does not exist. The process either fails to start or starts with no working directory. Even if the window is small, this is a real risk at 07:00 when `run-due` fires for the morning delivery groups.
 
-The atomic form is `ln -sfn releases/v1.2.0 /opt/vuln-reporting/current` — `ln -sfn` on Linux is atomic at the filesystem level because it calls `rename(2)` on a temporary symlink. The non-atomic form using `rm` + `ln` must not appear in `update_from_github.sh`.
+Never `df["days_open"] = computed_series` after a filter. Any in-place date normalization must be rewritten as `.assign()`. For module `compute()` methods that receive a tag-filtered `vulns_df`, always treat the input as potentially a view and use `.assign()` exclusively.
 
-**Why it happens:** `rm` + `ln` is the intuitive sequence. `ln -sfn` behavior (atomic replace) is non-obvious.
+Run the full test suite with `pd.options.mode.copy_on_write = True` — in pandas 3.0 strict mode, `ChainedAssignmentError` warnings become errors and are easy to catch before they corrupt data silently.
 
-**Consequences:** Cron-fired scheduler invocation during the swap window hits a missing working directory; the systemd unit may enter a failed state requiring manual restart. The swap appears to have succeeded but the service is down.
+**Warning signs:**
+- `FutureWarning: ChainedAssignmentError` in pytest output — not cosmetic; becomes a hard error in a future patch.
+- A parquet write fails with an unexpected dtype (`object` instead of `datetime64[ns, UTC]`) immediately after a column was set via `.loc`.
+- A computed column added in `compute()` has `None` values where numeric values were expected — the assignment hit a copy, not the original.
 
-**Prevention:** Use only `ln -sfn TARGET LINK` in `update_from_github.sh`. Add a comment explaining why `rm` + `ln` is forbidden. Verify atomicity in the apply checklist by running the swap twice in rapid succession from two terminals.
-
-**Detection:** `systemctl status vuln-reports` immediately after swap; any state other than `active (running)` is a failure.
-
-**Phase:** Phase that builds `update_from_github.sh`. The `ln -sfn` form must be in the code; the `rm` form must not appear.
+**Phase to address:** Every module implementation phase. CoW compliance must be in the acceptance criteria for each plan; the issue bit v1.3 and must not repeat in v1.4.
 
 ---
 
-### CRITICAL-04: `Restart=on-failure` masks a failed symlink swap
+### Pitfall 10: PII Leakage in New Snapshots and Committed Fixtures
 
-**What goes wrong:** `deploy/vuln-reports.service` sets `Restart=on-failure`. If `update_from_github.sh` swaps the symlink to a broken release (missing `scheduler.py`, bad `requirements.txt`, Python syntax error in new code), systemd will:
-1. Detect the process exit with non-zero code.
-2. Wait `RestartSec=30`.
-3. Restart the process — but now pointing at the broken release.
-4. Repeat up to `StartLimitBurst=5` within `StartLimitIntervalSec=300`.
+**What goes wrong:**
+A new module adds a trend snapshot or analyst drill-down that captures per-asset or per-finding detail (hostnames, IPs, plugin names, CVE IDs with associated asset data) rather than aggregate counts. That data enters a committed test fixture, a baseline file, or a log entry that reaches an AI assistant — violating D-04-08.
 
-The operator sees "service restarted" in the restart log and may not notice the release is broken. The service enters `failed` state only after 5 attempts. Morning report deliveries miss.
+Three specific v1.4 risk surfaces:
+- **Accepted & Recast analyst tab** — may include plugin names and asset identifiers. These must NOT appear in smoke baselines or committed fixtures.
+- **External / DMZ mismatch list** — includes IPs and hostnames of untagged external assets. Output-only artifact; never committed anywhere.
+- **Owner-dimension snapshots** — if a new snapshot accidentally captures per-asset breakdowns alongside owner counts, the JSON file becomes PII-bearing.
 
-**Why it happens:** `Restart=on-failure` is correct for normal crash recovery. The failure mode here is not a crash — it is a bad deploy that the restart policy cannot distinguish from a transient crash.
+**Why it happens:**
+`ModuleData.analyst_rows` is designed to hold drill-down DataFrames. Populating them with production-sourced rows to create "realistic" test fixtures is tempting because it catches real edge cases. The fixture is then committed.
 
-**Prevention:**
-- `update_from_github.sh` must run `python run_all.py --dry-run` against the new release dir **before** the symlink swap, not after. If `--dry-run` fails, abort the swap, leave `current` pointing at the prior release, print the rollback hint.
-- After swap, `update_from_github.sh` must restart the service and then run `systemctl is-active vuln-reports` with a 10-second settle wait. If not active, immediately roll back the symlink and restart.
-- Document this sequence explicitly in DEPLOYMENT.md: "the script validates before swapping, not after."
+**How to avoid:**
+All test fixtures and committed baselines must use synthetic data only:
+- Hostnames: `host-001.example.invalid`, `app-server.example.invalid` (RFC 6761)
+- IPs: `203.0.113.x` (TEST-NET-3, RFC 5737 — unambiguously synthetic)
+- Plugin IDs: sequential integers starting at `100001`
+- Asset UUIDs: `00000000-0000-0000-0000-000000000001` pattern
+- Owner names: `"Engineering"`, `"Operations"`, `"Unassigned"` — generic enough to be safe
 
-**Detection:** `journalctl -u vuln-reports -n 50` showing repeated `Started → Exited` cycles is the warning sign.
+The structural-only smoke baseline pattern (no row-level content, aggregate counts only) established in v1.0 must be followed for any new smoke script. Never dump a live parquet cache into a test fixture.
 
-**Phase:** Phase that builds `update_from_github.sh` — the pre-swap `--dry-run` and post-swap active-check are implementation requirements, not nice-to-haves.
+**Warning signs:**
+- A test fixture file contains IP addresses in private ranges (`10.x.x.x`, `192.168.x.x`, `172.16–31.x.x`) — those came from a real network.
+- A baseline file contains plugin names longer than a synthetic stub.
+- A committed YAML or JSON file contains `recast_rule_uuid` values that look like real Tenable UUIDs (32-char hex).
 
----
-
-### CRITICAL-05: `rollback` breadcrumb (`releases/.last`) not updated atomically — silent broken rollback
-
-**What goes wrong:** `update_from_github.sh --rollback` reads `releases/.last` to know which version to roll back to. If the script writes `.last` before the symlink swap completes (or after a partial failure), the breadcrumb points at the wrong version. Worse: if the script crashes between writing `.last` and completing the swap, the next `--rollback` invocation rolls back to a version that was never actually active.
-
-**Why it happens:** The breadcrumb write and the symlink swap are two separate filesystem operations. `set -euo pipefail` stops the script on error but does not make the two-step atomic.
-
-**Consequences:** `--rollback` after a failed upgrade installs the wrong release. The operator believes they rolled back but the service is still running broken code.
-
-**Prevention:**
-- Write `.last` only after `ln -sfn` succeeds (not before). Sequence: (1) validate new release, (2) `ln -sfn` new, (3) write `.last` = old version, (4) restart service. If step 4 fails, the symlink still points at the new release — the operator must re-run `--rollback` manually, which at this point reads the now-correct `.last`.
-- Alternatively, store the previous symlink target by reading it before the swap: `PREV=$(readlink /opt/vuln-reporting/current)`. Then `.last` is written from the in-memory value, not from a prior file state.
-- Print the explicit rollback command (`update_from_github.sh --rollback`) on every successful swap so the operator has it in terminal scrollback.
-
-**Detection:** After any upgrade, run `cat /opt/vuln-reporting/releases/.last` and verify it matches the previously active release.
-
-**Phase:** Phase that builds `update_from_github.sh`. The breadcrumb write order is a correctness requirement.
+**Phase to address:** Every phase that creates modules with analyst drill-down data or new snapshot types. PII discipline must be in the acceptance criteria of each plan, not treated as a post-hoc audit item.
 
 ---
 
-## Moderate Pitfalls
+### Pitfall 11: Analyst Mismatch List Scope Creep — External Exception List Becomes a Second Vulnerability Report
 
-Mistakes that cause report misses, operator confusion, or silent data drift without immediate failures.
+**What goes wrong:**
+The External / DMZ mismatch list (public-IP-but-untagged assets, analogous to the Owner `Unassigned` list from `owner_supplemental.py`) starts as a brief exception list to drive tagging cleanup. Over time it accumulates: vulnerability counts per untagged asset, severity breakdown, CVE identifiers, plugin names. It becomes a full vulnerability report for the external scope, effectively duplicating `sla_remediation` or `vuln_export` for that audience.
 
----
+This is not a correctness bug but a scope-and-PII risk: the mismatch list's purpose is to drive tagging completion, not remediation tracking. Over-populating it conflates two distinct workflows and increases the risk of row-level data entering inappropriate channels.
 
-### MOD-01: Midnight cache crossover — warm at 23:59, batch runs 00:01
+**Why it happens:**
+`analyst_rows` in `BaseModule` makes it easy to add columns incrementally. Each addition seems justified individually. There is no enforced schema on what goes in the analyst workbook.
 
-**What goes wrong:** `scripts/warm_cache.py` uses server-local date for the cache folder name (`data/cache/YYYY-MM-DD/`), matching the behavior of `run_all.py`. If `warm_cache.py` is scheduled at, say, `23:45` and completes at `23:59`, the cache is written to `data/cache/2026-05-19/`. If the first report group fires at `00:01` (e.g., a `weekly` group scheduled for `Monday 00:01`), `run_all.py` computes today's date as `2026-05-20` and finds no cache — falls back to live fetch, paying full API latency, and the cache folder from warm_cache is now stale and will be pruned.
+**How to avoid:**
+Define the mismatch list schema at design time and enforce it in `render_analyst_tabs()`:
+- Columns allowed: `asset_uuid`, `ip_address`, `hostname`, `owner_tag`, `untagged_reason` (e.g. "public IP, no Location tag"), `finding_count` (aggregate total only — no per-finding rows).
+- Explicitly excluded: plugin names, CVE IDs, per-severity breakdowns below the asset aggregate, `recast_rule_uuid`.
 
-**Why it happens:** Cache naming is date-based (by design, from the existing `run_all.py` stale-folder-pruning logic). A warm job that straddles midnight creates a date mismatch.
+Document the exclusions in the module docstring. The audience for this list is the tagging-completion workflow.
 
-**Prevention:**
-- Schedule `warm_cache.py` far enough before the earliest report group that there is no midnight crossover risk. A 06:15 warm job for a 07:00 first delivery group is safe.
-- `DEPLOYMENT.md` cron schedule section must show the warm job running at least 30 minutes before the earliest scheduled delivery group, with an explicit note: "do not schedule the warm job within 30 minutes of midnight if any report group fires shortly after midnight."
-- This is already flagged in `.planning/PROJECT.md` backlog as PERF-02 (per-day cache midnight crossover). The v1.2 cron schedule doc must address it concretely.
+**Warning signs:**
+- The analyst tab for the mismatch list has more columns than the Owner supplemental list.
+- A stakeholder requests "can we add the CVEs for each of these assets?" — that is `sla_remediation`'s job, not this list's.
 
-**Detection:** `logs/warm_cache.log` shows a completion timestamp; `logs/app.log` shows `[CACHE MISS]` on the first batch run of the day despite warm job having run. Compare the dates in the folder names.
-
-**Phase:** Phase that writes `scripts/warm_cache.py` and the RUNBOOK/DEPLOYMENT cron schedule section. The cron schedule example must not accidentally place the warm job near midnight.
-
----
-
-### MOD-02: Double-warming — `scheduler.py` daemon fires during `warm_cache.py` run
-
-**What goes wrong:** If `scheduler.py --mode daemon` is running alongside a cron-fired `warm_cache.py`, both may attempt to write `.parquet` files to the same `data/cache/YYYY-MM-DD/` folder simultaneously. The daemon's in-process warm (triggered by the first group of the day) and the standalone warm script race on file writes. Partial parquet files are silently corrupt. Pandas reads a partial parquet and produces wrong aggregations without raising an exception.
-
-**Why it happens:** The existing `run_all.py` caches per-batch inside the process. `warm_cache.py` writes the same paths. No file locking exists.
-
-**Prevention:**
-- `warm_cache.py` should write to a `.tmp` file and rename atomically (`os.replace`) when complete. The final parquet is either complete or absent — never partial.
-- `DEPLOYMENT.md` cron schedule section should note: if the daemon mode is used (not `run-due`), the daemon's internal warm makes `warm_cache.py` redundant for the first group. `warm_cache.py` is primarily useful in `run-due` / cron mode. Document the two deployment models separately.
-- Alternatively, `warm_cache.py` can check for an existing cache folder and skip re-fetching if `--no-overwrite` is passed — useful for idempotent cron invocations.
-
-**Detection:** `logs/warm_cache.log` and `logs/app.log` both show fetch activity at the same timestamp. Pandas errors reading a parquet file mid-batch.
-
-**Phase:** Phase that builds `scripts/warm_cache.py` — atomic write is an implementation requirement.
+**Phase to address:** External / DMZ module design phase (before implementation). The analyst-tab schema must be locked in the plan context document before any code is written.
 
 ---
 
-### MOD-03: `.gitattributes` itself excluded from the tarball — operator cannot verify export rules
+## Technical Debt Patterns
 
-**What goes wrong:** The `.gitattributes` draft (from the footprint todo) includes `.gitattributes    export-ignore`. This means the file that defines the export rules is not present in the tarball. An operator who downloads the tarball and wants to understand what was excluded cannot inspect the rules. This is technically fine for the server install but creates confusion in audits.
-
-More practically: if `.gitattributes` is excluded, then on a fresh server install the operator has no artifact telling them what was stripped. If they later try to `git clone` (fallback install) and apply tarball-style exclusions manually, they have nothing to reference.
-
-**Why it happens:** Common advice to exclude `.gitattributes` from release tarballs, applied without considering audit use case.
-
-**Prevention:** Do not add `.gitattributes    export-ignore` to `.gitattributes`. The file is small, contains no secrets, and its presence in the tarball is informative. The footprint todo draft includes this line — remove it before applying.
-
-**Detection:** Download a preview tarball: `git archive --format=tar.gz HEAD -o /tmp/preview.tar.gz && tar -tzf /tmp/preview.tar.gz | grep gitattributes`. It should appear.
-
-**Phase:** Phase that creates `.gitattributes`.
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Reuse `management_summary._load_trend_history()` instead of routing through `data.trend_store.read_trend()` during GEN-01 | Avoids touching the bespoke path | Two diverging trend readers; `management_summary_*.json` and `trend_*.json` grow in parallel; double maintenance surface | Never — GEN-01 must consolidate onto `read_trend()` |
+| Compute MTTR from `(last_fixed - first_found).days` without reopened-aware correction | Ships faster; matches existing module behavior | Systematically inflates MTTR for any scope with significant reopened volume; auditors will flag the undisclosed window | Never for the reworked module — the gap is documented and the fix is known |
+| Derive density using current `len(assets_df)` rather than each snapshot's `asset_count` | Avoids reading the per-snapshot field | Historical density points retroactively shift with every asset onboard/offboard; MoM comparisons become meaningless | Never — the snapshot already captures `asset_count` for this exact reason |
+| Skip cold-start branch for "first month only" since there is no prior data | Avoids one code path | Crashes or renders `NaN%` on the first run for any new tag scope; every new Owner group is a cold start | Never — `insufficient_data` is a one-liner check |
+| Use hand-rolled RFC1918 check instead of `ipaddress.ip_address().is_global` | Avoids one import | Misses CGNAT, link-local, IPv6 edge cases — false positives in the external scope | Never for a security-facing scope determination |
+| Implement `render_email_kpis` (legacy channel) instead of `render_email_panel` (CONTRACT-01) for new modules | Matches the existing MTTR module's legacy channel | New modules do not participate in the modular email body routing (`email_body_html` predicate); they fall back to the KPI-tile shell | Never for new v1.4 modules — implement the full four-channel contract |
 
 ---
 
-### MOD-04: GitHub Actions `release.yml` on tag re-push overwrites the existing release asset
+## Integration Gotchas
 
-**What goes wrong:** If `git push --force origin v1.2.0` (or a `git tag -d v1.2.0 && git tag v1.2.0 && git push --force --tags`) is used to correct a tagging mistake, the `release.yml` workflow fires again. The second run attempts to upload a tarball with the same asset name. GitHub's `gh release upload` (or `actions/upload-release-asset`) will fail if the asset already exists unless `--clobber` is used. If `--clobber` IS used, operators who downloaded the original tarball have a different artifact than operators who download after the re-push — silent version skew.
-
-**Why it happens:** Tag re-push is a common developer reflex when a tag points at the wrong commit.
-
-**Prevention:**
-- Treat `v*` tags as immutable. Document in `DEPLOYMENT.md`: "Never force-push a version tag. If a tag points at the wrong commit, create a new patch version."
-- In `release.yml`, do NOT use `--clobber`. Let the upload fail loudly — a failed CI job is visible; a silently replaced asset is not.
-- Add `if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')` guard to the release job to prevent `workflow_dispatch` re-runs from uploading to an existing release.
-
-**Detection:** GitHub Actions run history shows two successful runs for the same tag. Check the release asset's upload timestamp against the tag creation timestamp.
-
-**Phase:** Phase that creates `.github/workflows/release.yml`.
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| `data.trend_store.read_trend()` | Pass raw `tag_category`/`tag_value` as `tag_filter` without sanitising; filename lookup fails silently and returns `insufficient_data=True` on a fully populated file | Call `_sanitise_tag_for_filename(tag_category, tag_value)` before passing to `read_trend()` — the same sanitisation used at capture time |
+| `capture_snapshot()` scope coupling (IN-06) | Filter `vulns_df` to the tag scope but forget to filter `assets_df` to the same scope; `asset_count` records the full inventory, not the scoped count | Both `df` and `assets_df` must be filtered to the same scope by the caller before passing to `capture_snapshot()` — the function performs no scoping of its own |
+| `open_findings_at()` date columns | Pass a `vulns_df` whose date columns have not been normalized by `_normalize_vuln_dates`; comparisons against `datetime64[ns, UTC]` columns fail with `TypeError` | Call `open_findings_at()` only on a DataFrame that has already passed through the fetcher's normalization step |
+| `fetch_recast_rules()` filter field | Read the `filter` field as a flat dict; complex AND-OR trees cause `_extract_plugin_id_from_filter` to return `None` silently | Use `_summarize_filter()` for analyst display and `_extract_plugin_id_from_filter()` for plugin ID extraction; accept `None` as a valid "can't extract" result and surface it in the analyst tab rather than crashing |
+| GEN-01 dual trend writers | Migration adds new module path reading from `read_trend()` while bespoke path continues writing to `management_summary_*.json`; both paths grow separate histories | In the same plan that routes reads through `read_trend()`, remove `_save_trend_snapshot()` calls from the bespoke path — never run both writers simultaneously |
+| `ReportComposer.assemble_pdf()` | A new module's `render_pdf_section()` returns `None` instead of `""` (the no-op default); WeasyPrint fails on `None` concatenation in the page assembler | Every `render_pdf_section()` override must return a `str`; `""` is the correct no-output value; `None` is wrong even if it looks like a no-op |
 
 ---
 
-### MOD-05: `scripts/` directory not fully excluded from the tarball — `setup_github_labels.py` ships to server
+## Performance Traps
 
-**What goes wrong:** The footprint todo notes `scripts/` is "mixed — `setup_github_labels.py` is dev-only; audit before excluding wholesale." The current `scripts/` contains:
-- `warm_cache.py` — runtime (needed on server)
-- `update_from_github.sh` — runtime (needed on server)
-- `smoke_board_summary_cutover.py` — dev-only (test harness, not needed on server)
-- `smoke_email_phase2.py` — dev-only
-- `setup_github_labels.py` — dev-only (GitHub API, no server relevance)
-
-If `scripts/    export-ignore` is applied as a blanket rule, `warm_cache.py` and `update_from_github.sh` are also stripped — the server install is missing its operational tools. If `scripts/` is not excluded, dev-only scripts ship unnecessarily.
-
-**Why it happens:** The scripts directory serves two masters (dev tooling + runtime ops). Blanket exclusion removes everything.
-
-**Prevention:** Use per-file `export-ignore` for the dev-only scripts rather than a directory-level exclusion:
-```
-scripts/setup_github_labels.py          export-ignore
-scripts/smoke_board_summary_cutover.py  export-ignore
-scripts/smoke_email_phase2.py           export-ignore
-```
-This keeps `warm_cache.py` and `update_from_github.sh` in the tarball while stripping dev smoke tests.
-
-**Detection:** `git archive` preview — `tar -tzf /tmp/preview.tar.gz | grep scripts/` should show only `warm_cache.py` and `update_from_github.sh`.
-
-**Phase:** Phase that creates `.gitattributes`. The per-file exclusion strategy must be explicit in the implementation plan.
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Per-asset IP classification in a Python loop | External scope determination calls `ipaddress.ip_address(ip)` row-by-row; 10,000 assets takes several seconds | Vectorize using `df["ip"].apply(...)` or build the public-IP mask with a pre-compiled CIDR check | Noticeable above ~5,000 assets; painful above 20,000 |
+| Reading the trend JSON file inside `render_pdf_section()` | Trend file re-read on every render call; in a multi-recipient group, read once per recipient | Trend data must be loaded in `compute()` and stored in `ModuleData.metadata` or `chart_data`; render methods receive the already-loaded data | Any multi-recipient group |
+| Missing `fixed_vulns_df` in the parquet cache warm step for MTTR | MTTR rework needs the fixed population; if not pre-warmed, the module triggers a fresh Tenable export at render time, blocking the batch | Ensure `fetch_fixed_vulnerabilities()` is in `run_group()`'s pre-fetch warm step for any group whose module list includes the reworked MTTR module | Every MTTR run without pre-warming |
 
 ---
 
-### MOD-06: `WorkingDirectory=/opt/vuln-reporting` in the systemd unit resolves the symlink at start — not per-job
+## Security Mistakes
 
-**What goes wrong:** The current unit file sets `WorkingDirectory=/opt/vuln-reporting`. On Linux, systemd resolves `WorkingDirectory` at process start time. If `WorkingDirectory` points at a symlink, systemd follows the symlink once and sets the working directory to the resolved path. After a symlink swap, the already-running daemon still has its working directory set to the OLD release path (`/opt/vuln-reporting/releases/v1.1.0/`). It will not pick up new code until the service is restarted.
-
-This is expected and correct — the symlink swap + service restart sequence is the intended deploy mechanism. The pitfall is if `update_from_github.sh` swaps the symlink but does NOT restart the service (e.g., the restart step is skipped due to `--no-restart` flag or a bug in the script).
-
-**Why it happens:** Operators may skip the restart to avoid interrupting an in-progress report. The daemon continues running old code silently.
-
-**Prevention:**
-- `update_from_github.sh` must always restart the service after swap unless explicitly passed `--skip-restart` (document that `--skip-restart` means "new code is NOT active until the next restart").
-- The default behavior with no flags must include the restart.
-- Print a prominent warning if `--skip-restart` is used: "WARNING: symlink swapped but service still running v1.1.0. Run 'systemctl restart vuln-reports' when ready."
-
-**Detection:** After upgrade, `systemctl status vuln-reports` shows the process PID and start time. The start time should be after the upgrade timestamp. If it predates the upgrade, the service was not restarted.
-
-**Phase:** Phase that builds `update_from_github.sh`.
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| Logging `recast_reason` field verbatim at INFO level | `recast_reason` is free-text and may contain hostnames, IP ranges, or asset names — these appear in `logs/app.log` which may be shared or committed | Log `recast_reason` at DEBUG only; truncate at INFO: `reason[:40] + "..."` |
+| Committing a trend snapshot JSON captured from a live tenant as a test fixture | Aggregate counts may be sensitive (e.g. "critical: 47 in Production") alongside the tenant's tag structure | Test fixtures must use synthetic counts (round numbers, no tag values matching real environments) |
+| Passing `tag_value` directly into an HTML template without escaping | A tag value containing `<script>` or `&` renders broken HTML or executes in the email body | All dynamic values in `render_email_panel()` and `render_pdf_section()` must pass through `html.escape()` before interpolation |
 
 ---
 
-### MOD-07: Stale `.pyc` files from prior release survive in `shared/` or `__pycache__/` after symlink swap
+## "Looks Done But Isn't" Checklist
 
-**What goes wrong:** Python's bytecode cache (`__pycache__/*.pyc`) is written alongside source files. In the symlink layout, each release directory has its own `__pycache__` trees — these are not in `shared/`. After a symlink swap, the new release has no pre-compiled `.pyc` files and Python compiles them on first import (harmless). The risk is if `shared/` accidentally contains `.pyc` files (e.g., if a previous deploy wrote cache alongside `shared/.env`) or if a symlink inside the release directory points into `shared/` for a directory that then accumulates `.pyc` files.
-
-More concretely: if `data/fetchers.py` lives in the release dir but `data/cache/` is symlinked from `shared/`, Python will not write `.pyc` into `shared/data/cache/` — `.pyc` files go next to the `.py` source. This is safe. The risk is theoretical but real if the `shared/` layout is not clean.
-
-**Prevention:**
-- `shared/` should contain only non-code artifacts: `.env`, `delivery_config.yaml`, `logs/`, `output/`, `data/cache/`. Never symlink a directory that contains `.py` files into `shared/`.
-- `update_from_github.sh` should not symlink `scripts/` or `reports/` into `shared/`.
-- Document the `shared/` content contract in `DEPLOYMENT.md`: "shared contains only config and runtime-generated data, never Python source."
-
-**Phase:** Phase that writes `DEPLOYMENT.md` and `update_from_github.sh`. Document the `shared/` contract explicitly.
-
----
-
-### MOD-08: `set -euo pipefail` missing from `update_from_github.sh` — partial extraction left on disk
-
-**What goes wrong:** Without `set -euo pipefail`, a failed `tar` extraction (e.g., disk full mid-extract, network interruption during download) leaves a partially-extracted release directory at `releases/v1.2.0/`. The script continues, runs `--dry-run` against the partial directory (which may pass if the missing files are not in the validation path), swaps the symlink, and the service starts against incomplete code.
-
-**Why it happens:** Shell scripts default to continuing on error. `set -e` is frequently omitted.
-
-**Prevention:**
-- First line of `update_from_github.sh` (after shebang): `set -euo pipefail`.
-- Extract to a temp directory first (`releases/v1.2.0.tmp/`), then `mv` to final name only after successful extraction. On any failure, `trap` removes the `.tmp` directory.
-- Pattern:
-  ```sh
-  set -euo pipefail
-  TMPDIR="releases/${VERSION}.tmp"
-  trap 'rm -rf "$TMPDIR"' EXIT
-  mkdir -p "$TMPDIR"
-  tar -xzf "$TARBALL" -C "$TMPDIR" --strip-components=1
-  mv "$TMPDIR" "releases/${VERSION}"
-  trap - EXIT
-  ```
-
-**Detection:** Check for `releases/*.tmp` directories after any interrupted update — their presence indicates a failed extraction.
-
-**Phase:** Phase that builds `update_from_github.sh`. `set -euo pipefail` and the trap-on-extract pattern are implementation requirements.
+- [ ] **New vs Remediated cold-start:** Module renders a cold-start message (not `NaN%`) when `insufficient_data=True` — verify by running against a fresh trend dir with one snapshot.
+- [ ] **Vulnerability Density denominator:** Each historical point uses its own snapshot's `asset_count`, not `len(assets_df)` — verify by asserting density is stable when assets are added between runs.
+- [ ] **MTTR reopened-aware:** REOPENED findings do not use `(last_fixed - first_found).days` as `days_to_fix` — verify with the reopened fixture described in Pitfall 3.
+- [ ] **Recast expiry check:** An expired accepted-risk rule's findings do NOT appear in the current accepted count — verify with the fixture described in Pitfall 6.
+- [ ] **External scope IP classification:** `100.64.1.1` (CGNAT) and `fe80::1` (IPv6 link-local) are NOT in the external scope — verify with unit tests on the IP classifier helper.
+- [ ] **GEN-01 smoke baseline captured before migration begins:** Structural smoke passes against the migrated path before `_load_trend_history` / `_save_trend_snapshot` are removed — verify by running the management_summary smoke equivalent.
+- [ ] **Four-channel contract completeness:** Every new module implements `render_email_panel` (CONTRACT-01), not only `render_email_kpis` — verify that `email_body_html` in the bundle is non-empty.
+- [ ] **Empty-data hardening:** Each module's render methods survive a zero-row `vulns_df` without raising — verify by calling `compute()` on an empty DataFrame and asserting the RAG strip returns a gray "No Data" cell.
+- [ ] **PII-clean fixtures:** No committed test fixture or baseline contains real hostnames, IPs, or plugin names — verify with the D-04-08 redaction test suite.
+- [ ] **pandas CoW compliance:** No `df["col"] = val` after a filter or slice in any module — verify by running pytest with `pd.options.mode.copy_on_write = True`.
 
 ---
 
-### MOD-09: GitHub Actions `contents: write` permission missing — release upload silently skipped or fails
+## Recovery Strategies
 
-**What goes wrong:** `release.yml` requires `permissions: contents: write` to create a GitHub Release and upload assets. The default `GITHUB_TOKEN` in a repository does NOT have `contents: write` unless explicitly declared in the workflow or granted in repository settings. Without it, `gh release create` or `actions/create-release` returns a 403. If the error is not surfaced clearly (e.g., swallowed by `|| true`), the workflow appears to succeed but no release asset is uploaded.
-
-**Why it happens:** GitHub's default token permissions changed (restricted defaults are now common). Permission declarations are easy to forget.
-
-**Prevention:**
-- Declare explicitly in `release.yml`:
-  ```yaml
-  permissions:
-    contents: write
-  ```
-- Do not use `|| true` on the release upload step — let it fail loudly.
-- In the release workflow, add a step that verifies the asset was uploaded by checking the release page before the job completes.
-
-**Detection:** GitHub Actions run shows green but the Release page has no `.tar.gz` asset attached. Check the upload step's output for HTTP 403.
-
-**Phase:** Phase that creates `.github/workflows/release.yml`.
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Cold-start mishandling ships to production | LOW | Deploy a one-line hotfix adding the `insufficient_data` branch; no data loss; next scheduled run renders correctly |
+| Double-counted reopened findings in New vs Remediated | MEDIUM | Correct the population filter; re-run the module; issue a corrected report with a note that prior-month counts were adjusted; no snapshot data loss |
+| MTTR inflated by reopened findings | MEDIUM | Correct `days_to_fix` logic; re-run; MTTR values will drop; communicate the methodology change as an improvement in `docs/trend_and_segmentation_calculations.md` |
+| Density denominator uses current asset count | LOW-MEDIUM | Fix to use snapshot's `asset_count`; historical density points change on next render; document the correction in the calculations runbook |
+| GEN-01 regresses management_summary delivery | HIGH | Revert to the bespoke render path immediately (bespoke code must NOT be deleted until smoke baseline passes); diagnose module-by-module; re-run visual UAT before re-attempting cutover |
+| PII committed in a test fixture or baseline | HIGH | Immediately: `git rm` the file, scrub from history via interactive rebase, force-push (requires reviewer approval); rotate any API keys if also present; audit all downstream clones |
 
 ---
 
-## Minor Pitfalls
+## Pitfall-to-Phase Mapping
 
-Small friction points that cause operator confusion or documentation drift without breaking functionality.
-
----
-
-### MINOR-01: `export-ignore` only applies to `git archive` — `git clone` on the server bypasses all rules
-
-**What goes wrong:** `.gitattributes export-ignore` is not a security control. It only affects `git archive` (and GitHub's release source tarball generation, which uses `git archive` internally). A `git clone` of the repository pulls everything. If `DEPLOYMENT.md` mentions both "install from tarball" and "clone the repo" as valid options, operators who clone get `.planning/`, `docs/`, `tests/`, and all dev artifacts on the server.
-
-**Why it happens:** The footprint todo already identifies this limitation but it is easy to forget when writing documentation.
-
-**Prevention:**
-- `DEPLOYMENT.md` must present only the tarball install as the supported server path. Remove any mention of `git clone` for server deployment.
-- If a fallback clone method is documented (e.g., for development installs), label it explicitly: "Development only — not for production server deployment."
-- The `.gitattributes` limitation note from the footprint todo ("only applies to git archive/release tarballs, not to git clone") should appear as a callout in `DEPLOYMENT.md`.
-
-**Phase:** Phase that writes `DEPLOYMENT.md`.
-
----
-
-### MINOR-02: GitHub auto-generated source tarball name collides with CI-built artifact name
-
-**What goes wrong:** When a GitHub Release is published, GitHub auto-generates two source archives: `Source code (zip)` and `Source code (tar.gz)`, named `{repo}-{tag}.tar.gz` (e.g., `vuln-reporting-v1.2.0.tar.gz`). If `release.yml` uploads a CI-built artifact with the same name, the upload fails or the page shows duplicate assets with confusing identical names.
-
-**Why it happens:** GitHub does not prevent asset name collisions between auto-generated and manually uploaded assets in all cases, but the upload step may error.
-
-**Prevention:**
-- Name the CI-built artifact distinctly: `vuln-reporting-v1.2.0-slim.tar.gz` or `vuln-reporting-v1.2.0-server.tar.gz`. This also communicates to operators which asset to download ("slim" = dev paths excluded).
-- Document in `DEPLOYMENT.md` and `README.md`: "Download the `-slim.tar.gz` asset, not the auto-generated Source code archive."
-
-**Detection:** GitHub Release page shows two assets with the same name. The CI-built upload step exits with an error about duplicate asset names.
-
-**Phase:** Phase that creates `.github/workflows/release.yml` — the asset name in the upload step must use the `-slim` suffix.
-
----
-
-### MINOR-03: `RUNBOOK.MD` and `DEPLOYMENT.md` drift — rollback one-liner absent from most visible place
-
-**What goes wrong:** The update script prints the rollback command in terminal scrollback. But if an operator is following `DEPLOYMENT.md` for a routine upgrade, they may not read `RUNBOOK.MD` (which has the detailed troubleshooting section). If `DEPLOYMENT.md` does not include the rollback one-liner prominently, the operator who needs it quickly during an incident cannot find it.
-
-**Prevention:**
-- `DEPLOYMENT.md` "Updating from GitHub" section must include the rollback one-liner as a prominent block (not buried in a sub-sub-section):
-  ```bash
-  # Roll back to the previous release immediately:
-  sudo /opt/vuln-reporting/current/scripts/update_from_github.sh --rollback
-  ```
-- `RUNBOOK.MD` "Updating from GitHub" section is the detailed version; `DEPLOYMENT.md` is the quick-reference version. They should cross-reference each other, not duplicate.
-- At milestone close, do a one-pass review: open both files side by side and verify the rollback one-liner appears in `DEPLOYMENT.md` within the first 30 lines of the update section.
-
-**Phase:** Phase that writes `DEPLOYMENT.md` and `RUNBOOK.MD`. The rollback one-liner placement is a content requirement for `DEPLOYMENT.md`.
-
----
-
-### MINOR-04: `warm_cache.py` log rotation not configured — `logs/warm_cache.log` grows unbounded
-
-**What goes wrong:** The existing `run_all.py` uses rotating file handlers (`logs/app.log`). If `warm_cache.py` opens a plain `FileHandler` (the simplest path) instead of a `RotatingFileHandler`, the log file grows without bound. On a server that runs warm_cache daily, this is a slow disk fill — visible only after weeks or months.
-
-**Prevention:**
-- `warm_cache.py` must use `RotatingFileHandler` with the same parameters as the rest of the suite (match the `maxBytes` and `backupCount` from `run_all.py`/`scheduler.py`).
-- This is already on the backlog as PERF-04 (log rotation). v1.2 is the right time to establish the pattern for the new warm_cache log, not defer it.
-
-**Detection:** `ls -lh logs/warm_cache.log` after 30+ days of operation — file should be capped at the rotation size.
-
-**Phase:** Phase that builds `scripts/warm_cache.py` — use `RotatingFileHandler` from day one.
-
----
-
-### MINOR-05: `delivery_config.yaml` is `.gitignore`d — the server's live config is invisible to version control
-
-**What goes wrong:** `.gitignore` excludes `delivery_config.yaml`. On the server, `shared/delivery_config.yaml` is the live config. After an upgrade, a new `delivery_config.schema.yaml` may add new required fields or tighten enum values. If the server's live config was not updated to match the new schema, `run_all.py --dry-run` (called by `update_from_github.sh` before the symlink swap) will fail schema validation and block the upgrade.
-
-This is actually the CORRECT behavior — the pre-swap `--dry-run` catches the schema mismatch before it reaches production. The pitfall is that the operator may be surprised and not understand why the upgrade is blocked.
-
-**Prevention:**
-- `DEPLOYMENT.md` "Updating from GitHub" section must include a step: "Before updating, check the release notes for any `delivery_config.yaml` schema changes. If the new version adds required fields or changes enum values, update `shared/delivery_config.yaml` first, then run `--dry-run`, then proceed with `--version`."
-- In `release.yml`, include a `CHANGELOG` entry (or release notes template) that always calls out schema changes explicitly.
-
-**Detection:** `update_from_github.sh --version` aborts at the `--dry-run` step with a jsonschema validation error. The error message names the field — edit `shared/delivery_config.yaml` to add it.
-
-**Phase:** Phase that writes `DEPLOYMENT.md` — the schema-migration step belongs in the upgrade procedure.
-
----
-
-### MINOR-06: `update_from_github.sh` uses GitHub API without authentication — rate-limited on `--check`
-
-**What goes wrong:** The `--check` mode hits the GitHub Releases API (`https://api.github.com/repos/{owner}/{repo}/releases/latest`) to compare versions. GitHub's unauthenticated API rate limit is 60 requests/hour per IP. On a shared server or CI environment, this can be exhausted. The failure mode is a `403` or `429` response that the script may interpret as "no new release" rather than "rate limited."
-
-**Prevention:**
-- Accept an optional `GITHUB_TOKEN` environment variable in the script. If set, pass it as `Authorization: Bearer $GITHUB_TOKEN`. If not set, proceed unauthenticated with a warning logged.
-- The `--check` response must distinguish between "up to date", "new version available", and "API error / rate limited". Exit codes: 0 = up to date, 1 = new version available, 2 = error. This lets cron email on exit code 2.
-
-**Phase:** Phase that builds `update_from_github.sh`.
-
----
-
-## Phase-Specific Warnings
-
-| Phase Topic | Likely Pitfall | Mitigation |
-|-------------|---------------|------------|
-| Creating `.gitattributes` | `scripts/` blanket exclusion removes `warm_cache.py` and `update_from_github.sh` | Per-file exclusion for dev-only scripts only (MOD-05) |
-| Creating `.gitattributes` | `.gitattributes` itself excluded — audit artifact missing | Do not add `.gitattributes export-ignore` (MOD-03) |
-| Creating `.gitattributes` | `data/trend/`, `output/`, `logs/` not covered because they're gitignored — accidental staging sneaks them in | Add belt-and-suspenders `export-ignore` lines (CRITICAL-02) |
-| Building `release.yml` | Auto-generated source tarball name collides with CI artifact | Use `-slim` suffix in asset name (MINOR-02) |
-| Building `release.yml` | `contents: write` permission missing | Declare explicitly in workflow (MOD-09) |
-| Building `release.yml` | `.env.example` with non-placeholder values in tarball | Pre-release audit step + CI grep check (CRITICAL-01) |
-| Building `release.yml` | Tag re-push re-runs the workflow and overwrites the asset | Do not use `--clobber`; treat tags as immutable (MOD-04) |
-| Building `update_from_github.sh` | `rm` + `ln` non-atomic swap | Use `ln -sfn` only (CRITICAL-03) |
-| Building `update_from_github.sh` | `set -euo pipefail` missing, partial extraction left | First line + trap-on-extract pattern (MOD-08) |
-| Building `update_from_github.sh` | Rollback breadcrumb written before swap completes | Write `.last` after `ln -sfn` succeeds (CRITICAL-05) |
-| Building `update_from_github.sh` | `Restart=on-failure` masks a bad deploy | Pre-swap `--dry-run` + post-swap active-check required (CRITICAL-04) |
-| Building `update_from_github.sh` | Service not restarted after swap | Default behavior must restart; `--skip-restart` must warn (MOD-06) |
-| Building `update_from_github.sh` | GitHub API rate limit on `--check` | Accept optional `GITHUB_TOKEN`; distinguish error vs "up to date" (MINOR-06) |
-| Building `scripts/warm_cache.py` | Midnight crossover — warm at 23:59, batch at 00:01 | Schedule warm job ≥30 min before earliest report group; document in DEPLOYMENT.md cron table (MOD-01) |
-| Building `scripts/warm_cache.py` | Concurrent warm + daemon write races on parquet files | Atomic write via `os.replace`; document daemon vs run-due interaction (MOD-02) |
-| Building `scripts/warm_cache.py` | Log rotation not configured | Use `RotatingFileHandler` from day one (MINOR-04) |
-| Writing `DEPLOYMENT.md` | `git clone` mentioned as install option — bypasses export-ignore | Tarball-only as the supported server path (MINOR-01) |
-| Writing `DEPLOYMENT.md` | `delivery_config.yaml` schema migration not covered | Add schema-migration step to upgrade procedure (MINOR-05) |
-| Writing `DEPLOYMENT.md` | Rollback one-liner buried or missing | Must appear prominently in the update section (MINOR-03) |
-| Writing `DEPLOYMENT.md` | `shared/` contract undocumented — `.pyc` or source files added | Explicit "shared contains config and runtime data only" statement (MOD-07) |
-
----
-
-## Sensitive Data Discipline Checklist (D-04-08 applied to release artifacts)
-
-The following must be verified before every tag push. Include this as a pre-release checklist in `DEPLOYMENT.md`:
-
-- [ ] `.env` is not tracked by git (`git ls-files .env` returns nothing)
-- [ ] `data/trend/` is not tracked by git (`git ls-files data/trend/` returns nothing)
-- [ ] `output/` is not tracked by git
-- [ ] `logs/` is not tracked by git
-- [ ] `.env.example` contains only placeholder values — no real hostnames, key prefixes, or passwords
-- [ ] Preview tarball passes content assertion: `git archive --format=tar.gz HEAD -o /tmp/preview.tar.gz && tar -tzf /tmp/preview.tar.gz | grep -E '(\.env$|data/trend|output/|logs/)' | wc -l` outputs `0`
-- [ ] Release notes do not contain Tenable asset names, IPs, or plugin names
-- [ ] `delivery_config.yaml` is gitignored and absent from the tarball (`git ls-files delivery_config.yaml` returns nothing)
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Cold-start mishandling (P1) | New vs Remediated, Density, Program Health implementation phases | Unit test: single-snapshot fixture renders cold-start message, not `NaN%` |
+| Reopened double-count in New vs Remediated (P2) | New vs Remediated implementation phase | Unit test: REOPENED fixture with documented population contract; counts match spec |
+| MTTR reopened days_to_fix inflation (P3) | MTTR rework phase | Unit test: REOPENED fixture shows ~8d MTTR, not 198d |
+| Density denominator drift (P4) | Vulnerability Density implementation phase | Unit test: two snapshots with different `asset_count`; each uses its own |
+| MoM delta zero-denominator (P5) | All MoM delta modules | Unit test: prior=0 fixture produces `"N/A"` not `ZeroDivisionError` |
+| Recast / accepted edge cases (P6) | Accepted & Recast implementation phase | Unit test: expired-rule fixture excluded; empty-string `severity_modification_type` treated as unmodified |
+| External scope false positives (P7) | External / DMZ module implementation phase | Unit test: CGNAT, loopback, link-local, IPv6 link-local all excluded from scope |
+| GEN-01 backward-compat regression (P8) | GEN-01 migration phase — baselines in the first plan, before any module code | Smoke baseline passes structural check; operator visual UAT sign-off before bespoke path removed |
+| pandas CoW in-place assignment (P9) | Every module implementation phase | `pytest` with CoW strict mode: zero `ChainedAssignmentError` |
+| PII leakage in snapshots / fixtures (P10) | Every phase adding modules with analyst drill-down or new snapshot types | D-04-08 redaction suite passes; `grep` for real IP/hostname patterns in committed files |
+| Analyst mismatch list scope creep (P11) | External / DMZ design phase (before implementation) | Schema locked in plan context doc; `render_analyst_tabs()` column list matches spec |
 
 ---
 
 ## Sources
 
-- Project files: `deploy/vuln-reports.service`, `.gitignore`, `.planning/todos/pending/2026-05-14-shrink-server-footprint-exclude-dev-only-files.md`, `.planning/todos/pending/2026-05-14-deploy-ops-scripts-and-runbook-warm-cache-update-from-github.md`, `.planning/PROJECT.md`
-- `ln -sfn` atomicity: uses `rename(2)` syscall, which is atomic on POSIX filesystems — HIGH confidence (standard POSIX behavior)
-- systemd `WorkingDirectory` symlink resolution: resolved at process start, not re-evaluated per-job — HIGH confidence (systemd documentation behavior)
-- GitHub Actions default token permissions: `contents: read` by default since 2023 — MEDIUM confidence (GitHub documentation, verified against common workflow patterns)
-- `git archive` + `.gitattributes export-ignore` scope: only applies to `git archive`, not `git clone` — HIGH confidence (git documentation)
-- GitHub auto-generated release tarball naming: `{repo}-{tag}.tar.gz` format — HIGH confidence (GitHub documentation)
+- `utils/open_count.py` — WR-01, WR-02, WR-03 edge-case comments; reopened-aware two-interval predicate implementation
+- `data/trend_store.py` — D-01 through D-08 design constraints; IN-01 (concurrency), IN-06 (scope-coupling) contracts
+- `reports/modules/mttr_by_severity_module.py` — existing MTTR gaps: undisclosed rolling ~30d window, unweighted mean-of-means, reopened fallback path
+- `reports/management_summary.py` — bespoke trend path (`_load_trend_history`, `_save_trend_snapshot`, `_sanitise_tag_for_filename` duplication)
+- `.planning/notes/trend-reconstruction-engine.md` — Spike 002 invalidation; cold-start; reopened lifecycle caveats; as-of-date severity drift caveat
+- `.planning/notes/report-requests-batch-2026-06.md` — MTTR open decisions; WAS deferral locked; recast data sources; External scope dual-signal design
+- `.planning/PROJECT.md` — Key Decisions D-04-05 (structural-only baselines), D-04-08 (PII discipline), v1.3 substrate decisions, GEN-01 backward-compat constraint
+- `.planning/codebase/CONVENTIONS.md` — F-DTYPE (CoW / `.assign()` mandate); datetime/timezone policy; error-handling conventions
+- Quick task `260611-b1x` post-v1.3 — CoW chained-assignment bug causing `object` dtype on parquet write; root cause and fix
+- v1.0 board_summary cutover — structural-only smoke baseline pattern establishing D-04-05 REVISED
+
+---
+*Pitfalls research for: v1.4 Management Summary Reporting Improvement — management/exec trend-cut modules + GEN-01 migration*
+*Researched: 2026-06-11*

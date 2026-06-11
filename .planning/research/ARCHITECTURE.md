@@ -1,330 +1,307 @@
-# Architecture Patterns
+# Architecture Research
 
-**Domain:** Deployment infrastructure for Python reporting suite (v1.2 Server Update and Install)
-**Researched:** 2026-05-19
-**Scope:** Integration analysis for `warm_cache.py`, `update_from_github.sh`, `.github/workflows/release.yml`, `.gitattributes` — new components integrating with existing v1.1 system.
+**Domain:** v1.4 Management Summary Reporting Improvement — module/composer/run_all integration
+**Researched:** 2026-06-11
+**Confidence:** HIGH (derived entirely from direct source inspection)
 
 ---
 
-## Integration Point Analysis
+## Integration Question 1: New Shared Substrates
 
-### 1. `scripts/warm_cache.py` — Where It Plugs In
+Two new shared substrates emerge from the v1.4 feature set. Neither belongs inside a module file. Both mirror existing substrate placement conventions.
 
-**The seam is `data/fetchers.py`, not `run_all.py`.**
+### Substrate A: Asset-Count Denominator (`utils/asset_count.py`)
 
-`run_all.py`'s pre-fetch block (lines 658–671) is a thin wrapper that calls exactly two functions:
+**What it does:** Returns total licensed asset count (and optionally per-scope count) for Vulnerability Density's vulns-per-asset MoM computation. Asset totals must be taken from `assets_df`, not re-fetched; the run-scoped parquet cache already holds `assets_df` by the time any module runs.
+
+**Where it lives:** `utils/asset_count.py` — mirrors `utils/open_count.py` (pure compute, no I/O, no network). A single function `asset_count(assets_df) -> int` counting non-null licensed assets. This is the only safe placement: modules must not do I/O inside `compute()`, and the denominator logic is reusable across Density and Program Health.
+
+**How modules consume it:** The module calls `asset_count(assets_df)` directly inside `compute()` — `assets_df` is already a parameter of `compute()`. No new kwargs forwarding is needed for this substrate.
+
+**What stays untouched:** `data/fetchers.py`, `data/trend_store.py`, `composed_report.py`, `run_all.py`.
+
+### Substrate B: External-Scope Helper (`utils/external_scope.py`)
+
+**What it does:** Classifies assets as external-scope when they carry `Location=External` or `Location=DMZ` tag OR have a computed public IPv4 (non-RFC1918). Emits a mismatch list (public-IP-but-untagged / tagged-but-private) as analyst exceptions — the same shape as `extract_owner()`'s `Unassigned` catch-all in `utils/tag_helper.py`.
+
+**Where it lives:** `utils/external_scope.py` — mirrors the S2 substrate (`extract_owner()` lives in `utils/tag_helper.py`). Pure compute; accepts `assets_df`, returns `(scoped_assets_df, mismatches_df)`.
+
+**RFC1918 check:** A small pure helper `is_public_ipv4(ip_str) -> bool` using `ipaddress.ip_address()` with a try/except; no new dependency.
+
+**How modules consume it:** Called directly inside the External/DMZ module's `compute(assets_df, ...)` — `assets_df` already arrives via the composer. No kwargs forwarding needed.
+
+**Mismatch list routing:** The `mismatches_df` is returned in `ModuleData.analyst_rows` as a `("External Scope Mismatches", df)` tuple — exactly the pattern used by the Owner Supplemental analyst tab (`reports/owner_supplemental.py`).
+
+**What stays untouched:** No changes to `composed_report.py`, `run_all.py`, or `ReportComposer`.
+
+---
+
+## Integration Question 2: Data Flows and kwargs Forwarding
+
+The composer's `**kwargs` pass-through is the key seam. `ReportComposer.__init__` stores `self._kwargs = kwargs`, and `run_module` calls `instance.compute(..., **self._kwargs)`. `composed_report.py` gates conditional kwargs into `composer_kwargs` before constructing `ReportComposer`, using frozenset membership checks (`_MODULES_NEEDING_FIXED_VULNS`, `_MODULES_NEEDING_ENV_TOTAL`).
+
+### Modules and their data requirements
+
+| Module | Data beyond vulns_df / assets_df | New kwargs gate needed? |
+|--------|----------------------------------|-------------------------|
+| New vs Remediated | `read_trend()` result | YES — `trend_snapshots` kwarg |
+| Vulnerability Density | `asset_count(assets_df)` inline + `read_trend()` | YES — `trend_snapshots` kwarg |
+| Reopened Vulnerabilities | `vulns_df` state/resurfaced_date columns (already present) | NO |
+| Accepted & Recast | `vulns_df` severity_modification_type (already present); `fetch_recast_rules()` for analyst tab | YES — `recast_rules_df` kwarg |
+| Program Health Overview | `read_trend()` + `extract_owner()` inline from assets_df | YES — `trend_snapshots` kwarg |
+| MTTR rework | `fixed_vulns_df` (existing gate) + `read_trend()` for trend | `fixed_vulns_df` already gated; YES for `trend_snapshots` |
+| External/DMZ | `external_scope(assets_df)` inline | NO |
+| GEN-01 modules | same as existing metrics — covered by existing gates | depends on metric (see below) |
+
+### The `trend_snapshots` kwarg pattern
+
+Three or more new modules need pre-read trend history. The clean implementation adds one new gate in `composed_report.py`, following the exact pattern of `_MODULES_NEEDING_FIXED_VULNS` (lines 73–79) and `_MODULES_NEEDING_ENV_TOTAL` (lines 79–80):
 
 ```python
-fetch_all_vulnerabilities(tio, cache_dir)
-fetch_all_assets(tio, cache_dir)
+_MODULES_NEEDING_TREND_SNAPSHOTS = frozenset({
+    "new_vs_remediated",
+    "vuln_density",
+    "program_health_overview",
+    "mttr_trend",       # reworked MTTR, new MODULE_ID
+    # extend as modules are added
+})
+
+need_trend = bool(_MODULES_NEEDING_TREND_SNAPSHOTS.intersection(modules))
+if need_trend:
+    from data.trend_store import read_trend  # noqa: PLC0415
+    composer_kwargs["trend_snapshots"] = read_trend(
+        dimension="severity",
+        tag_filter=_log_scope,
+        months=13,
+    )
 ```
 
-Both functions already implement the full cache contract: `_cache_path()` → `_load_cache()` → (if miss) API call → `_save_cache()`. This logic lives entirely in `data/fetchers.py` (lines 175–200 for helpers; `fetch_all_vulnerabilities` at line 203, `fetch_all_assets` at line 451).
+`composed_report.py` is the only file that changes for this gate. `run_all.py` does not change — it already passes `modules` through to `composed_report.run_report()` via `report_kwargs`. `ReportComposer` does not change — `**self._kwargs` already fans out to every `compute()` call.
 
-`warm_cache.py` should **import and call `fetch_all_vulnerabilities` and `fetch_all_assets` directly from `data.fetchers`** — no shared helper needs to be extracted from `run_all.py`. The pre-fetch block in `run_all.py` is already the minimum seam: two fetcher calls. `warm_cache.py` replicates that exact call pattern as a standalone script.
+### The `recast_rules_df` kwarg pattern
 
-**Cache directory convention:** `run_all.py` derives `cache_dir` as `CACHE_DIR / datetime.now().strftime("%Y-%m-%d")` (local time). `warm_cache.py` must use the identical derivation (`datetime.now()`, not UTC) so the paths match when `run_all.py` looks up the pre-warmed files. `config.CACHE_DIR` is the shared root — import it, don't hardcode `/opt/...`.
+Accepted & Recast's analyst drill-down needs `fetch_recast_rules()`. This follows the `fixed_vulns_df` gate exactly:
 
-**What `warm_cache.py` needs to import:**
-- `tenable_client.get_client` — identical to every other entry point
-- `data.fetchers.fetch_all_vulnerabilities`
-- `data.fetchers.fetch_all_assets`
-- `config.CACHE_DIR` — for default `cache_dir` derivation
-- `config.LOG_DIR` — for `logs/warm_cache.log` rotating handler
+```python
+_MODULES_NEEDING_RECAST_RULES = frozenset({"accepted_recast"})
 
-**What it does NOT need:**
-- Any import from `run_all.py` — no shared helper extraction required
-- Any report module imports
-- `delivery_config.yaml` — cache warming is scope-agnostic (fetches all assets / all vulns; tag filtering happens in-memory inside each report)
+need_recast = bool(_MODULES_NEEDING_RECAST_RULES.intersection(modules))
+if need_recast:
+    from data.fetchers import fetch_recast_rules  # noqa: PLC0415
+    composer_kwargs["recast_rules_df"] = fetch_recast_rules(tio, cache_dir)
+```
 
-**Stale-folder pruning:** `run_all.py` prunes prior-day cache folders at startup (line 870). `warm_cache.py` implements the same pruning under `--prune-stale`, keeping the behavior opt-in for the scheduled warm job. Both must agree on "local machine date" as the folder name, not UTC.
+`fetch_recast_rules()` already exists in `data/fetchers.py` (POST `/v1/recast/rules/search`). No new fetcher needed.
 
-**Idempotency:** The existing `_load_cache` / `_save_cache` pattern does not prevent re-fetch on re-run — `_load_cache` returns the cached file if present, which means a re-run of `warm_cache.py` for the same date will immediately return cached data without hitting Tenable again. This is the correct behavior for idempotency. The `--force` flag (if desired) would need to delete the parquet files before calling the fetchers.
+### What does NOT need new forwarding
+
+- **Reopened Vulnerabilities:** `state` and `resurfaced_date` are already present on `vulns_df` from `fetch_all_vulnerabilities`. The module filters `vulns_df[vulns_df["state"].str.upper() == "REOPENED"]` directly inside `compute()`.
+- **Vulnerability Density asset count:** `assets_df` is already a `compute()` parameter; `asset_count(assets_df)` is an inline call with no I/O.
+- **External/DMZ scope:** `assets_df` already carries tag and IP fields; `external_scope(assets_df)` is inline pure compute.
+
+### Summary of composed_report.py changes
+
+Two new frozensets and two new conditional fetch blocks (~25–30 lines total). The `run_report()` function signature does not change. All new kwargs arrive at modules via the existing `**self._kwargs` fan-out.
 
 ---
 
-### 2. Symlink Layout vs. Existing systemd Unit
+## Integration Question 3: GEN-01 Migration Shape
 
-**The existing unit uses hardcoded `/opt/vuln-reporting/` paths — it must change.**
+### What GEN-01 means in code
 
-Current `deploy/vuln-reports.service` has:
+`management_summary.py` today owns a bespoke render path: `compute_all_metrics()` delegates metrics 1, 3, 4 to existing modules (via `_module_registry.get()`), computes metrics 2, 5, 6, 7 inline, then drives a private PDF builder and Jinja2 email body. The file is approximately 2,200 lines. GEN-01 replaces this with a `ReportComposer`-driven pipeline identical to `board_summary.py`.
 
-```ini
-WorkingDirectory=/opt/vuln-reporting
-EnvironmentFile=/opt/vuln-reporting/.env
-ExecStart=/opt/vuln-reporting/.venv/bin/python scheduler.py --mode daemon
-ReadWritePaths=/opt/vuln-reporting/output /opt/vuln-reporting/logs /opt/vuln-reporting/data/cache
-```
+### Module decomposition
 
-After the symlink layout is introduced:
+| management_summary metric | Module | Status |
+|---------------------------|--------|--------|
+| Metric 1 — Total Vulns by Severity | `total_vulns_by_severity` | Already exists; already called via `_module_registry.get()` in `compute_all_metrics()`. No new module needed. |
+| Metric 2 — Scan Coverage | `scan_coverage_sla` | Already exists (`scan_coverage_sla_module.py`). No new module needed. |
+| Metric 3 — MTTR by Severity | `mttr_trend` (rework) | Existing `mttr_by_severity` replaced/extended with the v1.4 rework: disclose ~30d window, sample-weight, reopened-aware, trend + Owner. New `MODULE_ID = "mttr_trend"` avoids conflicting with existing board_summary references to `mttr_by_severity`. |
+| Metric 4 — Patch Compliance Rate | `patch_compliance_rate` | Already exists. No new module needed. |
+| Metric 5 — Backlog Age Distribution | `aged_vulns_assets` | Already exists (`aged_vulns_assets_module.py`). No new module needed. |
+| Metric 6 — Exception & Risk Acceptance Rate | `accepted_recast` | New module. Supersedes `_compute_metric_6()` and extends it with prev-month delta and Owner cut. |
+| Metric 7 — Vulnerability Reduction Trend | `new_vs_remediated` | New module. Supersedes `_compute_metric_7()` (private trend JSON reader) by consuming `trend_store.read_trend()` via the `trend_snapshots` kwarg gate. |
 
-```
-/opt/vuln-reporting/
-├── current -> releases/v1.2.0/    # symlink — active code
-├── releases/
-│   └── v1.2.0/                    # extracted slim tarball
-│       ├── run_all.py
-│       ├── scheduler.py
-│       ├── .venv/                 # venv lives per-release
-│       ├── .env -> ../../shared/.env
-│       ├── delivery_config.yaml -> ../../shared/delivery_config.yaml
-│       ├── logs -> ../../shared/logs/
-│       ├── output -> ../../shared/output/
-│       └── data/cache -> ../../shared/data/cache/
-└── shared/
-    ├── .env
-    ├── delivery_config.yaml
-    ├── logs/
-    ├── output/
-    └── data/cache/
-```
+Five of the seven metrics already have modules. GEN-01 requires two new modules (`accepted_recast`, `new_vs_remediated`) plus the MTTR rework, then replaces `management_summary.py`'s bespoke path with a `ReportComposer` pipeline.
 
-**Required changes to `deploy/vuln-reports.service`:**
+### What the migrated management_summary.py looks like
 
-```ini
-WorkingDirectory=/opt/vuln-reporting/current
-EnvironmentFile=/opt/vuln-reporting/shared/.env
-ExecStart=/opt/vuln-reporting/current/.venv/bin/python scheduler.py --mode daemon
-ReadWritePaths=/opt/vuln-reporting/shared/output /opt/vuln-reporting/shared/logs /opt/vuln-reporting/shared/data/cache
-```
+After GEN-01, `management_summary.py:run_report()` becomes structurally identical to `board_summary.py:run_report()`:
 
-Key decisions:
-- `WorkingDirectory` points at `current` (the symlink). systemd resolves symlinks for `WorkingDirectory`, so after a `current` swap + `systemctl restart`, the new release directory is used.
-- `EnvironmentFile` points at `shared/.env` directly — not through `current` — because the env file must survive upgrades and the path must be stable for `systemctl daemon-reload`-free restarts.
-- `ReadWritePaths` points at `shared/` subtrees because those are the real filesystem locations. The symlinks inside the release directory point back to `shared/`, but `ReadWritePaths` operates on real paths.
-- The `.venv` lives inside each release directory (not shared) so dependency upgrades between versions are isolated. The update script creates the venv and installs `requirements.txt` as part of the release extraction step.
+1. Fetch `vulns_df`, `assets_df`, `fixed_vulns_df` (already done today)
+2. Apply tag filter (already done today)
+3. Read trend snapshots via `read_trend()` — replaces `_load_trend_history()`
+4. Construct `ReportComposer(vulns_df, assets_df, ..., module_configs=_MGMT_MODULE_CONFIGS, **composer_kwargs)` where `composer_kwargs` carries `fixed_vulns_df`, `trend_snapshots`, `recast_rules_df`
+5. Call `composer.run_full_pipeline(...)` and return the standard board-shaped bundle
 
-**`Documentation=` line** currently references `file:///opt/vuln-reporting/RUNBOOK.MD`. After layout change, this becomes `file:///opt/vuln-reporting/current/RUNBOOK.MD` or is simply removed (RUNBOOK.MD is `export-ignore`d from the tarball, so it won't be in the release directory).
+The bespoke `_build_pdf()`, `_compute_metric_*()` functions, and private Jinja2 path become dead code after cutover and are removed.
+
+`management_summary` is added to `_CHROME_AWARE_SLUGS` in `run_all.py` (one-line change) so it inherits the chrome header/footer post-migration. CHROME-COMPAT-01 (the hard contract that `management_summary` MUST NOT receive chrome kwargs while on the legacy path) inverts after GEN-01: once migrated, it MUST be in `_CHROME_AWARE_SLUGS`.
+
+### Backward-compat mechanism
+
+This is the v1.0 board_summary cutover pattern verbatim:
+
+1. Capture smoke baselines from the current bespoke output before migration — `scripts/smoke_management_summary_cutover.py` (new script, mirrors `scripts/smoke_board_summary_cutover.py`).
+2. Execute the migration.
+3. Run smoke against the new output: structural shape (section count, RAG cell count, metric presence) must match; metric values are NOT locked (they shift with live data — D-04-05 decision).
+4. Visual operator UAT: open both PDFs side by side, confirm all seven metric sections present.
+5. Existing `delivery_config.yaml` groups referencing `management_summary` continue to work unchanged — `run_all.py` slug registration (`_VALID_REPORTS`, `_REPORT_MODULE_MAP`) does not change.
+
+The private trend JSON files (`data/trend/management_summary_*.json`) are read-only legacy after migration. New modules write to `data/trend/trend_*.json` via `data/trend_store.py`. No migration of the old JSON files is needed — `management_summary`'s Metric 7 trend history accumulates independently of the new S1 store, and `new_vs_remediated` starts its own forward-accumulating history from first execution.
 
 ---
 
-### 3. `data/cache/` in the Symlink Scheme
+## Integration Question 4: Build Order
 
-**The correct granularity is `data/cache/` as the symlinked subpath — not `data/` itself.**
-
-The reason: `data/` contains `data/fetchers.py` and `data/trend/`, which are **code and persistent state** respectively. `data/fetchers.py` is runtime code from the release tarball. `data/trend/` holds month-over-month JSON snapshots for `management_summary` that must survive upgrades (same as `logs/` and `output/`).
-
-Breaking this down:
-
-| Path | Where it lives | Survives upgrade? |
-|------|---------------|-------------------|
-| `data/fetchers.py` | Inside release tarball | No — replaced on upgrade (correct) |
-| `data/__init__.py` | Inside release tarball | No — replaced on upgrade (correct) |
-| `data/cache/` | `shared/data/cache/` symlinked in | Yes — pre-warmed parquet files valid all day |
-| `data/trend/` | `shared/data/trend/` symlinked in | Yes — historical trend snapshots |
-
-**Symlink structure inside each release directory:**
+Dependencies flow strictly in one direction: substrates must be stable before consuming modules; GEN-01 dependency modules must be stable before the cutover.
 
 ```
-releases/v1.2.0/data/
-├── __init__.py          # from tarball
-├── fetchers.py          # from tarball
-├── cache -> ../../../shared/data/cache/    # symlink
-└── trend -> ../../../shared/data/trend/   # symlink
+Stage 1 — New shared substrates (no module dependencies, ~1 hour each)
+  utils/asset_count.py          pure asset-count denominator
+  utils/external_scope.py       external-scope classifier + mismatch emitter
+
+Stage 2a — composed_report.py gate additions (unblocks trend/recast modules)
+  Add _MODULES_NEEDING_TREND_SNAPSHOTS frozenset + fetch block
+  Add _MODULES_NEEDING_RECAST_RULES frozenset + fetch block
+  ~25 lines; can land as single commit; dependency: data/trend_store.read_trend() (already shipped)
+
+Stage 2b — New modules (each independent; can be phased or batched)
+  reopened_vulns_module.py          no new deps; good first module to validate new data shapes
+  external_dmz_module.py            depends on Stage 1 (external_scope)
+  accepted_recast_module.py         depends on Stage 2a (recast_rules_df kwarg)
+  new_vs_remediated_module.py       depends on Stage 2a (trend_snapshots kwarg); also GEN-01 dep
+  vuln_density_module.py            depends on Stage 1 (asset_count) + Stage 2a (trend_snapshots)
+  program_health_overview_module.py depends on Stage 2a (trend_snapshots)
+  mttr_trend_module.py              depends on Stage 2a (trend_snapshots); also GEN-01 dep
+
+Stage 3 — GEN-01 migration (depends on Stages 1-2; specifically needs
+          new_vs_remediated, accepted_recast, mttr_trend from Stage 2b)
+  scripts/smoke_management_summary_cutover.py  (baseline capture — MUST land before rewrite)
+  reports/management_summary.py rewrite        (replace bespoke path with ReportComposer)
+  run_all.py: add management_summary to _CHROME_AWARE_SLUGS
+  Visual operator UAT
+
+Stage 4 — Registration (only if new modules exposed as standalone slugs)
+  run_all.py _VALID_REPORTS + _REPORT_MODULE_MAP (per slug)
+  delivery_config.schema.yaml enum additions (per slug)
+  CLAUDE.md YAML Schema Rules additions (per slug)
+  NOTE: modules consumed only via composed_report or management_summary
+        need NO registration changes — auto-discovery handles them
 ```
 
-**`update_from_github.sh` must create these symlinks** after extracting the tarball:
+### Practical sequencing guidance
 
-```bash
-ln -sfn /opt/vuln-reporting/shared/data/cache  /opt/vuln-reporting/releases/vX.Y.Z/data/cache
-ln -sfn /opt/vuln-reporting/shared/data/trend  /opt/vuln-reporting/releases/vX.Y.Z/data/trend
-```
+Stages 1 and 2a are small (a few hundred lines combined) and unblock everything else. Build them in a single phase. Stage 2b modules are independent of each other and can be distributed across phases. Stage 3 (GEN-01) is the riskiest delivery item — schedule it as its own phase with the smoke-baseline-capture commit as a mandatory pre-step before any rewrite begins.
 
-**`config.py` path derivation:** `CACHE_DIR` in `config.py` is currently derived relative to the project root. After the symlink layout, `data/cache` resolves through the symlink to `shared/data/cache/`. Python's `Path(__file__).resolve().parent` in `config.py` resolves the real path, but the symlinked `data/cache` subdir will resolve correctly because Python path traversal follows symlinks at each component. No change to `config.py` is required.
-
-**The `warm_cache.py` implication:** `warm_cache.py` running from `/opt/vuln-reporting/current/` will derive `cache_dir` using `config.CACHE_DIR`, which resolves through the `data/cache` symlink to `shared/data/cache/YYYY-MM-DD/`. When `run_all.py` subsequently runs from the same `current/`, it derives the identical path. Cache sharing works transparently.
+Reopened Vulnerabilities has no trend or substrate dependency and is a good first Stage 2b module to validate the four-channel contract against new data shapes before trend-dependent modules land.
 
 ---
 
-### 4. Dependency Graph Between New Components
+## Component Responsibility Table: New vs Modified vs Untouched
 
-```
-.gitattributes
-    └── must be correct BEFORE first tag is pushed
-            └── .github/workflows/release.yml
-                    └── produces release tarball assets on GitHub
-                            └── update_from_github.sh --version vX.Y.Z
-                                    └── (consumes tarball, extracts, symlinks shared/, validates, swaps current)
-                                            └── deploy/vuln-reports.service (updated to use current/)
-                                                    └── scripts/warm_cache.py (runs from current/, writes to shared/data/cache/)
-```
-
-Linear dependency chain with one branch:
-
-**Hard sequential dependencies:**
-1. `.gitattributes` must exist and be correct before any tag is pushed. A tag pushed without `export-ignore` rules bakes the wrong file list into the release artifact permanently.
-2. `.github/workflows/release.yml` depends on `.gitattributes` being correct (the workflow uses `git archive` or relies on GitHub's auto-generated tarball which respects `export-ignore`).
-3. A working release tarball on GitHub must exist before `update_from_github.sh --version` can be tested end-to-end.
-4. `deploy/vuln-reports.service` must be updated before the first real deployment using the symlink layout — the old hardcoded paths will break as soon as `current/` is introduced.
-
-**Independent (can be built in parallel once `.gitattributes` exists):**
-- `scripts/warm_cache.py` depends only on `data/fetchers.py` and `tenable_client.py` — both exist now. It can be built and tested locally without the release/symlink infrastructure.
-- `update_from_github.sh` can be written and dry-run tested on a scratch directory before a real release exists.
-
-**`scripts/` export-ignore decision is a blocker:** The footprint todo flags `scripts/` as "mixed — audit before excluding wholesale". `warm_cache.py` is a runtime utility (needed on the server); `setup_github_labels.py` is dev-only. The `.gitattributes` decision for `scripts/` must be made before cutting the first real release tarball. Options: exclude `scripts/setup_github_labels.py` individually, or keep all of `scripts/` in the tarball (it's small). Recommend: keep `scripts/` in the tarball (the warm cache job needs to ship to the server), exclude `scripts/setup_github_labels.py` individually.
-
----
-
-### 5. Recommended Build Order
-
-**Phase 1 — Foundations (unblocks everything downstream)**
-
-Build `.gitattributes` first. Every subsequent component depends on the tarball being correct. Audit `scripts/` per-file before writing the file. Also update `deploy/vuln-reports.service` to use `current/` paths in this phase — it ships in the tarball and must be correct from the first real release.
-
-Files in this phase:
-- `.gitattributes` (new)
-- `deploy/vuln-reports.service` (edit — `WorkingDirectory`, `EnvironmentFile`, `ExecStart`, `ReadWritePaths`, `Documentation`)
-
-**Phase 2 — `scripts/warm_cache.py` (independent, immediate server value)**
-
-Can be built and tested now against the existing live install without any symlink layout changes. The fetcher seam is already correct. This is the highest-value deliverable for reducing report run latency and can be validated immediately.
-
-Files in this phase:
-- `scripts/warm_cache.py` (new)
-- `scripts/__init__.py` (new — makes `scripts/` a package for `python -m scripts.warm_cache`)
-
-**Phase 3 — Release workflow**
-
-`.github/workflows/release.yml` + verification pass (local `git archive` preview to confirm excluded paths).
-
-Files in this phase:
-- `.github/workflows/release.yml` (new)
-
-**Phase 4 — `update_from_github.sh` + symlink layout**
-
-Requires a real release artifact on GitHub to test the download path end-to-end. Introduce the `/opt/vuln-reporting/{current, releases/, shared/}` layout. The script performs: download → verify checksum → extract → create venv → install deps → symlink `shared/` entries → `python run_all.py --dry-run` → swap `current` → write `.last` breadcrumb → restart unit.
-
-Files in this phase:
-- `scripts/update_from_github.sh` (new)
-- `deploy/crontab.example` (new)
-
-**Phase 5 — Documentation**
-
-RUNBOOK additions, user-facing README, DEPLOYMENT.md.
-
-Files in this phase:
-- `RUNBOOK.MD` (edit — add "Operational cron schedule" + "Updating from GitHub" sections)
-- `README.md` (new — user-facing what/who/quickstart + deployment section)
-- `DEPLOYMENT.md` (new — operator-focused, references `update_from_github.sh` and on-disk layout)
+| Component | v1.4 Status | Change Description |
+|-----------|-------------|--------------------|
+| `utils/asset_count.py` | NEW | Pure asset-count denominator substrate |
+| `utils/external_scope.py` | NEW | External-scope classifier + mismatch emitter |
+| `reports/modules/new_vs_remediated_module.py` | NEW | Monthly new/remediated trend; consumes `trend_snapshots` kwarg |
+| `reports/modules/vuln_density_module.py` | NEW | Vulns/asset MoM; consumes `asset_count()` + `trend_snapshots` |
+| `reports/modules/reopened_vulns_module.py` | NEW | Reopened state / resurfaced_date tracker |
+| `reports/modules/accepted_recast_module.py` | NEW | Exception posture + prev-month delta + Owner cut; consumes `recast_rules_df` |
+| `reports/modules/program_health_overview_module.py` | NEW | MoM velocity across totals + Owner cut; consumes `trend_snapshots` |
+| `reports/modules/mttr_trend_module.py` | NEW | MTTR rework (window disclosure, sample-weight, reopened-aware, trend, Owner) |
+| `reports/modules/external_dmz_module.py` | NEW | External exposure cut; consumes `external_scope()` |
+| `scripts/smoke_management_summary_cutover.py` | NEW | Baseline-capture + structural regression harness for GEN-01 UAT |
+| `reports/composed_report.py` | MODIFIED (minor) | +2 frozensets + 2 conditional fetch blocks (~25 lines); function signature unchanged |
+| `run_all.py` | MODIFIED (minor, GEN-01 only) | Add `management_summary` to `_CHROME_AWARE_SLUGS` post-GEN-01; no new slug registration needed for module-only additions |
+| `reports/management_summary.py` | MODIFIED (GEN-01) | Replace bespoke `_compute_metric_*` + `_build_pdf()` + private Jinja2 path with `ReportComposer` pipeline |
+| `reports/modules/mttr_by_severity_module.py` | UNTOUCHED | Existing module kept; rework ships as `mttr_trend` with new MODULE_ID to avoid breaking existing board_summary module lists |
+| `reports/modules/total_vulns_by_severity_module.py` | UNTOUCHED | Consumed by GEN-01 without change |
+| `reports/modules/scan_coverage_sla_module.py` | UNTOUCHED | Consumed by GEN-01 without change |
+| `reports/modules/patch_compliance_rate_module.py` | UNTOUCHED | Consumed by GEN-01 without change |
+| `reports/modules/aged_vulns_assets_module.py` | UNTOUCHED | Consumed by GEN-01 without change |
+| `reports/modules/composer.py` | UNTOUCHED | `**self._kwargs` fan-out already handles new kwargs; no changes |
+| `reports/modules/base.py` | UNTOUCHED | Contract is stable |
+| `data/trend_store.py` | UNTOUCHED | `read_trend()` is the consumption API; no changes needed |
+| `utils/open_count.py` | UNTOUCHED | Already used by `data/trend_store.capture_snapshot`; available to modules if needed |
+| `utils/tag_helper.py` (`extract_owner`) | UNTOUCHED | Used inline by Owner-cut modules |
+| `run_all.py` `_VALID_REPORTS` / `_REPORT_MODULE_MAP` | UNTOUCHED | New v1.4 features are modules, not new top-level slugs; no registration needed |
+| `delivery_config.schema.yaml` | UNTOUCHED | No new slugs; schema enum unchanged |
+| `data/fetchers.py` | UNTOUCHED | `fetch_recast_rules()` already present; no new fetchers needed |
 
 ---
 
-## Complete New vs. Modified File List
-
-### New files
-
-| Path | Description |
-|------|-------------|
-| `.gitattributes` | Line-ending normalization + `export-ignore` for dev-only paths |
-| `scripts/warm_cache.py` | Standalone cache warm entry point; calls `fetch_all_vulnerabilities` + `fetch_all_assets` directly |
-| `scripts/__init__.py` | Makes `scripts/` a Python package for `-m scripts.warm_cache` invocation |
-| `.github/workflows/release.yml` | Triggered on `v*` tag push and `workflow_dispatch`; builds slim tarball via `git archive`, uploads as release asset |
-| `scripts/update_from_github.sh` | POSIX shell; `--check` / `--version` / `--rollback` / `--list` modes; manages `/opt/vuln-reporting/{current,releases/,shared/}` layout |
-| `deploy/crontab.example` | Example cron lines: warm cache pre-run, `scheduler.py --mode run-due` every 5 min, log rotation |
-| `README.md` | User-facing root README (what/who/quickstart/deployment) — none exists yet |
-| `DEPLOYMENT.md` | Operator-focused install + update guide; on-disk layout diagram; references `update_from_github.sh` |
-
-### Modified files
-
-| Path | What changes |
-|------|-------------|
-| `deploy/vuln-reports.service` | `WorkingDirectory` → `current/`, `EnvironmentFile` → `shared/.env`, `ExecStart` → `current/.venv/...`, `ReadWritePaths` → `shared/` subtrees, `Documentation` line updated |
-| `RUNBOOK.MD` | Add "Operational cron schedule" section + "Updating from GitHub" section with on-disk layout diagram |
-
-### No changes needed
-
-| Path | Reason |
-|------|--------|
-| `run_all.py` | Pre-fetch block already calls `fetch_all_vulnerabilities` / `fetch_all_assets` directly; warm cache populates the same parquet files; no change required |
-| `data/fetchers.py` | Cache contract (`_cache_path` / `_load_cache` / `_save_cache`) is the correct seam; `warm_cache.py` imports these functions, not the other way around |
-| `config.py` | `CACHE_DIR` / `LOG_DIR` path derivation works correctly through symlinks; no change needed |
-| `scheduler.py` | No changes; delegates to `run_group()` in `run_all.py` unchanged |
-| All report scripts | No changes; symlink layout is transparent to Python code above the `data/cache/` level |
-
----
-
-## Architectural Constraints for New Components
-
-### `warm_cache.py` must follow existing patterns
-
-- Use `logging.getLogger(__name__)` with a `RotatingFileHandler` on `LOG_DIR / "warm_cache.log"` — identical pattern to `scheduler.py`'s `logs/scheduler.log`.
-- `tenable_client.get_client()` is the only path to a Tenable connection — do not construct `TenableIO` directly.
-- Exit code 0 on success, non-zero on auth failure or API error (cron emits mail on non-zero exit).
-- `if __name__ == "__main__": argparse` block required per project convention.
-- Type hints and docstrings throughout per `.planning/codebase/CONVENTIONS.md`.
-
-### `update_from_github.sh` atomicity requirement
-
-The `current` symlink swap must be atomic. POSIX `ln -sfn target linkname` is not atomic. Use `ln -s target /opt/vuln-reporting/current.tmp && mv -T /opt/vuln-reporting/current.tmp /opt/vuln-reporting/current` (two-step via `mv -T` on Linux) to ensure the live symlink is never in a broken intermediate state. The systemd unit reads `WorkingDirectory=/opt/vuln-reporting/current` at job start, so a swap between a job firing and it starting could pick up the wrong version — `systemctl restart` after the swap is the correct serialization point.
-
-### `.gitattributes` `scripts/` decision
-
-`scripts/warm_cache.py` must ship in the release tarball (it runs on the server). `scripts/setup_github_labels.py` (dev-only) should be excluded individually. Recommended `.gitattributes` entry:
-
-```gitattributes
-scripts/setup_github_labels.py  export-ignore
-```
-
-Do not blanket-exclude `scripts/` — that would omit `warm_cache.py` and `update_from_github.sh` from the release.
-
-### `update_from_github.sh` must not symlink `.env` into the release
-
-`.env` must live only in `shared/` and be symlinked from there. The script symlinks `shared/.env` into each release directory. It must never write or create `.env` itself — credential handling is operator-only.
-
----
-
-## Data Flow: Post-v1.2 Operational Sequence
+## Data Flow: v1.4 composed_report execution path
 
 ```
-06:15 UTC    cron: python -m scripts.warm_cache --prune-stale
-                   → GET /v1/exports/vulns + /v1/exports/assets (Tenable API)
-                   → writes shared/data/cache/YYYY-MM-DD/vulns_all.parquet
-                   → writes shared/data/cache/YYYY-MM-DD/assets_all.parquet
-                   → exit 0
-
-07:00 UTC    cron: python scheduler.py --mode run-due
-                   → run_group("Executive Team")
-                     → pre-fetch: fetch_all_vulnerabilities() → [CACHE HIT]
-                     → pre-fetch: fetch_all_assets()          → [CACHE HIT]
-                     → run board_summary, trend_analysis ...
-                     → send_report_email(...)
-
-(operator, on demand)
-             update_from_github.sh --check
-             → prints "latest: v1.3.0  installed: v1.2.0"
-
-             update_from_github.sh --version v1.3.0
-             → download + verify tarball
-             → extract to releases/v1.3.0/
-             → create .venv, pip install -r requirements.txt
-             → ln -s shared/.env, shared/delivery_config.yaml, shared/logs, shared/output, shared/data/cache, shared/data/trend
-             → python run_all.py --dry-run   (validation gate)
-             → mv -T current.tmp current      (atomic symlink swap)
-             → echo "releases/v1.2.0" > releases/.last
-             → systemctl restart vuln-reports
-             → prints rollback one-liner
+run_all.py run_group()
+  slug == "composed_report"
+  report_kwargs["modules"] = ["new_vs_remediated", "vuln_density", ...]
+        |
+        v
+composed_report.run_report(tio, run_id, modules=[...], ...)
+        |
+        +-- fetch_all_vulnerabilities(tio, cache_dir)    [CACHE HIT after pre-fetch]
+        +-- fetch_all_assets(tio, cache_dir)             [CACHE HIT]
+        +-- fetch_fixed_vulnerabilities(...)             [if mttr_trend or critical_remediation_sla]
+        +-- fetch_recast_rules(...)                      [if accepted_recast in modules]  (NEW gate)
+        +-- read_trend(dimension, tag_filter, months=13) [if trend-dependent modules]     (NEW gate)
+        |
+        +-- apply tag filter to vulns_df, assets_df, fixed_vulns_df
+        |
+        +-- ReportComposer(
+        |       vulns_df, assets_df, report_date,
+        |       module_configs=[ModuleConfig(mid) for mid in modules],
+        |       fixed_vulns_df=...,         [existing gate]
+        |       env_vuln_total=...,         [existing gate]
+        |       trend_snapshots=...,        [NEW gate]
+        |       recast_rules_df=...,        [NEW gate]
+        |   )
+        |
+        +-- composer.run_all()
+        |     for each module:
+        |       instance.compute(
+        |           vulns_df, assets_df, report_date, config,
+        |           **self._kwargs   <- trend_snapshots / recast_rules_df arrive here
+        |       )
+        |
+        +-- composer.run_full_pipeline(...)
+              -> pdf_html, excel_workbook, analyst_workbook_path,
+                 email_body_html, email_inline_images
 ```
 
 ---
 
-## Anti-Patterns to Avoid
+## Key Architectural Constraints for v1.4 Modules
 
-### Extracting a `_warm_cache()` helper from `run_all.py`
+**Empty-data guard is mandatory.** Filtered-to-zero groups happen routinely. Every `compute()` must call `self._empty_result(msg, config)` on zero-row inputs. Never inline `f"{value:.1f}"` on metrics that can be None — use `safe_pct` / `safe_int` / `safe_format` from `reports.modules.format_utils`.
 
-Do not create a shared helper in `run_all.py` that both the main script and `warm_cache.py` call. `run_all.py`'s pre-fetch block is two function calls to `data.fetchers` — the fetcher module is already the shared library. Adding a helper to `run_all.py` would create an import dependency from `scripts/warm_cache.py` into `run_all.py`, which imports `delivery`, `reports.*`, and the full module registry on import. `warm_cache.py` has no need for any of that.
+**compute() is pure.** No file writes, no API calls, no mutations of input DataFrames. `trend_snapshots` arrives as a pre-read dict via kwargs; the module does not call `read_trend()` itself. `asset_count()` and `external_scope()` are pure compute helpers — calling them inside `compute()` is correct.
 
-### Symlinking `data/` wholesale
+**MODULE_ID namespace.** New MODULE_IDs must not collide with existing ones. The MTTR rework uses `mttr_trend` (not `mttr_by_severity`) so existing board_summary groups that list `mttr_by_severity` are unaffected.
 
-Do not symlink the entire `data/` directory into `shared/`. `data/fetchers.py` is release code — it should be replaced on upgrade, not persisted. Only `data/cache/` and `data/trend/` are persistent state. Symlinking `data/` wholesale would freeze `fetchers.py` at the version of the last release that created the `shared/data/` directory, defeating the purpose of upgrades.
+**Chrome inheritance.** New modules delivered via `composed_report` inherit chrome automatically. GEN-01's migrated `management_summary` inherits chrome by being added to `_CHROME_AWARE_SLUGS` — no per-module chrome work needed.
 
-### Hardcoding `/opt/vuln-reporting/` in `warm_cache.py`
-
-Use `config.CACHE_DIR` and `config.LOG_DIR`. These are derived from `Path(__file__).resolve().parent` in `config.py`, which resolves to the actual release directory. This keeps the script relocatable (useful for local dev and staging runs) and avoids embedding deployment-specific paths in source code.
-
-### Pushing a tag before verifying `.gitattributes`
-
-Run `git archive --format=tar.gz --prefix=vuln-reporting/ HEAD -o /tmp/preview.tar.gz && tar -tzf /tmp/preview.tar.gz | sort` and confirm `.planning/`, `docs/`, `tests/`, `CLAUDE.md`, `RUNBOOK.MD` are absent before pushing the first `v*` tag. A wrong tarball is immutable on GitHub and cannot be corrected without deleting and re-creating the release.
+**Analyst rows and PII (D-04-08).** Analyst tabs may contain asset-level data (IPs, hostnames for External/DMZ mismatch list, Owner assignments). This data must never appear in committed baselines, test fixtures, or AI conversation context. The mismatch list ships as `analyst_rows` only — it does not appear in `summary_text` or `driver_narrative`.
 
 ---
 
-*Architecture analysis: 2026-05-19*
+## Sources
+
+All findings derived from direct code inspection (confidence HIGH):
+
+- `reports/composed_report.py` — kwargs gate pattern, `_MODULES_NEEDING_FIXED_VULNS` / `_MODULES_NEEDING_ENV_TOTAL`
+- `run_all.py:680-729` — slug-specific extras block, `_CHROME_AWARE_SLUGS` gate
+- `reports/modules/composer.py:425-596` — `ReportComposer.__init__`, `run_module`, `**self._kwargs` fan-out
+- `reports/modules/base.py` — four-channel contract, `_empty_result()`
+- `reports/management_summary.py:772-896` — `compute_all_metrics()`, metrics 1-7 inline vs module-delegated
+- `utils/open_count.py` — S1 substrate shape (pure compute, no I/O)
+- `data/trend_store.py` — S1 snapshot engine, `read_trend()` API
+- `.planning/notes/report-requests-batch-2026-06.md` — substrate analysis, GEN-01 entanglement note
+- `.planning/PROJECT.md` — v1.4 scope, WAS deferral decision, constraint list
+
+---
+
+*Architecture research for: v1.4 Management Summary Reporting Improvement integration*
+*Researched: 2026-06-11*

@@ -1,215 +1,118 @@
 # Project Research Summary
 
-**Project:** Vulnerability Management Reporting Suite — v1.2 Server Update and Install
-**Domain:** Deployment infrastructure for a single-server Python systemd daemon
-**Researched:** 2026-05-19
+**Project:** Vulnerability Management Reporting Suite — v1.4 Management Summary Reporting Improvement
+**Domain:** Python vulnerability-reporting suite — management/exec trend-cut modules + GEN-01 migration
+**Researched:** 2026-06-11
 **Confidence:** HIGH
 
 ## Executive Summary
 
-v1.2 adds no new application logic — every deliverable is infrastructure. The goal is a clean, operator-reproducible deployment path: slim release tarballs produced by a GitHub Actions workflow, a shell update script that downloads, validates, extracts, and atomically swaps releases, and documentation that lets a non-author operator deploy, upgrade, and roll back without touching the author. The core pattern is industry-standard (Capistrano/Mina-style symlink layout: `current → releases/vX.Y.Z`, with `shared/` carrying config and runtime-generated state across upgrades), applied to a Python + systemd daemon on a single Linux host.
+v1.4 is a **thin-consumer milestone**. The six new metric modules (New vs Remediated, Vulnerability Density, Reopened Vulnerabilities, Accepted & Recast, External/DMZ Exposure Cut, Program Health Overview), the MTTR rework, and the GEN-01 `management_summary` migration are all built on top of the already-shipped **S1 trend substrate** and **S2 owner segmentation** — they fetch no new data, introduce no new dependencies, and require no pyTenable upgrade. WAS findings are explicitly **deferred**, which keeps the SDK pinned at pyTenable 1.5.2 and eliminates the only scenario that would have required a breaking stack change.
 
-The recommended build order is strictly sequential for the first three phases and then opens up. `.gitattributes` must land before any tag is pushed — a wrong tarball is immutable on GitHub. The release workflow depends on `.gitattributes` being correct. The update script depends on a real release tarball existing. Only `scripts/warm_cache.py` is independent of this chain and can be developed and tested against the existing live install in parallel with Phase 1 or Phase 3. Documentation is the final gate — written last so it describes final, not provisional, behavior.
+The two new shared substrates (`utils/external_scope.py` dual-signal IP/tag classifier and `utils/asset_count.py` density denominator) are pure-compute, **stdlib-only** helpers — zero new pip packages.
 
-The dominant risk category for this milestone is silent failure at the seams: partial tarball extraction leaving broken release directories, non-atomic symlink swaps creating a window where `scheduler.py` starts with no working directory, rollback breadcrumbs written before the swap they record, and `Restart=on-failure` masking a bad deploy by repeatedly restarting against broken code. All five critical pitfalls are implementation requirements in the update script, not nice-to-haves. The secondary risk is credential and sensitive data leakage into the public release tarball via `.env.example` or accidentally-staged `data/trend/` snapshots — the D-04-08 pre-release checklist must be enforced at every tag push.
+The recommended build order flows strictly: **substrate availability → composed_report kwargs gates → independent modules → Program Health → GEN-01 last**. GEN-01 is the riskiest item because it replaces a ~2,200-line bespoke render path with a `ReportComposer` pipeline while existing `management_summary` delivery must continue uninterrupted. The board_summary cutover pattern is the proven playbook: structural smoke baselines captured **before** any rewrite, atomic bespoke-path removal only after structural + visual UAT pass, and explicit elimination of the dual-writer trap (`management_summary_*.json` and `trend_*.json` must never grow simultaneously).
 
----
+The primary correctness risks are mandatory acceptance criteria, not polish: (1) cold-start mishandling — every new tag scope is a cold start, `insufficient_data` branch required on every MoM module; (2) MTTR reopened-finding inflation — resolved-population decision locked before any MTTR code; (3) Vulnerability Density denominator drift — historical density uses each snapshot's own `asset_count`, never live `assets_df` length; (4) GEN-01 regression — bespoke path not deleted until smoke baselines pass.
 
 ## Key Findings
 
 ### Recommended Stack
 
-v1.2 adds no Python dependencies. `scripts/warm_cache.py` reuses `tenable_client.get_client()`, `data.fetchers.fetch_all_vulnerabilities()`, `data.fetchers.fetch_all_assets()`, `rich`, and `python-dotenv` — all already in `requirements.txt`. The release workflow uses two GitHub Actions (`actions/checkout@v4`, `softprops/action-gh-release@v2`) and `git archive` for tarball construction. The update script uses only POSIX shell utilities (`curl`, `tar`, `ln`, `mv`, `systemctl`) plus Python's stdlib `json` module for GitHub API parsing — `jq` must not be required.
+The locked stack is fully sufficient. `requirements.txt` is **unchanged**. Every v1.4 capability maps to an already-pinned package (pandas 2.2.3, matplotlib 3.10.1 + plotly 6.0.1 + kaleido, openpyxl, weasyprint 65.1, Jinja2, pyTenable 1.5.2). Python 3.10+ stdlib `ipaddress` handles public-IPv4 classification.
 
-**Core technologies:**
-- `actions/checkout@v4`: repo checkout in release workflow — current stable major (v3 deprecated; verify at commit time with `gh release list -R actions/checkout`)
-- `softprops/action-gh-release@v2`: single-step release creation + tarball asset upload — preferred over archived `actions/create-release`; verify at commit time
-- `git archive` + `.gitattributes export-ignore`: slim tarball construction — idiomatic; no separate exclude-list maintenance
-- `python3 -c` (stdlib json): GitHub API parsing in `--check` mode — avoids `jq` dependency on minimal RHEL/Debian servers
-- `ln -sfn` (atomic symlink swap): POSIX `rename(2)` syscall is atomic on Linux filesystems
+**Zero-new-dependency verdict — confirmed:**
+- `pyTenable` stays at 1.5.2 — WAS deferral keeps the SDK-version constraint intact; no `fetch_was_findings()` / `was_findings.parquet`
+- No new charting library — matplotlib + plotly cover all v1.4 chart types
+- No geo/IP-geolocation library — RFC-range classification only
+- No scipy/statsmodels — sample-weighted MTTR mean is plain pandas
+- **Python 3.10 `ipaddress` note:** `is_private` in 3.10 does NOT cover CGNAT `100.64.0.0/10`; an explicit `addr in ip_network("100.64.0.0/10")` check is required for correctness on the 3.10 minimum
 
-**Version verification required before committing `release.yml`:**
-```bash
-gh release list -R actions/checkout --limit 5
-gh release list -R softprops/action-gh-release --limit 5
-```
+**Two new substrate files (stdlib-only):**
+- `utils/external_scope.py` — dual-signal external-asset classifier (`Location=External/DMZ` tag OR `is_public_ipv4()`); emits `(scoped_df, mismatches_df)` following the S2 `extract_owner()` shape
+- `utils/asset_count.py` — pure asset-count denominator; mirrors `utils/open_count.py` placement
 
-See `.planning/research/STACK.md` for full version-pinning rationale and operator verification checklist.
-
----
+**Asset-count denominator — already partly solved:** `data/trend_store.py` constraint D-04 already captures `asset_count` per snapshot since v1.3, so historical density denominators are free from the existing S1 store; only the current-run denominator needs the new helper.
 
 ### Expected Features
 
-**Must have (table stakes):**
-- `.gitattributes export-ignore` for dev paths — gate for release workflow; must land first
-- `update_from_github.sh --version vX.Y.Z` — the core deploy action
-- Atomic `current` symlink swap — `ln -sfn` only; `rm` + `ln` is forbidden
-- `--rollback` mode — reads `.last` breadcrumb; breadcrumb written after swap, not before
-- `--check` mode — exits 0/1/2 for up-to-date/update-available/error
-- `--list` mode — shows installed releases with active marker
-- Pre-swap `--dry-run` validation (`python run_all.py --dry-run`) — abort swap on failure
-- `shared/` symlink wiring (`.env`, `delivery_config.yaml`, `logs/`, `output/`, `data/cache/`, `data/trend/`)
-- systemd service restart after swap — default on; `--skip-restart` must warn
-- `scripts/warm_cache.py` standalone entry point
-- Cron-friendly exit codes on `warm_cache.py` — exit 0/non-zero; `RotatingFileHandler` from day one
-- GitHub Actions `release.yml` on `v*` push + `workflow_dispatch`
-- SHA256 checksum asset alongside tarball
-- `DEPLOYMENT.md` — tarball-only install path; operator-focused
-- RUNBOOK additions — "Operational cron schedule" + "Updating from GitHub"
-- Root `README.md` — currently absent
+Five table stakes, two differentiators; all thin consumers of S1 + S2.
 
-**Should have (differentiators):**
-- Print rollback one-liner on every successful upgrade
-- `--force` flag on `--version` to re-extract over existing release dir
-- Tarball SHA256 validation in update script
-- Prerelease detection from tag suffix (`-rc1`, `-beta`)
-- `deploy/crontab.example`
-- `workflow_dispatch` input for manual release trigger
-- `systemd ReadWritePaths` update for `current` symlink layout (required for SELinux correctness)
+**Table stakes:** New vs Remediated, Reopened Vulnerabilities, Accepted & Recast (supersedes management_summary Metric 6; tracks ACCEPTED vs RECASTED separately), MTTR Rework (ships as new `mttr_trend` MODULE_ID to protect board_summary), Program Health Overview (composites Modules 1 + 6 + GEN-01 SLA module), GEN-01 migration.
 
-**Defer to post-v1.2:**
-- `warm_cache.py --date` and `--prune-stale` flags
-- Auto-generated release notes
-- README badges
-- Multi-host / fleet deployment
-- PyPI packaging, Docker/container packaging
+**Differentiators:** Vulnerability Density (historical `asset_count` denominator already in S1 snapshots), External/DMZ Exposure Cut (dual-signal scope).
 
-See `.planning/research/FEATURES.md` for full feature dependency graph (~2–3 days table stakes; ~4–6 days with differentiators).
+**Deferred (not v1.4):** WAS in External Exposure (needs SDK upgrade); External MoM trend via S1 parameterized dimension (current-snapshot-only acceptable); MTTR backfill beyond ~29 days; sub-monthly reopen rate.
 
----
+### Open Decisions — lock at plan-time
+
+| # | Decision | Module(s) | Recommended Resolution |
+|---|----------|-----------|------------------------|
+| OD-1 | "New" inflow: `first_found` only vs `OR resurfaced_date` | New vs Remediated | `first_found` only for v1.4; document limitation |
+| OD-2 | Density denominator definition | Vulnerability Density | On-time-scanned licensed assets (consistent with board_summary baseline) |
+| OD-3 | Reopened snapshot dimension in S1 | Reopened + Accepted & Recast | Extend `capture_snapshot` with new dimensions; avoid proliferating snapshot files |
+| OD-4 | MTTR resolved-population | MTTR Rework | Exclude current-REOPENED population (Option B); durably-fixed findings only |
+| OD-5 | Program Health composite RAG | Program Health Overview | Green = all 4 green; Amber = 2–3 green; Red = 0–1 green |
+| OD-6 | External exposure MoM trend mechanism | External Exposure | Defer MoM trend to v1.5; current-snapshot-only in v1.4 |
+| OD-7 | MTTR rework MODULE_ID | MTTR Rework | New `mttr_trend` MODULE_ID; `mttr_by_severity` untouched; re-capture board_summary baselines |
+| OD-8 | management_summary legacy trend-JSON migration vs cold start | GEN-01 | Cold start; accumulate forward; document discontinuity in runbook |
 
 ### Architecture Approach
 
-The symlink layout is transparent to all existing Python code. `config.CACHE_DIR` and `config.LOG_DIR` resolve correctly through symlinks — no changes to `config.py`, `run_all.py`, `scheduler.py`, or any report script are required. The seam for `warm_cache.py` is `data/fetchers.py` directly; no helper extraction from `run_all.py` needed.
+v1.4 adds two new kwargs gates in `composed_report.py` (~25 lines: two frozensets + two conditional fetch blocks), seven new module files, two new util substrates, one new smoke script, and the major `reports/management_summary.py` migration. The `**self._kwargs` fan-out in `ReportComposer.run_module()` already distributes new kwargs to every `compute()` — `composer.py` and `base.py` untouched. Auto-discovery means new modules consumed only via `composed_report`/`management_summary` need no `run_all.py` or schema registration.
 
-**Major components:**
+**New/modified components:**
+1. `utils/external_scope.py` (NEW) — pure compute; `(scoped_df, mismatches_df)` tuple
+2. `utils/asset_count.py` (NEW) — pure denominator
+3. `reports/composed_report.py` (MINOR) — `_MODULES_NEEDING_TREND_SNAPSHOTS` + `_MODULES_NEEDING_RECAST_RULES` gates
+4. Seven new `reports/modules/*_module.py` (NEW) — full four-channel contract, no legacy `render_email_kpis`-only shortcuts
+5. `scripts/smoke_management_summary_cutover.py` (NEW) — structural baseline; first commit of the GEN-01 phase
+6. `reports/management_summary.py` (GEN-01) — bespoke path → ReportComposer pipeline; 5 of 7 metrics already have modules; 2 new (`accepted_recast`, `new_vs_remediated`) + MTTR rework required before cutover
+7. `run_all.py` (MINOR, GEN-01) — add `management_summary` to `_CHROME_AWARE_SLUGS`
 
-1. **`.gitattributes`** — defines tarball content; per-file exclusion for dev-only scripts; do NOT blanket-exclude `scripts/`
-2. **`deploy/vuln-reports.service` (modified)** — `WorkingDirectory=/opt/vuln-reporting/current`, `EnvironmentFile=/opt/vuln-reporting/shared/.env`, `ExecStart=/opt/vuln-reporting/current/.venv/bin/python scheduler.py --mode daemon`, `ReadWritePaths` pointing at `shared/` subtrees
-3. **`scripts/warm_cache.py`** — imports `fetch_all_vulnerabilities` + `fetch_all_assets` directly from `data.fetchers`; uses `config.CACHE_DIR` (local time, not UTC); atomic parquet write via `os.replace`; `RotatingFileHandler` on `logs/warm_cache.log`
-4. **`.github/workflows/release.yml`** — `permissions: contents: write`; `git archive` tarball named `vuln-reporting-vX.Y.Z-slim.tar.gz`; SHA256 as second asset; tarball content assertion step before upload
-5. **`scripts/update_from_github.sh`** — POSIX shell; `set -euo pipefail`; extract to `.tmp` dir with `trap` cleanup; `ln -sfn` atomic swap; `.last` breadcrumb written after swap; pre-swap `--dry-run`; post-swap `systemctl is-active` check with 10-second settle; optional `GITHUB_TOKEN` for API auth
-6. **Documentation** — written last against final behavior
+**Untouched:** `composer.py`, `base.py`, `data/trend_store.py`, `utils/open_count.py`, `utils/tag_helper.py`, `data/fetchers.py`, `delivery_config.schema.yaml`, `_VALID_REPORTS`/`_REPORT_MODULE_MAP`, all five existing constituent metric modules.
 
-**Paths that do NOT change:** `run_all.py`, `data/fetchers.py`, `config.py`, `scheduler.py`, all report scripts.
+### Critical Pitfalls — mandatory acceptance bars
 
-See `.planning/research/ARCHITECTURE.md` for complete new/modified file list and post-v1.2 operational sequence diagram.
-
----
-
-### Critical Pitfalls
-
-1. **Non-atomic symlink swap (CRITICAL-03)** — `rm` + `ln` leaves a broken-symlink window. Use only `ln -sfn TARGET LINK`; comment in script forbids `rm` form.
-2. **`Restart=on-failure` masks a bad deploy (CRITICAL-04)** — systemd repeatedly restarts against broken code. Prevention: pre-swap `--dry-run` (abort swap on failure) + post-swap `systemctl is-active` with 10-second settle; auto-rollback if not active.
-3. **`.env.example` with non-placeholder values in tarball (CRITICAL-01)** — `.env` is gitignored and safe; `.env.example` IS tracked. A developer who filled in real values exposes credentials on the GitHub Release page permanently. Prevention: D-04-08 pre-release checklist + CI `grep` check in `release.yml`.
-4. **`data/trend/` sneaks into tarball via accidental staging (CRITICAL-02)** — gitignored paths bypass `export-ignore` if accidentally staged. Prevention: belt-and-suspenders `export-ignore` lines for `data/trend/`, `output/`, `logs/`, `data/cache/` + tarball content assertion in `release.yml`.
-5. **Rollback breadcrumb written before swap completes (CRITICAL-05)** — `.last` must be written after `ln -sfn` succeeds. Read `PREV=$(readlink current)` before the swap; write it after.
-6. **`scripts/` blanket exclusion removes runtime tools (MOD-05)** — per-file exclusion for `setup_github_labels.py`, `smoke_board_summary_cutover.py`, `smoke_email_phase2.py` only.
-7. **`contents: write` permission missing from `release.yml` (MOD-09)** — GitHub's default `GITHUB_TOKEN` is read-only since 2023; explicit `permissions: contents: write` is required.
-
-See `.planning/research/PITFALLS.md` for all pitfalls with detection methods and the phase-specific warnings table.
-
----
+1. **Cold-start** — branch on `read_trend()` `insufficient_data` before any delta; every new tag scope is a cold start; unit-test single-snapshot fixture renders a message, not `NaN%`.
+2. **MTTR reopened inflation** — `(last_fixed − first_found)` spans the reopen cycle; lock OD-4 first; fixture (found 200d ago, resurfaced 10d ago, fixed 2d ago) → ~8d not 198d.
+3. **Density denominator drift** — use `snapshot["asset_count"]` per month; never divide history by `len(assets_df)`.
+4. **GEN-01 dual-writer + smoke-before-cutover** — baseline before any migration code; remove `_save_trend_snapshot()` in the same plan that routes reads through `read_trend()`.
+5. **Reopened-aware open predicate mandatory** — `open_findings_at()` two-interval; naive filter drops ~19%.
+6. **pandas 3.0 CoW** — `.assign()` only; never `df["col"]=` after a filter (burned v1.3 in `260611-b1x`).
+7. **Empty-data guard on all four channels** — `safe_pct`/`safe_int`/`safe_format`; `_empty_result()` on zero rows.
+8. **Aggregate-only PII (D-04-08)** — synthetic fixtures/baselines only; External mismatch list is output-only.
 
 ## Implications for Roadmap
 
-### Phase 1: Foundations — `.gitattributes` + Service Unit
+Suggested structure: **5 phases**
 
-**Rationale:** Everything downstream depends on the tarball being correct. A tag pushed without correct `export-ignore` rules bakes the wrong file list into an immutable release artifact. The service unit must also be updated before the first real deployment using the symlink layout — it ships in the tarball and must be correct from release one.
+1. **Shared Substrates + composed_report Gates** — `utils/external_scope.py`, `utils/asset_count.py`, two kwargs gates. Small, independently verifiable, unblocks everything. Addresses OD-2, OD-6; avoids external false-positives + denominator drift at the substrate. Standard patterns.
+2. **Independent New Modules** — `reopened_vulns`, `external_dmz`, `accepted_recast`, `new_vs_remediated`, `vuln_density` (Reopened first — no trend dep, validates contract against `state`/`resurfaced_date`). Mutually independent. Lock OD-1, OD-3 in plan. Standard patterns.
+3. **MTTR Rework** — ships as `mttr_trend` (new MODULE_ID); window disclosure, sample-weighted mean, OD-4 denominator, trend + Owner, four-channel; re-capture board_summary baselines. Lock OD-4 before code.
+4. **Program Health Overview** — composites Modules 1 (New vs Remediated) + 6 (MTTR) + GEN-01 SLA; OD-5 composite RAG; cold-start-safe sparklines. Sequenced after its inputs.
+5. **GEN-01 — management_summary Migration** — smoke baseline as the mandatory **first commit**; atomic bespoke-path removal after structural smoke + visual UAT; `_CHROME_AWARE_SLUGS` inversion; OD-8. **Highest risk — elevated planning care.**
 
-**Delivers:** Correct slim tarball definition; updated systemd unit targeting `current/` paths; resolution of the `scripts/` per-file exclusion question.
+**Ordering rationale:** substrates before consumers; independent modules before the compositor; MTTR before Program Health (hard dependency); GEN-01 last (needs all seven constituent modules, highest regression risk).
 
-**Open decision to resolve:** `RUNBOOK.MD` export-ignore vs. `Documentation=` directive — research recommendation is to remove the `Documentation=` line.
-
-**Avoids:** CRITICAL-02, MOD-03, MOD-05.
-
----
-
-### Phase 2: `scripts/warm_cache.py`
-
-**Rationale:** Independent of the release/symlink infrastructure — can be built and tested against the existing live install right now. Highest-value deliverable for reducing report latency.
-
-**Delivers:** `scripts/warm_cache.py` with `--prune-stale`, `--date`, `--verbose`, `--dry-run` flags; `scripts/__init__.py`; `logs/warm_cache.log` with rotation.
-
-**Avoids:** MOD-01 (schedule away from midnight), MOD-02 (atomic write via `os.replace`).
-
----
-
-### Phase 3: Release Workflow
-
-**Rationale:** Depends on Phase 1. Once a test tag is pushed, a real release tarball exists on GitHub — which Phase 4 requires to test the update script end-to-end.
-
-**Delivers:** `.github/workflows/release.yml`; `vuln-reporting-vX.Y.Z-slim.tar.gz`; SHA256 `.sha256` second asset; tarball content assertion step; prerelease detection.
-
-**Avoids:** MOD-09 (`permissions: contents: write`), MOD-04, MINOR-02 (`-slim` suffix), CRITICAL-01 (`.env.example` grep check).
-
-**Open decision before tagging:** Confirm GitHub org/repo path for the Releases API URL used by Phase 4.
-
----
-
-### Phase 4: `update_from_github.sh` + Symlink Layout
-
-**Rationale:** Requires a real release tarball from Phase 3. Most complex phase — all five critical pitfalls live here.
-
-**Delivers:** `scripts/update_from_github.sh` with `--check`, `--version`, `--rollback`, `--list`, `--force`, `--skip-restart`; `deploy/crontab.example`; on-disk layout instantiated.
-
-**Avoids:** CRITICAL-03, CRITICAL-04, CRITICAL-05, MOD-08 (`set -euo pipefail` + trap), MOD-06.
-
-**Open decision:** `.venv` per-release vs. shared. Recommendation: per-release.
-
----
-
-### Phase 5: Documentation
-
-**Rationale:** Written last so it describes final, not provisional, behavior.
-
-**Delivers:** `README.md`; `DEPLOYMENT.md`; RUNBOOK additions ("Operational cron schedule" + "Updating from GitHub").
-
-**Avoids:** MINOR-01 (tarball-only install), MINOR-03 (rollback one-liner placement), MINOR-05 (schema migration step), MOD-07 (`shared/` content contract).
-
----
-
-### Phase Ordering Rationale
-
-- `.gitattributes` before any tag is a hard prerequisite enforced by `git archive` immutability.
-- `warm_cache.py` can run in parallel; no external dependency.
-- Release workflow before update script — script's download path requires a real tarball.
-- Documentation last — describes final behavior.
-
-### Research Flags
-
-No phases need a full research-phase invocation. Phase 4 warrants a pre-implementation PITFALLS.md review checklist (CRITICAL-03, 04, 05, MOD-08) before writing the shell script.
-
----
+**Research flags:** Phase 5 (GEN-01) needs deeper planning care — the baseline→build→UAT→remove sequence must be the literal plan structure. Phases 1–4 are standard patterns; their only blockers are the listed open decisions, which must be locked in each phase's plan context before coding.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | MEDIUM | Action version pins drawn from Aug 2025 training data cutoff; verify with `gh release list` before committing `release.yml`. |
-| Features | HIGH | Every table-stakes feature explicitly captured by the operator in prior todo exploration. |
-| Architecture | HIGH | Integration analysis grounded in actual code line numbers; `ln -sfn` atomicity and systemd behavior are documented facts. |
-| Pitfalls | HIGH | All critical pitfalls grounded in project files and git history. |
+| Stack | HIGH | Direct `requirements.txt` + fetcher/module inspection; WAS deferral removes the only speculative dependency question |
+| Features | HIGH | All items traced to specific source files; substrate fields confirmed in `trend_store.py` D-04 |
+| Architecture | HIGH | Integration derived from direct inspection of `composed_report.py`, `composer.py`, `management_summary.py`; all extension points already exercised by board_summary |
+| Pitfalls | HIGH | Grounded in this codebase's own bugs/constraints: `260611-b1x` (CoW), Spike 002 (29-day retention), v1.0 board_summary cutover |
 
 **Overall confidence:** HIGH
 
-### Open Decisions (must be resolved during phasing)
+### Gaps to address during planning
 
-1. `scripts/` per-file exclusion list — which smoke test files to exclude individually (Phase 1)
-2. `Documentation=` line in service unit — remove vs. update path (Phase 1)
-3. GitHub org/repo slug for Releases API URL (Phase 3 gate before Phase 4)
-4. `.venv` per-release vs. shared (Phase 4 design decision)
-
----
-
-## Sources
-
-**Primary (HIGH):** `deploy/vuln-reports.service`, both pending todos, `.planning/PROJECT.md`, `data/fetchers.py:175-200`, `run_all.py:658-671`, POSIX `rename(2)`, systemd documentation, git `export-ignore` documentation.
-
-**Secondary (MEDIUM):** `actions/checkout@v4` and `softprops/action-gh-release@v2` current majors; GitHub default `GITHUB_TOKEN` permissions; auto-tarball naming pattern; unauthenticated API rate limit.
-
-**Tertiary (LOW):** Complexity estimates (S/M/L) — inferred, not measured.
+- **OD-1 … OD-8** — lock each in the phase plan where the affected module begins.
+- **`resurfaced_date` population** — verify against a live tenant sample before finalizing the Reopened module's analyst drill-down (Phase 2).
+- **S1 `capture_snapshot` extension (OD-3)** — confirm the extension doesn't break existing callers; Phase 2 smoke check on the trend store warranted.
 
 ---
-*Research completed: 2026-05-19*
-*Ready for roadmap: yes*
+*Research completed: 2026-06-11 — Ready for roadmap: yes*
