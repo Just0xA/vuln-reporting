@@ -78,8 +78,11 @@ def _make_vulns(rows: list[dict]) -> pd.DataFrame:
     # columns (a columnless frame breaks date coercion / extract_owner).
     df = pd.DataFrame(records, columns=list(defaults.keys()))
     # Normalise date columns to datetime64[ns, UTC] (as fetcher would do)
-    for col in ("first_found", "last_fixed", "resurfaced_date"):
-        df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
+    # Use .assign() to avoid ChainedAssignmentError under CoW strict mode.
+    df = df.assign(**{
+        col: pd.to_datetime(df[col], utc=True, errors="coerce")
+        for col in ("first_found", "last_fixed", "resurfaced_date")
+    })
     return df
 
 
@@ -104,8 +107,11 @@ def _make_assets(rows: Optional[list[dict]] = None) -> pd.DataFrame:
     # columns= keeps the fetcher contract on empty input.
     df = pd.DataFrame(records, columns=list(defaults.keys()))
     # Normalise last_licensed_scan_date to datetime64[ns, UTC]
-    df["last_licensed_scan_date"] = pd.to_datetime(
-        df["last_licensed_scan_date"], utc=True, errors="coerce"
+    # Use .assign() to avoid ChainedAssignmentError under CoW strict mode.
+    df = df.assign(
+        last_licensed_scan_date=pd.to_datetime(
+            df["last_licensed_scan_date"], utc=True, errors="coerce"
+        )
     )
     return df
 
@@ -390,8 +396,10 @@ class TestCurrentRunDenomNone:
             [{"asset_uuid": _uuid(1), "tags": "", "last_licensed_scan_date": None}],
             columns=["asset_uuid", "tags", "last_licensed_scan_date"],
         )
-        assets_no_lsd["last_licensed_scan_date"] = pd.to_datetime(
-            assets_no_lsd["last_licensed_scan_date"], utc=True, errors="coerce"
+        assets_no_lsd = assets_no_lsd.assign(
+            last_licensed_scan_date=pd.to_datetime(
+                assets_no_lsd["last_licensed_scan_date"], utc=True, errors="coerce"
+            )
         )
 
         snapshots = [
@@ -416,8 +424,10 @@ class TestCurrentRunDenomNone:
         assets_empty = pd.DataFrame(
             columns=["asset_uuid", "tags", "last_licensed_scan_date"]
         )
-        assets_empty["last_licensed_scan_date"] = pd.to_datetime(
-            assets_empty["last_licensed_scan_date"], utc=True, errors="coerce"
+        assets_empty = assets_empty.assign(
+            last_licensed_scan_date=pd.to_datetime(
+                assets_empty["last_licensed_scan_date"], utc=True, errors="coerce"
+            )
         )
         snapshots = [
             _make_snapshot("2026-04", high=5, on_time_asset_count=5),
