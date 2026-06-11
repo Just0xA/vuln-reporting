@@ -101,8 +101,8 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 6. Every new module survives a zero-row filtered input on all four channels without raising; all computed percentages use `safe_pct`/`safe_int`/`safe_format`; no `df["col"] = val` after a filter anywhere in new module code (QUAL-03, pandas CoW).
 7. No committed test fixture or baseline contains real hostnames, IPs, or plugin names; all synthetic data uses RFC 6761/5737 addresses (QUAL-05).
 **Plans**: 6 plans
-- [ ] 15-01-PLAN.md — reopened_vulns PATHFINDER module (RPT-03) + live-tenant resurfaced_date spot-check
-- [ ] 15-02-PLAN.md — backward-compatible capture_snapshot() aggregate-field extension + cron wiring (RPT-02/03/04)
+- [x] 15-01-PLAN.md — reopened_vulns PATHFINDER module (RPT-03) + live-tenant resurfaced_date spot-check
+- [x] 15-02-PLAN.md — backward-compatible capture_snapshot() aggregate-field extension + cron wiring (RPT-02/03/04)
 - [ ] 15-03-PLAN.md — external_dmz current-snapshot module + locked mismatch list (RPT-06)
 - [ ] 15-04-PLAN.md — new_vs_remediated stacked-inflow MoM module + composed_report gate registration (RPT-01)
 - [ ] 15-05-PLAN.md — vuln_density per-snapshot-denominator MoM module (RPT-02)
@@ -187,7 +187,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 12. Trend Snapshot Substrate | v1.3 | 3/3 | Complete | 2026-06-08 |
 | 13. Owner Segmentation + Comp. | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 14. Shared Substrates + composed_report Gates | v1.4 | 3/3 | Complete    | 2026-06-11 |
-| 15. Independent New Modules | v1.4 | 0/6 | Not started | - |
+| 15. Independent New Modules | v1.4 | 2/6 | In Progress|  |
 | 16. MTTR Rework | v1.4 | 0/TBD | Not started | - |
 | 17. Program Health Overview | v1.4 | 0/TBD | Not started | - |
 | 18. management_summary Migration + Docs | v1.4 | 0/TBD | Not started | - |
