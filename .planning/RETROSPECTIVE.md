@@ -61,21 +61,64 @@ Extended `BaseModule` with three new render hooks (`render_email_panel`, `render
 
 ---
 
+## Milestone: v1.3 — Trend & Segmentation Substrate
+
+**Shipped:** 2026-06-11
+**Phases:** 2 (12–13) | **Plans:** 8 | **Quick tasks:** 1 (260611-b1x)
+**Timeline:** ~3 days (built 2026-06-08 → closed 2026-06-11)
+
+### What Was Built
+
+Two shared substrates so the June-2026 report batch becomes thin v1.4 consumers. **S1:** the reopened-aware two-interval `open_findings_at()` open-count primitive (`utils/open_count.py`) plus `data/trend_store.py` (atomic, idempotent monthly capture/read; cold-start safe; aggregate-only PII) and a `scripts/capture_trend_snapshot.py` cron entry point — extending `data/trend/` without regressing `management_summary`. **S2:** the `extract_owner()` Owner/Application tag helper with a lossless `Unassigned` catch-all, a combined analyst worklist (`reports/owner_supplemental.py`) wired fail-soft into `board_summary`, and owner-dimension trend composition proving S1×S2 end-to-end. Documented in `docs/trend_and_segmentation_calculations.md`.
+
+### What Worked
+
+- **Spike-first settled constraints.** Spikes 001–003 (run in a prior session) had already locked the load-bearing decisions — snapshot-not-reconstruction (~29-day retention wall), the reopened-aware predicate (naive form drops ~19%), WAS-is-heavy — so planning never re-litigated them. The `spike-findings-vuln-reporting` skill carried them forward.
+- **TDD RED→GREEN, again the default.** The open-count predicate (12-01), the 13-05 gap-closure (CR-01/WR-05/WR-02 duplicate-uuid cluster), and the closing quick task (260611-b1x) all landed a failing test first.
+- **Verify-before-build caught a stale phase.** The milestone-close audit deferred 3 items into a new Phase 14. Reading the live code before planning showed the headline item was already fixed + regression-tested (`71207e6`) and the rest was ~15 lines — so the phase was removed and the work done as a quick task. Avoided a full discuss→plan→execute cycle for a trivial fix.
+
+### What Was Inefficient
+
+- **Audit findings went stale between audit and action.** The v1.3 milestone audit cited `utils/open_count.py:82-88` for a NaT-FIXED over-count that had already been fixed at lines 108-112 in the same milestone; it also mislabeled which `owner_supplemental.py` lines emitted the CoW warning (cited 128/129; the real one was 139). Acting on the audit verbatim would have meant redundant and misdirected work.
+- **`audit-open` false-positives on every quick task.** This project's quick SUMMARYs omit a `status:` frontmatter field, so the pre-close audit flagged all 12 historical quick tasks as "missing" — noise at a milestone boundary. Cosmetic follow-up captured.
+- **pandas Copy-on-Write resurfaced exactly as the v1.0 watchlist predicted.** The chained-assignment `df[col] = …fillna()…` on the open-count column emitted the pandas-3.0 `ChainedAssignmentError`; fixed with `.assign()` — the same pattern flagged in v1.0's carry-forward watchlist.
+
+### Patterns Established
+
+- **Re-verify audit findings against live code before planning closure work.** An audit is a snapshot; code moves under it. Confirm each cited line/commit before spinning up a phase to "fix" it.
+- **Quick task over phase for trivial, well-scoped fixes.** When closure work is a known ~15-line change in one file, `/gsd-quick` (atomic commits + state tracking, no subagent ceremony) beats inserting a roadmap phase.
+
+### Key Lessons
+
+1. **Audit reports can be stale on arrival.** Between writing an audit and acting on it, the cited code may already have changed. Re-read the exact lines/commits before treating a finding as open work — one of three v1.3 "tech-debt" items was already fixed and tested.
+2. **The v1.0 CoW watchlist item materialized verbatim.** `.loc[]`/`.assign()` for any int-dtype-critical column is now non-negotiable; the chained setter silently no-ops under CoW. Carry forward.
+3. **`-W error::FutureWarning` is a precise diagnostic, but third-party deprecations ride along.** It pinpointed the real production CoW line, but a matplotlib/pyparsing `PyparsingDeprecationWarning` (a FutureWarning subclass) tripped an unrelated e2e test — distinguish your warnings from the dependency tree's.
+
+### Cost Observations
+
+- **Model mix:** Opus orchestrator (main loop); planner on Opus, executor on Sonnet for the closing quick task. No downshifts during substrate build.
+- **Sessions:** substrate build across 2026-06-08 → 06-10; milestone close 2026-06-11.
+- **Notable:** the verify-before-build check on the Phase 14 premise was the highest-leverage move — a few file reads replaced an entire phase.
+
+---
+
 ## Cross-Milestone Trends
 
-(This section accumulates patterns across multiple milestones. v1.0 is the first entry; trends will emerge starting at v1.1 / v2.0.)
+(This section accumulates patterns across multiple milestones. v1.1 and v1.2 retrospectives were not captured at their close; entries exist for v1.0 and v1.3.)
 
 ### Velocity
 
 | Milestone | Phases | Plans | Quick Tasks | Days | Commits |
 |-----------|--------|-------|-------------|------|---------|
 | v1.0 | 4 | 19 | 1 | 4 | 140 |
+| v1.3 | 2 | 8 | 1 | 3 | 63 |
 
 ### UAT Issues Found Per Milestone
 
 | Milestone | UAT BLOCKERs | UAT major/issue | UAT minor/cosmetic |
 |-----------|--------------|------------------|--------------------|
 | v1.0 | 1 (Phase 03 — pd.NA chokepoint) | 1 (Phase 03 — RAG strip layout) | 0 |
+| v1.3 | 0 | 1 (Phase 13 verify gap — CR-01 duplicate-`asset_uuid`, closed via 13-05) | 0 |
 
 ### Recurring Failure Modes (carry-forward watchlist)
 
