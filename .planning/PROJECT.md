@@ -60,11 +60,21 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 **Codebase state (post-v1.2):** Five reports work end-to-end plus the YAML-driven `composed_report` slug. `board_summary` and `composed_report` are chrome-aware. `management_summary` + `ops_remediation` remain on legacy render paths (untouched); they will inherit chrome only after migration to the module contract (GEN-01/02 deferred). The suite is now server-deployable from signed release tarballs with scripted install/update/rollback (`scripts/update_from_github.sh`), CI-published artifacts (`.github/workflows/release.yml`), a standalone warm-cache job, and authoritative `DEPLOYMENT.md` / `RUNBOOK.md` / `README.md`.
 
-## Next Milestone (planned): v1.4 — June-2026 Report Batch
+## Current Milestone: v1.4 Management Summary Reporting Improvement
 
-With the trend (S1) and Owner-segmentation (S2) substrates shipped in v1.3, v1.4 builds the report modules as thin consumers on top of them. Candidate modules (see ROADMAP Backlog + [`notes/report-requests-batch-2026-06.md`](notes/report-requests-batch-2026-06.md)): VTD-01 Vuln Type Distribution, New-vs-Remediated, Vulnerability Density, Reopened Vulnerabilities, Program Health Overview, Accepted & Recast. External/DMZ + WAS remains gated on the pyTenable-upgrade decision (Spike 003: 1.5.2 `tio.was` has no VPR + no lifecycle fields). GEN-01 `management_summary` migration rides along with the reports that need it.
+**Goal:** Build the June-2026 management/exec trend-cut report batch as modular four-channel reports consuming the shipped S1 (trend) + S2 (Owner) substrates, and migrate `management_summary` onto the module render contract (GEN-01).
 
-Run `/gsd-new-milestone` to scope v1.4 (questioning → research → requirements → roadmap).
+**Target features:**
+- **New vs Remediated** — monthly incoming vs remediated trend (most direct S1 consumer)
+- **Vulnerability Density** — vulns/asset MoM; introduces an asset-count denominator substrate
+- **Reopened Vulnerabilities** — build/config regression tracking (`state==REOPENED` / `resurfaced_date`)
+- **Accepted & Recast** — current posture + prev-month ▲▼%, by Owner (recast rules already in codebase)
+- **Program Health Overview** — MoM velocity across totals, Owner cut
+- **MTTR rework** — disclose ~30d window, sample-weight, reopened-aware, add trend + Owner, four-channel contract
+- **External / DMZ exposure cut** — scope = tagged `Location=External/DMZ` OR computed public IPv4 (non-RFC1918); analyst mismatch/exception list (mirrors S2 `Unassigned`). **WAS deferred** — no pyTenable upgrade this milestone
+- **GEN-01** — migrate `management_summary` to the module render contract (folded in)
+
+**Key context:** WAS deferral keeps the locked pyTenable-version constraint intact (External report is a host-vuln exposure cut, not a new data source). Two new substrates emerge — an asset-count denominator (Density) and an external-scope helper. GEN-01 migration must not regress existing `management_summary` delivery (smoke baselines + visual UAT, same pattern as the v1.0 `board_summary` cutover). All new modules use the four-channel render contract + empty-data hardening; aggregate-only PII discipline (D-04-08) on any new trend snapshots.
 
 **Founding analysis:** [`notes/report-requests-batch-2026-06.md`](notes/report-requests-batch-2026-06.md), [`notes/trend-reconstruction-engine.md`](notes/trend-reconstruction-engine.md), spikes 001–003 ([`spikes/MANIFEST.md`](spikes/MANIFEST.md)), and the `spike-findings-vuln-reporting` skill.
 
@@ -133,4 +143,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-11 — v1.3 Trend & Segmentation Substrate milestone complete*
+*Last updated: 2026-06-11 — v1.4 Management Summary Reporting Improvement milestone started*
