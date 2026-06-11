@@ -78,6 +78,17 @@ _MODULES_NEEDING_FIXED_VULNS = frozenset({"critical_remediation_sla"})
 # narrows it, mirroring the fixed_vulns_df gating pattern.
 _MODULES_NEEDING_ENV_TOTAL = frozenset({"tag_severity_share"})
 
+# Modules that need pre-read trend snapshots forwarded via **kwargs.
+# trend_snapshots = read_trend() result dict {"snapshots": [...], "insufficient_data": bool}.
+# Phase 14 seeds with the SC#4 stub only; each real v1.4 module adds itself
+# in the phase that builds it (D-17).
+_MODULES_NEEDING_TREND_SNAPSHOTS = frozenset({"sc4_kwargs_stub"})
+
+# Modules that need the recast-rules DataFrame forwarded via **kwargs.
+# recast_rules_df = fetch_recast_rules() result DataFrame.
+# Phase 14 seeds with the SC#4 stub only (D-17).
+_MODULES_NEEDING_RECAST_RULES = frozenset({"sc4_kwargs_stub"})
+
 
 # ===========================================================================
 # Public API — called by run_all.py
@@ -192,6 +203,28 @@ def run_report(
         )
         fixed_vulns_df = fetch_fixed_vulnerabilities(tio, cache_dir)
 
+    need_trend = bool(_MODULES_NEEDING_TREND_SNAPSHOTS.intersection(modules))
+    trend_snapshots: Optional[dict] = None
+    if need_trend:
+        from data.trend_store import read_trend, _sanitise_tag_for_filename  # noqa: PLC0415
+        _trend_tag_filter = _sanitise_tag_for_filename(tag_category, tag_value)
+        logger.info(
+            "composed_report: reading trend snapshots (scope=%s) …",
+            _trend_tag_filter,
+        )
+        trend_snapshots = read_trend(
+            dimension  = "severity",
+            tag_filter = _trend_tag_filter,
+            months     = 13,
+        )
+
+    need_recast = bool(_MODULES_NEEDING_RECAST_RULES.intersection(modules))
+    recast_rules_df: Optional[pd.DataFrame] = None
+    if need_recast:
+        from data.fetchers import fetch_recast_rules  # noqa: PLC0415
+        logger.info("composed_report: fetching recast rules …")
+        recast_rules_df = fetch_recast_rules(tio, cache_dir)
+
     logger.info(
         "composed_report: data loaded — vulns=%d, assets=%d, fixed=%s",
         len(vulns_df),
@@ -291,6 +324,10 @@ def run_report(
         composer_kwargs["fixed_vulns_df"] = fixed_vulns_df
     if _MODULES_NEEDING_ENV_TOTAL.intersection(modules):
         composer_kwargs["env_vuln_total"] = env_vuln_total
+    if trend_snapshots is not None:
+        composer_kwargs["trend_snapshots"] = trend_snapshots
+    if recast_rules_df is not None:
+        composer_kwargs["recast_rules_df"] = recast_rules_df
 
     composer = ReportComposer(
         vulns_df       = vulns_df,
