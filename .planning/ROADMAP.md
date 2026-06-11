@@ -53,7 +53,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 
 - [x] **Phase 14: Shared Substrates + composed_report Gates** — external-scope classifier, asset-count denominator, trend/recast kwargs gates
  (completed 2026-06-11)
-- [ ] **Phase 15: Independent New Modules** — New vs Remediated, Vulnerability Density, Reopened Vulns, Accepted & Recast, External/DMZ Exposure
+- [x] **Phase 15: Independent New Modules** — New vs Remediated, Vulnerability Density, Reopened Vulns, Accepted & Recast, External/DMZ Exposure (completed 2026-06-11)
 - [ ] **Phase 16: MTTR Rework** — `mttr_trend` MODULE_ID, window disclosure, sample-weighted mean, reopened-aware denominator, trend + Owner
 - [ ] **Phase 17: Program Health Overview** — composite MoM velocity dashboard composing Modules 1 + 6 + SLA signals
 - [ ] **Phase 18: management_summary Migration + Docs** — GEN-01 cutover onto module render contract; auditor runbooks for all v1.4 modules
@@ -105,8 +105,8 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 - [x] 15-02-PLAN.md — backward-compatible capture_snapshot() aggregate-field extension + cron wiring (RPT-02/03/04)
 - [x] 15-03-PLAN.md — external_dmz current-snapshot module + locked mismatch list (RPT-06)
 - [x] 15-04-PLAN.md — new_vs_remediated stacked-inflow MoM module + composed_report gate registration (RPT-01)
-- [ ] 15-05-PLAN.md — vuln_density per-snapshot-denominator MoM module (RPT-02)
-- [ ] 15-06-PLAN.md — accepted_recast separate-counts + expiry-aware MoM module (RPT-04)
+- [x] 15-05-PLAN.md — vuln_density per-snapshot-denominator MoM module (RPT-02)
+- [x] 15-06-PLAN.md — accepted_recast separate-counts + expiry-aware MoM module (RPT-04)
 **UI hint**: yes
 
 ---
@@ -187,7 +187,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 12. Trend Snapshot Substrate | v1.3 | 3/3 | Complete | 2026-06-08 |
 | 13. Owner Segmentation + Comp. | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 14. Shared Substrates + composed_report Gates | v1.4 | 3/3 | Complete    | 2026-06-11 |
-| 15. Independent New Modules | v1.4 | 4/6 | In Progress|  |
+| 15. Independent New Modules | v1.4 | 6/6 | Complete   | 2026-06-11 |
 | 16. MTTR Rework | v1.4 | 0/TBD | Not started | - |
 | 17. Program Health Overview | v1.4 | 0/TBD | Not started | - |
 | 18. management_summary Migration + Docs | v1.4 | 0/TBD | Not started | - |
