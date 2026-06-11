@@ -126,8 +126,19 @@ def count_on_time_assets(
 
     cutoff = rd_ts - pd.Timedelta(days=window_days)
 
+    # ---- Normalise the column to UTC before comparing (mirrors scan_coverage_sla_module
+    #      lines 262-265): tz-aware columns are tz_convert("UTC"); tz-naive columns are
+    #      tz_localize("UTC").  Without this a tz-naive datetime64[ns] column raises
+    #      "TypeError: Cannot compare tz-naive and tz-aware timestamps" against the
+    #      tz-aware cutoff (WR-01). ----
+    lsd = licensed[_LSD]
+    if getattr(lsd.dt, "tz", None) is not None:
+        lsd = lsd.dt.tz_convert("UTC")
+    else:
+        lsd = lsd.dt.tz_localize("UTC")
+
     # ---- Count on-time rows (last_licensed_scan_date >= cutoff, inclusive) ----
-    on_time_count = int((licensed[_LSD] >= cutoff).sum())
+    on_time_count = int((lsd >= cutoff).sum())
 
     if on_time_count == 0:
         logger.debug(

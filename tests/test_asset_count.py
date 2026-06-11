@@ -62,6 +62,26 @@ def test_some_assets_stale() -> None:
     assert result == 1
 
 
+def test_tz_naive_column_does_not_raise() -> None:
+    """
+    WR-01 regression: a tz-naive last_licensed_scan_date column must be coerced
+    to UTC before comparison, not raise "Cannot compare tz-naive and tz-aware".
+
+    All existing fixtures build the column with utc=True (always tz-aware), so
+    the tz-naive-column path was never exercised. Build it tz-naive here and
+    assert a correct int count with no exception.
+    """
+    # pd.to_datetime WITHOUT utc=True -> tz-naive datetime64[ns] column.
+    # _REPORT_DATE is 2026-06-01 12:00 UTC -> cutoff (30d) = 2026-05-02 12:00 UTC.
+    dates = [pd.Timestamp("2026-05-27"), pd.Timestamp("2026-05-10")]  # both inside window
+    df = pd.DataFrame({"last_licensed_scan_date": pd.to_datetime(dates)})
+    assert df["last_licensed_scan_date"].dt.tz is None  # confirm fixture is tz-naive
+
+    result = count_on_time_assets(df, _REPORT_DATE, window_days=30)
+    # Both within the 30-day window (cutoff = 2026-05-02 12:00, inclusive) -> 2.
+    assert result == 2
+
+
 def test_unlicensed_assets_excluded() -> None:
     """Assets with NaT last_licensed_scan_date are not licensed and excluded."""
     df = _make_assets([5, None, None])
