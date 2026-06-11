@@ -2,9 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Management Summary Reporting Improvement
-status: planning
-last_updated: "2026-06-11T15:33:00.000Z"
-last_activity: 2026-06-11
+status: Roadmap created; ready for `/gsd-plan-phase 14`
+stopped_at: Phase 14 context gathered
+last_updated: "2026-06-11T16:56:00.279Z"
+last_activity: 2026-06-11 — v1.4 roadmap created (Phases 14–18, 17 requirements)
 progress:
   total_phases: 5
   completed_phases: 0
@@ -145,7 +146,7 @@ Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 whic
 
 ## Session Continuity
 
-Last session: 2026-06-11
-Stopped at: v1.4 roadmap created — 5 phases (14–18), 17 requirements mapped
-Resume file: —
+Last session: 2026-06-11T16:56:00.273Z
+Stopped at: Phase 14 context gathered
+Resume file: .planning/phases/14-shared-substrates-composed-report-gates/14-CONTEXT.md
 Next command: `/gsd-plan-phase 14`
