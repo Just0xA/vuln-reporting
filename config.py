@@ -33,6 +33,14 @@ SLA_DAYS: dict[str, int] = {
 }
 
 # =============================================================================
+# On-time scan window — days within which an asset must have received a
+# licensed Tenable scan to be counted as "scanned on time".
+# Consumed by: utils/asset_count.py, reports/modules/scan_coverage_sla_module.py
+# D-13: single canonical source; no drift between substrate and board module.
+# =============================================================================
+ON_TIME_SCAN_WINDOW_DAYS: int = 30
+
+# =============================================================================
 # Severity ordering — used for consistent sorting and display
 # =============================================================================
 SEVERITY_ORDER: list[str] = ["critical", "high", "medium", "low", "info"]
