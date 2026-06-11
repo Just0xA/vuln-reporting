@@ -51,7 +51,8 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 
 ### v1.4 Management Summary Reporting Improvement (Phases 14–18)
 
-- [x] **Phase 14: Shared Substrates + composed_report Gates** — external-scope classifier, asset-count denominator, trend/recast kwargs gates (completed 2026-06-11)
+- [x] **Phase 14: Shared Substrates + composed_report Gates** — external-scope classifier, asset-count denominator, trend/recast kwargs gates
+ (completed 2026-06-11)
 - [ ] **Phase 15: Independent New Modules** — New vs Remediated, Vulnerability Density, Reopened Vulns, Accepted & Recast, External/DMZ Exposure
 - [ ] **Phase 16: MTTR Rework** — `mttr_trend` MODULE_ID, window disclosure, sample-weighted mean, reopened-aware denominator, trend + Owner
 - [ ] **Phase 17: Program Health Overview** — composite MoM velocity dashboard composing Modules 1 + 6 + SLA signals
@@ -99,7 +100,13 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 5. A reader can see External/DMZ Exposure counts (Critical/High/Medium) on externally-scoped assets; the analyst mismatch list (public-IP-but-untagged, tagged-but-private) follows the locked schema (asset_uuid, ip_address, owner_tag, untagged_reason, finding_count aggregate only — no per-finding CVE/plugin detail per D-04-08); zero-external-asset groups render a gray "No external assets in scope" cell, not an error.
 6. Every new module survives a zero-row filtered input on all four channels without raising; all computed percentages use `safe_pct`/`safe_int`/`safe_format`; no `df["col"] = val` after a filter anywhere in new module code (QUAL-03, pandas CoW).
 7. No committed test fixture or baseline contains real hostnames, IPs, or plugin names; all synthetic data uses RFC 6761/5737 addresses (QUAL-05).
-**Plans**: TBD
+**Plans**: 6 plans
+- [ ] 15-01-PLAN.md — reopened_vulns PATHFINDER module (RPT-03) + live-tenant resurfaced_date spot-check
+- [ ] 15-02-PLAN.md — backward-compatible capture_snapshot() aggregate-field extension + cron wiring (RPT-02/03/04)
+- [ ] 15-03-PLAN.md — external_dmz current-snapshot module + locked mismatch list (RPT-06)
+- [ ] 15-04-PLAN.md — new_vs_remediated stacked-inflow MoM module + composed_report gate registration (RPT-01)
+- [ ] 15-05-PLAN.md — vuln_density per-snapshot-denominator MoM module (RPT-02)
+- [ ] 15-06-PLAN.md — accepted_recast separate-counts + expiry-aware MoM module (RPT-04)
 **UI hint**: yes
 
 ---
@@ -180,7 +187,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 12. Trend Snapshot Substrate | v1.3 | 3/3 | Complete | 2026-06-08 |
 | 13. Owner Segmentation + Comp. | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 14. Shared Substrates + composed_report Gates | v1.4 | 3/3 | Complete    | 2026-06-11 |
-| 15. Independent New Modules | v1.4 | 0/TBD | Not started | - |
+| 15. Independent New Modules | v1.4 | 0/6 | Not started | - |
 | 16. MTTR Rework | v1.4 | 0/TBD | Not started | - |
 | 17. Program Health Overview | v1.4 | 0/TBD | Not started | - |
 | 18. management_summary Migration + Docs | v1.4 | 0/TBD | Not started | - |
