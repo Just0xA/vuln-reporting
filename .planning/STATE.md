@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Management Summary Reporting Improvement
 status: planning
-last_updated: "2026-06-11T15:10:16.469Z"
+last_updated: "2026-06-11T15:33:00.000Z"
 last_activity: 2026-06-11
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,42 +17,74 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-05)
+See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** Milestone complete
+**Current focus:** v1.4 — Phase 14 ready for planning
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 14 — Shared Substrates + composed_report Gates
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-11 — Milestone v1.4 started
+Status: Roadmap created; ready for `/gsd-plan-phase 14`
+Last activity: 2026-06-11 — v1.4 roadmap created (Phases 14–18, 17 requirements)
+
+```
+v1.4 progress: [..............] 0% (0/5 phases)
+Phase 14 [ ] Phase 15 [ ] Phase 16 [ ] Phase 17 [ ] Phase 18 [ ]
+```
 
 ## Shipped Milestones
 
+- ✅ **v1.3 Trend & Segmentation Substrate** (2026-06-11) — see [`MILESTONES.md`](MILESTONES.md). 2 phases (12–13), 8 plans, 52 files / +8,811 LOC. 13/13 requirements satisfied; audit passed. Reopened-aware `open_findings_at()` + `data/trend_store.py` forward-accumulating snapshots + `extract_owner()` S2 segmentation + S1×S2 composition. Full archive: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md), [`milestones/v1.3-REQUIREMENTS.md`](milestones/v1.3-REQUIREMENTS.md).
 - ✅ **v1.2 Deployment & Self-Update Infrastructure** (2026-05-22) — see [`MILESTONES.md`](MILESTONES.md). 5 phases (7–11), 10 plans, 65 files / +11,667 LOC. 39/39 requirements satisfied; audit passed. Tarball install/update/rollback via `scripts/update_from_github.sh`, CI release pipeline, hardened systemd unit; released v1.2.0–v1.2.4 (incl. python3 resolution, release pruning, daemon `LiveError` fix), all VM-validated. Full archive: [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md), [`milestones/v1.2-REQUIREMENTS.md`](milestones/v1.2-REQUIREMENTS.md). Audit: [`v1.2-MILESTONE-AUDIT.md`](v1.2-MILESTONE-AUDIT.md).
 - ✅ **v1.1 PDF Chrome Redesign** (2026-05-13) — see [`MILESTONES.md`](MILESTONES.md). 2 phases, 9 plans, 49 files / +7305 LOC across 1 day. All 16 v1.1 requirements satisfied. Shared `PdfChrome` utility wired into `board_summary` + `composed_report` via `_CHROME_AWARE_SLUGS` allowlist; legacy renderers byte-unchanged. Full archive: [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md), [`milestones/v1.1-REQUIREMENTS.md`](milestones/v1.1-REQUIREMENTS.md). Audit: [`v1.1-MILESTONE-AUDIT.md`](v1.1-MILESTONE-AUDIT.md).
 - ✅ **v1.0 Modular Reporting Framework** (2026-05-08) — see [`MILESTONES.md`](MILESTONES.md). 4 phases, 19 plans, 1 quick task, 140 commits across 4 days. All 24 v1 requirements Validated. Full archive: [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md), [`milestones/v1.0-REQUIREMENTS.md`](milestones/v1.0-REQUIREMENTS.md), [`milestones/v1.0-phases/`](milestones/v1.0-phases/). Retrospective: [`RETROSPECTIVE.md`](RETROSPECTIVE.md).
 
 ## Performance Metrics
 
-(Reset at milestone boundary; accumulates as v1.3 phases ship.)
+(Reset at milestone boundary; accumulates as v1.4 phases ship.)
 
 ## Accumulated Context
 
 ### Roadmap Evolution
 
-(No pending roadmap changes.)
+- v1.4 roadmap created 2026-06-11: 5 phases (14–18), 17 requirements, 100% coverage.
+- Phase numbering continues from v1.3 (ended Phase 13); v1.4 starts at Phase 14.
 
 ### Decisions
 
-Decisions logged in PROJECT.md "Key Decisions" table. Prior milestone decision logs archived at `milestones/v1.0-ROADMAP.md`, `milestones/v1.1-ROADMAP.md`, and `milestones/v1.2-ROADMAP.md`.
+Decisions logged in PROJECT.md "Key Decisions" table. Prior milestone decision logs archived at `milestones/v1.0-ROADMAP.md`, `milestones/v1.1-ROADMAP.md`, `milestones/v1.2-ROADMAP.md`, and `milestones/v1.3-ROADMAP.md`.
 
-### v1.3 Settled Constraints (from spikes — not open questions)
+### v1.4 Plan-Time Open Decisions (lock per phase)
+
+These are NOT milestone-scoping decisions — each must be locked in the plan context of the phase that implements the affected module. Recommended resolutions are in `research/SUMMARY.md`.
+
+| # | Decision | Phase | Recommended Resolution |
+|---|----------|-------|------------------------|
+| OD-1 | "New" inflow: `first_found` only vs `OR resurfaced_date` | Phase 15 | `first_found` only; document limitation |
+| OD-2 | Density denominator definition | Phase 14 | On-time-scanned licensed assets (board_summary consistency) |
+| OD-3 | S1 snapshot dimension extension shape (reopened/exception/new-fixed) | Phase 15 | Extend `capture_snapshot`; avoid proliferating snapshot files |
+| OD-4 | MTTR resolved-population (exclude reopened? recast? first-fix only?) | Phase 16 | Option B: exclude current-REOPENED population |
+| OD-5 | Program Health composite-RAG threshold rule | Phase 17 | Green = all 4 green; Amber = 2–3 green; Red = 0–1 green |
+| OD-6 | External exposure MoM trend mechanism | Phase 14 | Defer MoM trend to v1.5; current-snapshot-only in v1.4 |
+| OD-7 | MTTR rework MODULE_ID | Phase 16 | New `mttr_trend` MODULE_ID; `mttr_by_severity` untouched |
+| OD-8 | management_summary legacy trend-JSON migration vs cold start | Phase 18 | Cold start; accumulate forward; document discontinuity |
+
+### v1.4 Cross-Cutting Constraints (enforced every phase)
+
+- **Cold-start branch mandatory (QUAL-01):** Every MoM module branches on `read_trend()` `insufficient_data` flag before computing deltas. First verified Phase 15; enforced in Phases 16, 17, 18.
+- **Reopened-aware predicate mandatory (QUAL-02):** `open_findings_at()` two-interval form for all open-count logic. No naive `last_fixed null OR last_fixed>D` form.
+- **Empty-data guard on all four channels (QUAL-03):** `safe_pct`/`safe_int`/`safe_format` + `_empty_result()` on zero-row inputs. First verified Phase 15; enforced in all subsequent phases.
+- **Aggregate-only PII (QUAL-05, D-04-08):** Test fixtures and baselines use synthetic data only. No real hostnames, IPs, plugin names, or asset-level fields in committed artifacts. First verified Phase 15; enforced in all phases.
+- **pandas 3.0 CoW: `.assign()` only** — never `df["col"] = val` after a filter or slice. Every module phase.
+- **Zero new dependencies** — requirements.txt unchanged; stdlib `ipaddress` for IP classification; no new pip packages.
+- **GEN-01 backward compat (QUAL-04):** Existing `management_summary` delivery must work throughout the milestone. Smoke baseline script committed as the first commit of Phase 18, before any migration code.
+
+### v1.3 Settled Constraints (carried forward)
 
 - **S1 is snapshot-capture, NOT reconstruction.** Spike 002: ~29-day Tenable fixed-retention wall forbids backfill. Cold start is real. Multi-month history must accumulate forward from first snapshot.
-- **Reopened-aware predicate is mandatory.** The naive `last_fixed null OR last_fixed>D` form drops ~19% of all findings (the entire REOPENED population, ~30,500 of 160,453 in the spiked dataset). The two-interval model using `resurfaced_date` resolves it exactly (+2 of 160,453). TREND-01 requires unit tests proving this.
+- **Reopened-aware predicate is mandatory.** The naive `last_fixed null OR last_fixed>D` form drops ~19% of all findings (the entire REOPENED population). The two-interval model using `resurfaced_date` resolves it exactly.
 - **Snapshots extend `data/trend/`, not a parallel store.** Must not regress `management_summary` or any other existing trend consumer.
 - **PII discipline (D-04-08) applies to snapshot payloads.** Aggregate counts only; no hostnames, IPs, plugin names, or asset-level fields in persisted files.
 - **SEG-03 exception list is operator-facing local output only.** Never committed, never emailed.
@@ -63,10 +95,7 @@ None at roadmap creation.
 
 ### Blockers/Concerns
 
-- ~~**Open decision (Phase 9 gate):** GitHub org/repo slug for the Releases API URL.~~ **Resolved 2026-05-19** — slug is not a Phase 9 concern. `release.yml` runs inside GitHub Actions and uses `$GITHUB_REPOSITORY` automatically. The configurable slug belongs to Phase 10 via `GITHUB_RELEASE_REPO` in `.env`, consumed by `update_from_github.sh --check`.
-- ~~**Action version pins (Phase 9):** `actions/checkout@v4`, `softprops/action-gh-release@v2`.~~ **Verified 2026-05-19** via GitHub REST API (`/repos/{org}/{repo}/releases`): current stable majors are `actions/checkout@v6` (latest v6.0.2) and `softprops/action-gh-release@v3` (latest v3.0.0). Phase 9 plans pin to v6 / v3.
-- ~~**`scripts/` per-file exclusion list (Phase 7):** Confirm exact list of smoke test files to exclude individually.~~ **Resolved 2026-05-19** — `.gitattributes` uses `scripts/setup_github_labels.py` + `scripts/smoke_*` (forward-compatible pattern); verified by `git archive HEAD` preview that all three current smoke files are excluded.
-- ~~**🔴 v1.2 ship-blocker — systemd venv path mismatch (found 2026-05-20 during Phase 11 planning):** `deploy/vuln-reports.service:42` pointed `ExecStart` at the flat `/opt/vuln-reporting/.venv` path, but the updater builds a per-release `current/.venv` — unit would fail to start and trigger auto-rollback on every upgrade.~~ **Resolved 2026-05-20** (quick task `260520-a29-systemd-venv-path`) — `ExecStart` now uses `/opt/vuln-reporting/current/.venv/bin/python`; `deploy/` is clean of the old path. RUNBOOK references left to Phase 11's rewrite (11-02 already specifies `current/.venv` cron lines).
+None at roadmap creation.
 
 ## Quick Tasks Completed
 
@@ -95,11 +124,12 @@ None at roadmap creation.
 
 ## Deferred Items
 
-Carried forward from v1.0 + v1.1; not in scope for v1.2 or v1.3.
+Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 which is v1.4 scope).
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| backlog | GEN-01/02: migrate `management_summary` + `ops_remediation` to module render contract | deferred | 2026-05-08 |
+| v1.4 scope | GEN-01: migrate `management_summary` to module render contract | **In scope — Phase 18** | 2026-05-08 |
+| backlog | GEN-02: migrate `ops_remediation` to module render contract | deferred | 2026-05-08 |
 | backlog | GEN-03/04: YAML-driven module composition (partially landed via `composed_report` slug 2026-05-13) | partially deferred | 2026-05-08 |
 | backlog | PERF-01..04: per-batch enrich cache, midnight cache crossover, log rotation, tag-value typo detection | deferred | 2026-05-08 |
 | backlog | LEGACY-01: re-evaluate the 6 unbuilt reports in CLAUDE.md as candidate module bundles | deferred | 2026-05-08 |
@@ -116,10 +146,6 @@ Carried forward from v1.0 + v1.1; not in scope for v1.2 or v1.3.
 ## Session Continuity
 
 Last session: 2026-06-11
-Stopped at: v1.3 Trend & Segmentation Substrate milestone closed, archived, tagged (v1.3), and pushed to origin/main
+Stopped at: v1.4 roadmap created — 5 phases (14–18), 17 requirements mapped
 Resume file: —
-Next command: /gsd-new-milestone (scope v1.4 — June-2026 report batch)
-
-## Operator Next Steps
-
-- Start the next milestone with /gsd-new-milestone
+Next command: `/gsd-plan-phase 14`

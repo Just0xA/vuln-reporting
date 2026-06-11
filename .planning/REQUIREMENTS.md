@@ -71,25 +71,25 @@ The June-2026 management/exec trend-cut report batch built as thin four-channel 
 
 These are NOT milestone-scoping decisions; each must be locked in the plan context of the phase that implements the affected module. Recommended resolutions are in `research/SUMMARY.md`.
 
-| # | Decision | Affected |
-|---|----------|----------|
-| OD-1 | "New" inflow = `first_found` only vs `OR resurfaced_date` | RPT-01 |
-| OD-2 | Density denominator definition (all licensed vs on-time-scanned) | RPT-02, SUB-02 |
-| OD-3 | S1 snapshot dimension extension shape (reopened/exception/new-fixed) | SUB-03, RPT-03, RPT-04 |
-| OD-4 | MTTR resolved-population (exclude reopened? recast? first-fix only?) | RPT-05 |
-| OD-5 | Program Health composite-RAG threshold rule | RPT-07 |
-| OD-6 | External Exposure MoM trend mechanism (deferred vs S1 dimension) | RPT-06 |
-| OD-7 | MTTR rework MODULE_ID (`mttr_trend`, leave `mttr_by_severity` intact) | RPT-05 |
-| OD-8 | `management_summary` legacy trend-JSON migration vs cold start | GEN-01 |
+| # | Decision | Affected | Phase |
+|---|----------|----------|-------|
+| OD-1 | "New" inflow = `first_found` only vs `OR resurfaced_date` | RPT-01 | Phase 15 |
+| OD-2 | Density denominator definition (all licensed vs on-time-scanned) | RPT-02, SUB-02 | Phase 14 |
+| OD-3 | S1 snapshot dimension extension shape (reopened/exception/new-fixed) | SUB-03, RPT-03, RPT-04 | Phase 15 |
+| OD-4 | MTTR resolved-population (exclude reopened? recast? first-fix only?) | RPT-05 | Phase 16 |
+| OD-5 | Program Health composite-RAG threshold rule | RPT-07 | Phase 17 |
+| OD-6 | External Exposure MoM trend mechanism (deferred vs S1 dimension) | RPT-06 | Phase 14 |
+| OD-7 | MTTR rework MODULE_ID (`mttr_trend`, leave `mttr_by_severity` intact) | RPT-05 | Phase 16 |
+| OD-8 | `management_summary` legacy trend-JSON migration vs cold start | GEN-01 | Phase 18 |
 
-Plus a Phase-2 verification: confirm `resurfaced_date` is populated on the live tenant before finalizing the Reopened drill-down schema (RPT-03).
+Plus a Phase 15 verification: confirm `resurfaced_date` is populated on the live tenant before finalizing the Reopened drill-down schema (RPT-03).
 
 ## Traceability
 
-Provisional mapping from the research build order (Phases 14–18, continuing from v1.3's Phase 13). The roadmapper finalizes phase assignments.
+Final phase assignments (roadmap created 2026-06-11).
 
-| Requirement | Phase (provisional) | Status |
-|-------------|---------------------|--------|
+| Requirement | Phase | Status |
+|-------------|-------|--------|
 | SUB-01 | Phase 14 | Pending |
 | SUB-02 | Phase 14 | Pending |
 | SUB-03 | Phase 14 | Pending |
@@ -98,21 +98,21 @@ Provisional mapping from the research build order (Phases 14–18, continuing fr
 | RPT-03 | Phase 15 | Pending |
 | RPT-04 | Phase 15 | Pending |
 | RPT-06 | Phase 15 | Pending |
+| QUAL-01 | Phase 15 (first verified; enforced Phases 16–18) | Pending |
+| QUAL-02 | Phase 15 (first verified; enforced Phases 16–18) | Pending |
+| QUAL-03 | Phase 15 (first verified; enforced Phases 16–18) | Pending |
+| QUAL-05 | Phase 15 (first verified; enforced Phases 16–18) | Pending |
 | RPT-05 | Phase 16 | Pending |
 | RPT-07 | Phase 17 | Pending |
 | GEN-01 | Phase 18 | Pending |
-| QUAL-01 | Phase 15 | Pending |
-| QUAL-02 | Phase 15 | Pending |
-| QUAL-03 | Phase 15 | Pending |
 | QUAL-04 | Phase 18 | Pending |
-| QUAL-05 | Phase 15 | Pending |
 | DOC-02 | Phase 18 | Pending |
 
 **Coverage:**
 - v1.4 requirements: 17 total
-- Mapped to phases: 17 (provisional)
+- Mapped to phases: 17 ✓
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-11*
-*Last updated: 2026-06-11 after initial definition*
+*Last updated: 2026-06-11 — traceability finalized by roadmapper (Phases 14–18)*
