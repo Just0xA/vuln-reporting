@@ -72,7 +72,10 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 2. `utils/asset_count.py` returns the current-run licensed asset count from `assets_df` via a pure function; unit-tested including zero-asset guard.
 3. `composed_report.py` gains `_MODULES_NEEDING_TREND_SNAPSHOTS` and `_MODULES_NEEDING_RECAST_RULES` frozensets with conditional fetch blocks following the existing `_MODULES_NEEDING_FIXED_VULNS` pattern; `run_report()` signature is unchanged; existing composed-report groups pass `--dry-run` with no regression.
 4. `read_trend()` result and `recast_rules_df` arrive at module `compute()` calls via `**self._kwargs` fan-out — verified by a composed group that includes a stub module asserting both kwargs are present when listed in the frozensets.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 14-01-PLAN.md — `utils/external_scope.py` external-scope classifier + mismatch list (SUB-01)
+- [ ] 14-02-PLAN.md — `config.ON_TIME_SCAN_WINDOW_DAYS` + `utils/asset_count.py` on-time-scanned denominator (SUB-02)
+- [ ] 14-03-PLAN.md — `composed_report.py` trend/recast kwargs gates + SC#4 stub module (SUB-03)
 
 ---
 
@@ -176,7 +179,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 11. Documentation | v1.2 | 2/2 | Complete | 2026-05-20 |
 | 12. Trend Snapshot Substrate | v1.3 | 3/3 | Complete | 2026-06-08 |
 | 13. Owner Segmentation + Comp. | v1.3 | 5/5 | Complete | 2026-06-10 |
-| 14. Shared Substrates + composed_report Gates | v1.4 | 0/TBD | Not started | - |
+| 14. Shared Substrates + composed_report Gates | v1.4 | 0/3 | Not started | - |
 | 15. Independent New Modules | v1.4 | 0/TBD | Not started | - |
 | 16. MTTR Rework | v1.4 | 0/TBD | Not started | - |
 | 17. Program Health Overview | v1.4 | 0/TBD | Not started | - |
