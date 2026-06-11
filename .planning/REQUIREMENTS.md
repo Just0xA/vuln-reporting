@@ -11,7 +11,7 @@ The June-2026 management/exec trend-cut report batch built as thin four-channel 
 
 - [x] **SUB-01**: A reusable external-scope helper (`utils/external_scope.py`) classifies an asset as external when it is tagged `Location=External/DMZ` **OR** carries a public (non-RFC1918, non-CGNAT/loopback/link-local) IPv4 address, and emits a mismatch/exception list (public-IP-but-untagged / tagged-but-private) mirroring the S2 `Unassigned` catch-all. Pure compute, stdlib `ipaddress` only.
 - [x] **SUB-02**: A reusable asset-count denominator helper (`utils/asset_count.py`) returns the current-run asset total for Vulnerability Density; historical denominators are read from the existing S1 snapshot `asset_count` field (D-04), never recomputed from live `assets_df`.
-- [ ] **SUB-03**: `composed_report.py` forwards trend snapshots and recast rules to modules that need them via gated frozensets (`_MODULES_NEEDING_TREND_SNAPSHOTS`, `_MODULES_NEEDING_RECAST_RULES`), following the existing `_MODULES_NEEDING_FIXED_VULNS` pattern; the S1 snapshot capture is extended (where needed) to carry new-vs-fixed / reopened / exception counts without breaking existing callers.
+- [x] **SUB-03**: `composed_report.py` forwards trend snapshots and recast rules to modules that need them via gated frozensets (`_MODULES_NEEDING_TREND_SNAPSHOTS`, `_MODULES_NEEDING_RECAST_RULES`), following the existing `_MODULES_NEEDING_FIXED_VULNS` pattern; the S1 snapshot capture is extended (where needed) to carry new-vs-fixed / reopened / exception counts without breaking existing callers.
 
 ### Report Modules (RPT)
 
@@ -92,7 +92,7 @@ Final phase assignments (roadmap created 2026-06-11).
 |-------------|-------|--------|
 | SUB-01 | Phase 14 | Complete |
 | SUB-02 | Phase 14 | Complete |
-| SUB-03 | Phase 14 | Pending |
+| SUB-03 | Phase 14 | Complete |
 | RPT-01 | Phase 15 | Pending |
 | RPT-02 | Phase 15 | Pending |
 | RPT-03 | Phase 15 | Pending |

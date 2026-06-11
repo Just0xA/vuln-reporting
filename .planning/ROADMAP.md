@@ -51,7 +51,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 
 ### v1.4 Management Summary Reporting Improvement (Phases 14–18)
 
-- [ ] **Phase 14: Shared Substrates + composed_report Gates** — external-scope classifier, asset-count denominator, trend/recast kwargs gates
+- [x] **Phase 14: Shared Substrates + composed_report Gates** — external-scope classifier, asset-count denominator, trend/recast kwargs gates (completed 2026-06-11)
 - [ ] **Phase 15: Independent New Modules** — New vs Remediated, Vulnerability Density, Reopened Vulns, Accepted & Recast, External/DMZ Exposure
 - [ ] **Phase 16: MTTR Rework** — `mttr_trend` MODULE_ID, window disclosure, sample-weighted mean, reopened-aware denominator, trend + Owner
 - [ ] **Phase 17: Program Health Overview** — composite MoM velocity dashboard composing Modules 1 + 6 + SLA signals
@@ -75,7 +75,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 **Plans**: 3 plans
 - [x] 14-01-PLAN.md — `utils/external_scope.py` external-scope classifier + mismatch list (SUB-01)
 - [x] 14-02-PLAN.md — `config.ON_TIME_SCAN_WINDOW_DAYS` + `utils/asset_count.py` on-time-scanned denominator (SUB-02)
-- [ ] 14-03-PLAN.md — `composed_report.py` trend/recast kwargs gates + SC#4 stub module (SUB-03)
+- [x] 14-03-PLAN.md — `composed_report.py` trend/recast kwargs gates + SC#4 stub module (SUB-03)
 
 ---
 
@@ -179,7 +179,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 11. Documentation | v1.2 | 2/2 | Complete | 2026-05-20 |
 | 12. Trend Snapshot Substrate | v1.3 | 3/3 | Complete | 2026-06-08 |
 | 13. Owner Segmentation + Comp. | v1.3 | 5/5 | Complete | 2026-06-10 |
-| 14. Shared Substrates + composed_report Gates | v1.4 | 2/3 | In Progress|  |
+| 14. Shared Substrates + composed_report Gates | v1.4 | 3/3 | Complete   | 2026-06-11 |
 | 15. Independent New Modules | v1.4 | 0/TBD | Not started | - |
 | 16. MTTR Rework | v1.4 | 0/TBD | Not started | - |
 | 17. Program Health Overview | v1.4 | 0/TBD | Not started | - |
