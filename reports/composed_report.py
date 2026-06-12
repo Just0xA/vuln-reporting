@@ -92,6 +92,7 @@ _MODULES_NEEDING_TREND_SNAPSHOTS = frozenset({
     "vuln_density",        # D-17 (15-05)
     "accepted_recast",     # D-17 (15-06 — for MoM delta)
     "mttr_trend",          # D-16-03: reads rolling MTTR / MoM line from trend snapshots
+    "program_health",      # Phase 17 (D-17-01): 4 velocity signals from S1 severity snapshots
 })
 
 # Modules that need the recast-rules DataFrame forwarded via **kwargs.
