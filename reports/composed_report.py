@@ -70,7 +70,10 @@ _EXCEL_FILENAME       = "composed_report.xlsx"
 # CriticalRemediationSLAModule is the only consumer today; conditionally
 # fetching avoids an unnecessary export job when this module is not in the
 # composition.
-_MODULES_NEEDING_FIXED_VULNS = frozenset({"critical_remediation_sla"})
+_MODULES_NEEDING_FIXED_VULNS = frozenset({
+    "critical_remediation_sla",
+    "mttr_trend",              # D-16-01: MTTR population = durably-fixed findings; fixed_vulns is a hard input, not opportunistic
+})
 
 # Modules that need the environment-wide open-finding total (pre-tag-filter)
 # forwarded via **kwargs.  TagSeverityShareModule is the only consumer today;
@@ -88,6 +91,7 @@ _MODULES_NEEDING_TREND_SNAPSHOTS = frozenset({
     "new_vs_remediated",   # D-17 (15-04)
     "vuln_density",        # D-17 (15-05)
     "accepted_recast",     # D-17 (15-06 — for MoM delta)
+    "mttr_trend",          # D-16-03: reads rolling MTTR / MoM line from trend snapshots
 })
 
 # Modules that need the recast-rules DataFrame forwarded via **kwargs.
