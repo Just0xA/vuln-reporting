@@ -18,16 +18,15 @@ D-16-04  Window disclosure: the rolling-window value (default 30 days,
 D-16-06  Owner cut: MoM with per-Owner cold-start + drift reconciliation;
          calendar-month X-axis with partial-month flag (D-16-08).
 
-D-16-11  View selector: ``mttr_view ∈ {owner, severity, both}`` (default
-         ``owner``) splits the breakdown into two independent tables/sections —
-         a Severity table and an Owner table, each with its own header.  Applied
-         consistently across PDF, Excel, and email panel.  Analyst-detail tab
-         (CONTRACT-02) always carries both cuts regardless of ``mttr_view``.
-
-D-16-12  Default view is ``owner``: single Owner table renders by default
-         (exec headline; fits one page).  The Owner table does NOT show an
-         SLA Target column — the Critical-SLA anchor is meaningless for Owner
-         rows and is dropped.
+D-16-13  Always-on 4-gauge band (Critical/High/Medium/Low) renders in ALL views.
+         Each gauge reads its SLA from config.py SLA_DAYS and carries a MoM
+         direction arrow (▼ green = faster, ▲ red = slipping, — flat).
+         The Severity table is removed from headline channels (PDF/email/Excel);
+         Excel keeps a compact 4-row severity numeric block.
+         Detail table is FOCUS-DRIVEN: Owner table when unfocused, Application
+         table when focused on a single Owner group, no table at Application depth.
+         The per-view toggle (retired in D-16-13) is replaced by optional ``mttr_table ∈
+         {auto, owner, application}`` override (default ``auto`` = focus-driven).
 
 Cold-start (QUAL-01): when ``trend_snapshots`` is absent or
 ``insufficient_data=True``, the MoM trend line cold-starts independently —
@@ -49,14 +48,22 @@ min_sample_size : int, default 5
     Minimum durably-fixed findings to compute MTTR for any bucket.
     Sub-threshold buckets render:
     "Insufficient data (N findings — minimum 5 required)"
-mttr_view : str, default "owner"
-    Controls which breakdown table(s) appear in PDF, Excel, and the email
-    panel.  Must be one of ``{owner, severity, both}``.  Unknown values log
-    a WARNING and fall back to ``owner``.
-    - ``owner``    — Owner table only (no Severity rows).  Exec default.
-    - ``severity`` — Severity table only (with per-severity SLA Target column).
-    - ``both``     — Two distinct tables: Severity first, then Owner.
+mttr_table : str, default "auto"
+    Controls which detail table appears in PDF, Excel, and the email panel.
+    Must be one of ``{auto, owner, application}``.  Unknown values log a
+    WARNING and fall back to ``auto``.
+    - ``auto``        — Focus-driven (default): Owner table when unfocused,
+                        Application table when focused on a single Owner group,
+                        no table when focused to a single Application.
+    - ``owner``       — Owner table always (exec default; fits one page).
+    - ``application`` — Application table always.
     The analyst-detail workbook (CONTRACT-02) always carries both cuts.
+tag_category : str, optional
+    Injected by composed_report.py (D-16-13); used to resolve focus depth in
+    auto mode. Never written to any HTML/Excel sink.
+tag_value : str, optional
+    Injected by composed_report.py (D-16-13); used with tag_category to
+    determine focus depth in auto mode.
 """
 
 from __future__ import annotations
@@ -184,6 +191,20 @@ def _owner_mom_delta(series: list[Optional[float]]) -> Optional[float]:
     return round(curr - prev, 1)
 
 
+def _mom_direction(delta: Optional[float]) -> str:
+    """
+    Return a direction token from a MoM delta (D-16-13).
+
+    MTTR is lower-is-better:
+      - delta < 0  → MTTR decreased → improving → "down" (▼ green)
+      - delta > 0  → MTTR increased → slipping  → "up"   (▲ red)
+      - None or 0  → flat / no prior month       → "flat" (—)
+    """
+    if delta is None or delta == 0:
+        return "flat"
+    return "down" if delta < 0 else "up"
+
+
 # ===========================================================================
 # Module
 # ===========================================================================
@@ -192,10 +213,11 @@ def _owner_mom_delta(series: list[Optional[float]]) -> Optional[float]:
 class MTTRTrendModule(BaseModule):
     """
     Rolling-window Mean Time to Remediate (MTTR) — sample-weighted,
-    reopened-aware, with MoM trend and Owner breakdown.
+    reopened-aware, with MoM trend and Owner/Application breakdown.
 
     Fixes D-16-01 (population), D-16-02 (clock), D-16-04 (disclosure),
-    D-16-06/08 (Owner cut + partial-month label).
+    D-16-06/08 (Owner cut + partial-month label), D-16-13 (always-on
+    4-gauge band + focus-driven detail table + view-toggle retired).
 
     The module reads TWO independent inputs:
     - ``fixed_vulns_df`` (kwargs) — live durably-fixed findings for gauges.
@@ -215,7 +237,7 @@ class MTTRTrendModule(BaseModule):
     DISPLAY_NAME      = "MTTR Trend (Reopened-Aware)"
     DESCRIPTION       = (
         "Rolling-window Mean Time to Remediate — sample-weighted, reopened-aware, "
-        "with MoM trend and Owner breakdown."
+        "with MoM trend and Owner/Application breakdown."
     )
     REQUIRED_DATA     = ["vulns", "assets", "fixed_vulns", "trend_snapshots"]
     SUPPORTED_OUTPUTS = ["pdf", "excel", "email"]
@@ -273,13 +295,18 @@ class MTTRTrendModule(BaseModule):
             computation (population is fixed_vulns_df); accepted for interface
             compatibility.
         assets_df : pd.DataFrame
-            Asset DataFrame for extract_owner() Owner cut.
+            Asset DataFrame for extract_owner() Owner/Application cut.
         report_date : datetime
             Report run timestamp (UTC-aware).
         config : ModuleConfig
             Options:
               ``mttr_window_days``  (int, default 30) — rolling-window days.
               ``min_sample_size``   (int, default 5)  — sub-threshold guard.
+              ``mttr_table``        (str, default "auto") — detail table mode:
+                  "auto" = focus-driven, "owner" = always Owner,
+                  "application" = always Application.
+              ``tag_category``      (str, optional) — injected by composed_report.
+              ``tag_value``         (str, optional) — injected by composed_report.
         **kwargs
             ``fixed_vulns_df`` (pd.DataFrame, optional) — durably-fixed
             findings.  Delivered via ``_MODULES_NEEDING_FIXED_VULNS``.
@@ -327,22 +354,52 @@ class MTTRTrendModule(BaseModule):
                 return self._build_cold_start_result(config)
 
             # ----------------------------------------------------------------
-            # Config
+            # Config — D-16-13: view-toggle retired, mttr_table added
             # ----------------------------------------------------------------
             window_days = int(config.options.get("mttr_window_days", 30))
             min_sample  = int(config.options.get("min_sample_size", 5))
 
-            # D-16-11/D-16-12: view selector — whitelist to {owner, severity, both}
-            _raw_view = str(config.options.get("mttr_view", "owner")).lower().strip()
-            _valid_views = {"owner", "severity", "both"}
-            if _raw_view not in _valid_views:
+            # D-16-13: focus signal injected by composed_report (never written to sinks)
+            tag_category = config.options.get("tag_category")
+            tag_value    = config.options.get("tag_value")
+
+            # D-16-13: mttr_table override — whitelist to {auto, owner, application}
+            _raw_table = str(config.options.get("mttr_table", "auto")).lower().strip()
+            _valid_tables = {"auto", "owner", "application"}
+            if _raw_table not in _valid_tables:
                 logger.warning(
-                    "%s unknown mttr_view=%r — falling back to 'owner'",
-                    self._log_prefix(), _raw_view,
+                    "%s unknown mttr_table=%r — falling back to 'auto'",
+                    self._log_prefix(), _raw_table,
                 )
-                mttr_view = "owner"
+                mttr_table = "auto"
             else:
-                mttr_view = _raw_view
+                mttr_table = _raw_table
+
+            # D-16-13: resolve table mode from override or focus depth.
+            # Focus signal: tag_category/tag_value injected by composed_report.
+            # Polarity: Owner-focused → Application table; Application-focused → no table.
+            if mttr_table == "owner":
+                resolved_table_mode = "owner"
+            elif mttr_table == "application":
+                resolved_table_mode = "application"
+            else:
+                # auto: determine by focus depth
+                _cat = str(tag_category).lower() if tag_category else ""
+                _val = tag_value if tag_value else ""
+                if _cat == "owner" and _val:
+                    # Focused on a single Owner group → show Application breakdown
+                    resolved_table_mode = "application"
+                elif _cat == "application" and _val:
+                    # Focused to a single Application → gauges only, no detail table
+                    resolved_table_mode = "none"
+                else:
+                    # Unfocused or unknown category → default Owner table
+                    resolved_table_mode = "owner"
+
+            logger.debug(
+                "%s mttr_table=%r tag_category=%r tag_value=%r → resolved_table_mode=%r",
+                self._log_prefix(), mttr_table, tag_category, tag_value, resolved_table_mode,
+            )
 
             # ----------------------------------------------------------------
             # D-16-01: durably-fixed filter — state == "FIXED" only
@@ -517,6 +574,49 @@ class MTTRTrendModule(BaseModule):
                 owner_insuf  = {}
 
             # ----------------------------------------------------------------
+            # Per-Application MTTR (D-16-13) — built from the `application`
+            # column of extract_owner(assets_df); reuses enriched_assets.
+            # ----------------------------------------------------------------
+            uuid_to_app: dict[str, str] = {}
+            if not enriched_assets.empty and "application" in enriched_assets.columns:
+                _deduped = enriched_assets.drop_duplicates("asset_uuid")
+                uuid_to_app = dict(zip(_deduped["asset_uuid"], _deduped["application"]))
+
+            if "asset_uuid" in fixed_df.columns and uuid_to_app:
+                app_col = fixed_df["asset_uuid"].map(uuid_to_app).fillna("").replace("", "Unassigned")
+                fixed_df_w_app = fixed_df.assign(application=app_col)
+
+                app_mttr:   dict[str, Optional[float]] = {}
+                app_sample: dict[str, int]             = {}
+                app_status: dict[str, str]             = {}
+                app_insuf:  dict[str, str]             = {}
+                critical_sla = SLA_DAYS["critical"]
+
+                for app, grp in fixed_df_w_app.groupby("application", dropna=False):
+                    app_str = str(app)
+                    n = len(grp)
+                    if n == 0:
+                        continue
+                    app_sample[app_str] = n
+                    if n < min_sample:
+                        app_mttr[app_str]   = None
+                        app_status[app_str] = _STATUS_NODATA
+                        app_insuf[app_str]  = (
+                            f"Insufficient data ({n} findings — minimum {min_sample} required)"
+                        )
+                    else:
+                        m = round(float(grp["days_to_fix"].mean()), 1)
+                        app_mttr[app_str]   = m
+                        status, _ = _status_from_ratio(m / critical_sla)
+                        app_status[app_str] = status
+                        app_insuf[app_str]  = ""
+            else:
+                app_mttr   = {}
+                app_sample = {}
+                app_status = {}
+                app_insuf  = {}
+
+            # ----------------------------------------------------------------
             # RAG strip (CONTRACT-03) — overall MTTR vs Critical SLA anchor
             # ----------------------------------------------------------------
             if overall_mttr is None:
@@ -584,6 +684,18 @@ class MTTRTrendModule(BaseModule):
                 for owner, series in owner_series.items()
             }
 
+            # D-16-13: Per-severity MoM direction from persisted sev_series.
+            # Reuses _owner_mom_delta (same curr-prev shape).
+            # MTTR lower-is-better: delta < 0 → "down" (improving, ▼ green).
+            per_sev_mom_delta: dict[str, Optional[float]] = {
+                sev: _owner_mom_delta(sev_series[sev])
+                for sev in _SEVERITIES
+            }
+            per_sev_mom_direction: dict[str, str] = {
+                sev: _mom_direction(per_sev_mom_delta[sev])
+                for sev in _SEVERITIES
+            }
+
             # ----------------------------------------------------------------
             # Driver narrative
             # ----------------------------------------------------------------
@@ -598,10 +710,12 @@ class MTTRTrendModule(BaseModule):
                 driver_narrative = "Insufficient fixed findings to compute MTTR."
 
             # ----------------------------------------------------------------
-            # D-16-11: two independent breakdown lists (split Severity / Owner)
+            # D-16-13: table_data_severity kept for gauge values + Excel numeric
+            # block + analyst rows; it no longer drives a headline TABLE in
+            # PDF/email/Excel (gauges replace the severity table).
             # ----------------------------------------------------------------
 
-            # Severity rows — per-severity SLA Target and Variance are meaningful
+            # Severity rows — per-severity SLA Target and Variance (kept for analyst + Excel numeric block)
             table_data_severity: list[dict] = []
             for sev in _SEVERITIES:
                 table_data_severity.append({
@@ -611,13 +725,11 @@ class MTTRTrendModule(BaseModule):
                     "variance":     per_sev_variance.get(sev),
                     "status":       per_sev_status.get(sev, _STATUS_NODATA),
                     "sample_size":  per_sev_sample.get(sev, 0),
-                    "mom_delta":    None,   # severity rows: no MoM delta
+                    "mom_delta":    per_sev_mom_delta.get(sev),
                     "insufficient": per_sev_insufficient.get(sev, ""),
                 })
 
-            # Owner rows — D-16-11/D-16-12: drop meaningless Critical-SLA anchor.
-            # sla_days=None and variance=None; renderers omit the SLA Target column
-            # for the Owner cut.  mom_delta and sample_size remain (SLA-independent).
+            # Owner rows — D-16-13: no SLA anchor; mom_delta and sample_size remain.
             table_data_owner: list[dict] = []
             for owner_str in sorted(owner_mttr.keys()):
                 table_data_owner.append({
@@ -631,7 +743,21 @@ class MTTRTrendModule(BaseModule):
                     "insufficient": owner_insuf.get(owner_str, ""),
                 })
 
-            # Combined list kept only for analyst_rows (CONTRACT-02 keeps both cuts)
+            # Application rows — D-16-13: same shape as owner rows; no SLA anchor.
+            table_data_application: list[dict] = []
+            for app_str in sorted(app_mttr.keys()):
+                table_data_application.append({
+                    "label":        app_str,
+                    "mttr_days":    app_mttr[app_str],
+                    "sla_days":     None,
+                    "variance":     None,
+                    "status":       app_status.get(app_str, _STATUS_NODATA),
+                    "sample_size":  app_sample.get(app_str, 0),
+                    "mom_delta":    None,   # no application-level MoM from snapshots
+                    "insufficient": app_insuf.get(app_str, ""),
+                })
+
+            # Combined list for analyst_rows (CONTRACT-02 keeps both severity + owner cuts)
             table_data: list[dict] = table_data_severity + table_data_owner
 
             # ----------------------------------------------------------------
@@ -648,7 +774,7 @@ class MTTRTrendModule(BaseModule):
             # ----------------------------------------------------------------
             # Analyst rows (CONTRACT-02) — aggregate only (QUAL-05)
             # ----------------------------------------------------------------
-            sev_df = pd.DataFrame([
+            sev_df_analyst = pd.DataFrame([
                 {
                     "Severity / Owner": row["label"],
                     "MTTR (Days)":      row["mttr_days"],
@@ -669,7 +795,7 @@ class MTTRTrendModule(BaseModule):
             }) if months_labels else pd.DataFrame()
 
             analyst_rows: list[tuple[str, pd.DataFrame]] = [
-                ("MTTR by Severity+Owner", sev_df),
+                ("MTTR by Severity+Owner", sev_df_analyst),
                 ("MTTR MoM Trend",         mom_df),
             ]
 
@@ -709,14 +835,19 @@ class MTTRTrendModule(BaseModule):
                 chart_data   = chart_data,
                 summary_text = summary_text,
                 metadata     = {
-                    "window_days":         window_days,
-                    "current_month":       current_month,
-                    "snapshots_cold":      snapshots_cold,
-                    "min_sample":          min_sample,
-                    "mttr_view":           mttr_view,
-                    "table_data_severity": table_data_severity,
-                    "table_data_owner":    table_data_owner,
-                    "computed_at":         (
+                    "window_days":            window_days,
+                    "current_month":          current_month,
+                    "snapshots_cold":         snapshots_cold,
+                    "min_sample":             min_sample,
+                    # D-16-13: resolved table mode (owner/application/none) — one source of truth
+                    "mttr_table_mode":        resolved_table_mode,
+                    "table_data_severity":    table_data_severity,
+                    "table_data_owner":       table_data_owner,
+                    "table_data_application": table_data_application,
+                    # D-16-13: per-severity MoM direction for gauge arrows
+                    "per_sev_mom_direction":  per_sev_mom_direction,
+                    "per_sev_mom_delta":      per_sev_mom_delta,
+                    "computed_at":            (
                         report_date.isoformat()
                         if hasattr(report_date, "isoformat")
                         else str(report_date)
@@ -745,8 +876,8 @@ class MTTRTrendModule(BaseModule):
         config: ModuleConfig,
     ) -> str:
         """
-        Render per-severity MTTR gauges, window disclosure, MoM series,
-        and Owner table.
+        Render per-severity MTTR gauges (always-on, D-16-13), window
+        disclosure, MoM series notice, and focus-driven detail table.
 
         Returns an error callout if ``data.error`` is set; a cold-start
         notice if ``metrics["cold_start"]`` is True.
@@ -769,8 +900,9 @@ class MTTRTrendModule(BaseModule):
         window_days   = data.metadata.get("window_days", 30)
         current_month = data.metadata.get("current_month", "")
         overall_mttr  = m.get("overall_mttr")
-        # D-16-11/D-16-12: view selector governs which section(s) render
-        mttr_view = data.metadata.get("mttr_view", "owner")
+
+        # D-16-13: resolved table mode (one source of truth from compute())
+        mode = data.metadata.get("mttr_table_mode", "owner")
 
         # D-16-04 disclosure
         disclosure = (
@@ -796,60 +928,79 @@ class MTTRTrendModule(BaseModule):
             f"</p>"
         )
 
-        # Per-severity gauges — only for severity and both views (D-16-11)
+        # D-16-13: Per-severity gauges — always render (gate removed).
+        # Each gauge carries a MoM direction arrow (▼ green / ▲ red / —).
+        per_sev_mom_direction = data.metadata.get("per_sev_mom_direction", {})
         gauges_html = ""
-        if mttr_view in ("severity", "both"):
-            for sev in _SEVERITIES:
-                sev_mttr   = m.get(f"{sev}_mttr")
-                sla        = float(SLA_DAYS[sev])
-                status     = m.get(f"{sev}_status", _STATUS_NODATA)
-                color      = (
-                    _COLOR_GREEN if status == _STATUS_WITHIN else
-                    _COLOR_AMBER if status == _STATUS_NEAR   else
-                    _COLOR_RED   if status == _STATUS_EXCEED else
-                    _COLOR_GREY
+        for sev in _SEVERITIES:
+            sev_mttr   = m.get(f"{sev}_mttr")
+            sla        = float(SLA_DAYS[sev])
+            status     = m.get(f"{sev}_status", _STATUS_NODATA)
+            color      = (
+                _COLOR_GREEN if status == _STATUS_WITHIN else
+                _COLOR_AMBER if status == _STATUS_NEAR   else
+                _COLOR_RED   if status == _STATUS_EXCEED else
+                _COLOR_GREY
+            )
+            thresholds = [
+                (sla,        color),
+                (sla * 1.25, _COLOR_AMBER),
+                (sla * 2,    _COLOR_RED),
+            ]
+
+            if sev_mttr is None:
+                n     = m.get(f"{sev}_sample", 0)
+                insuf = data.metadata.get("min_sample", 5)
+                msg   = (
+                    f"Insufficient data ({n} findings — minimum {insuf} required)"
+                    if n > 0
+                    else "No Data"
                 )
-                thresholds = [
-                    (sla,        color),
-                    (sla * 1.25, _COLOR_AMBER),
-                    (sla * 2,    _COLOR_RED),
-                ]
-
-                if sev_mttr is None:
-                    n     = m.get(f"{sev}_sample", 0)
-                    insuf = data.metadata.get("min_sample", 5)
-                    msg   = (
-                        f"Insufficient data ({n} findings — minimum {insuf} required)"
-                        if n > 0
-                        else "No Data"
-                    )
-                    gauge_inner = (
-                        f'<div style="text-align:center;padding:16pt;">'
-                        f'<span style="color:#9E9E9E;font-size:9pt;">{msg}</span>'
-                        f"</div>"
-                    )
-                else:
-                    b64 = draw_gauge(
-                        value           = sev_mttr,
-                        min_val         = 0,
-                        max_val         = sla * 2,
-                        thresholds      = thresholds,
-                        title           = f"MTTR — {sev.capitalize()}",
-                        unit            = "d",
-                        reference_line  = sla,
-                        reference_label = "SLA",
-                    )
-                    gauge_inner = (
-                        f'<img src="data:image/png;base64,{b64}" '
-                        f'style="width:100%;max-width:160pt;">'
-                    )
-
-                gauges_html += (
-                    f'<div style="display:inline-block;text-align:center;'
-                    f'width:23%;margin:0 1%;">'
-                    f"{gauge_inner}"
+                gauge_inner = (
+                    f'<div style="text-align:center;padding:16pt;">'
+                    f'<span style="color:#9E9E9E;font-size:9pt;">{msg}</span>'
                     f"</div>"
                 )
+            else:
+                b64 = draw_gauge(
+                    value           = sev_mttr,
+                    min_val         = 0,
+                    max_val         = sla * 2,
+                    thresholds      = thresholds,
+                    title           = f"MTTR — {sev.capitalize()}",
+                    unit            = "d",
+                    reference_line  = sla,
+                    reference_label = "SLA",
+                )
+                gauge_inner = (
+                    f'<img src="data:image/png;base64,{b64}" '
+                    f'style="width:100%;max-width:160pt;">'
+                )
+
+            # D-16-13: MoM direction arrow below the gauge
+            direction = per_sev_mom_direction.get(sev, "flat")
+            if direction == "down":
+                arrow_html = (
+                    f'<span style="color:{_COLOR_GREEN};font-size:10pt;font-weight:bold;">&#9660;</span>'
+                    f'<span style="color:{_COLOR_GREEN};font-size:8pt;"> faster</span>'
+                )
+            elif direction == "up":
+                arrow_html = (
+                    f'<span style="color:{_COLOR_RED};font-size:10pt;font-weight:bold;">&#9650;</span>'
+                    f'<span style="color:{_COLOR_RED};font-size:8pt;"> slower</span>'
+                )
+            else:
+                arrow_html = (
+                    f'<span style="color:{_COLOR_GREY};font-size:10pt;">&#8212;</span>'
+                )
+
+            gauges_html += (
+                f'<div style="display:inline-block;text-align:center;'
+                f'width:23%;margin:0 1%;">'
+                f"{gauge_inner}"
+                f'<div style="margin-top:2pt;">{arrow_html}</div>'
+                f"</div>"
+            )
 
         snapshots_cold = data.metadata.get("snapshots_cold", True)
         mom_notice = (
@@ -859,35 +1010,12 @@ class MTTRTrendModule(BaseModule):
             if snapshots_cold else ""
         )
 
-        # Build view-gated table section(s)
-        table_data_severity = data.metadata.get("table_data_severity", [])
-        table_data_owner    = data.metadata.get("table_data_owner", [])
-
-        def _pdf_sev_rows(rows: list) -> str:
-            """Build HTML <tr> rows for the Severity table (with SLA Target + Variance)."""
-            html = ""
-            for row in rows:
-                mttr  = row.get("mttr_days")
-                insuf = row.get("insufficient", "")
-                mttr_str = insuf if insuf else (
-                    safe_format(mttr, ".1f") + "d" if mttr is not None else "No Data"
-                )
-                var     = row.get("variance")
-                var_str = (safe_format(var, "+.1f") + "d") if var is not None else "—"
-                html += (
-                    f"<tr>"
-                    f"<td>{row['label']}</td>"
-                    f"<td style='text-align:right;'>{mttr_str}</td>"
-                    f"<td style='text-align:right;'>{row['sla_days']}d</td>"
-                    f"<td style='text-align:right;'>{var_str}</td>"
-                    f"<td>{row['status']}</td>"
-                    f"<td style='text-align:right;'>{safe_int(row['sample_size'])}</td>"
-                    f"</tr>"
-                )
-            return html
+        # D-16-13: Focus-driven detail table (no Severity table in headline channels)
+        table_data_owner       = data.metadata.get("table_data_owner", [])
+        table_data_application = data.metadata.get("table_data_application", [])
 
         def _pdf_owner_rows(rows: list) -> str:
-            """Build HTML <tr> rows for the Owner table (no SLA Target, no Variance)."""
+            """Build HTML <tr> rows for the Owner/Application table (no SLA Target, no Variance)."""
             html = ""
             for row in rows:
                 mttr  = row.get("mttr_days")
@@ -910,27 +1038,8 @@ class MTTRTrendModule(BaseModule):
 
         sections_html = ""
 
-        if mttr_view in ("severity", "both"):
-            sev_rows_html = _pdf_sev_rows(table_data_severity)
-            sections_html += f"""
-  <h3 style="font-size:11pt;margin-top:10pt;margin-bottom:4pt;">MTTR by Severity</h3>
-  <table class="data-table" style="width:100%;margin-top:4pt;">
-    <thead>
-      <tr>
-        <th>Severity</th>
-        <th style="text-align:right;">MTTR (Days)</th>
-        <th style="text-align:right;">SLA Target</th>
-        <th style="text-align:right;">Variance</th>
-        <th>Status</th>
-        <th style="text-align:right;">Sample Size</th>
-      </tr>
-    </thead>
-    <tbody>
-      {sev_rows_html}
-    </tbody>
-  </table>"""
-
-        if mttr_view in ("owner", "both"):
+        # D-16-13: focus-driven table — Owner, Application, or none (no Severity table)
+        if mode == "owner":
             owner_rows_html = _pdf_owner_rows(table_data_owner)
             sections_html += f"""
   <h3 style="font-size:11pt;margin-top:10pt;margin-bottom:4pt;">MTTR by Owner</h3>
@@ -948,12 +1057,30 @@ class MTTRTrendModule(BaseModule):
       {owner_rows_html}
     </tbody>
   </table>"""
+        elif mode == "application":
+            app_rows_html = _pdf_owner_rows(table_data_application)
+            sections_html += f"""
+  <h3 style="font-size:11pt;margin-top:10pt;margin-bottom:4pt;">MTTR by Application</h3>
+  <table class="data-table" style="width:100%;margin-top:4pt;">
+    <thead>
+      <tr>
+        <th>Application</th>
+        <th style="text-align:right;">MTTR (Days)</th>
+        <th>Status</th>
+        <th style="text-align:right;">Sample Size</th>
+        <th style="text-align:right;">MoM Delta (Days)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {app_rows_html}
+    </tbody>
+  </table>"""
+        # mode == "none": gauges only, no detail table
 
         gauges_block = (
             f'<div style="text-align:center;margin-bottom:8pt;">'
             f"{gauges_html}"
             f"</div>"
-            if gauges_html else ""
         )
 
         return f"""
@@ -967,9 +1094,9 @@ class MTTRTrendModule(BaseModule):
   <p class="explanatory-text">
     MTTR uses reopened-aware date math: clock resets to resurfaced_date when a
     finding re-emerges. Overall MTTR is a sample-weighted flat mean (not a mean
-    of per-severity means). MoM delta = current month MTTR minus prior month
-    MTTR (absolute days). Severity table uses per-severity SLA targets. Owner
-    table shows velocity (MTTR + MoM delta) without an SLA anchor.
+    of per-severity means). Gauges show per-severity MTTR vs SLA; arrow = month-over-month
+    direction (&#9660; faster, &#9650; slower). Detail table is focus-driven: Owner
+    breakdown when unfocused, Application breakdown when scoped to an Owner group.
   </p>
 </div>"""
 
@@ -986,11 +1113,10 @@ class MTTRTrendModule(BaseModule):
         """
         Write a single "MTTR Trend" tab with window disclosure in row 1.
 
-        Column layout is view-dependent (D-16-11/D-16-12):
-        - owner    : Owner, MTTR (Days), Status, Sample Size, MoM Delta (Days)
-        - severity : Severity, MTTR (Days), SLA Target (Days), Variance (Days),
-                     Status, Sample Size
-        - both     : Severity block, blank row, Owner block (two regions, one tab)
+        D-16-13: No Severity table. Always writes a compact 4-row severity
+        numeric block (Severity | MTTR | SLA | Status | MoM Delta) followed
+        (after a blank separator) by the focus-driven Owner/Application/none
+        detail table.
 
         Returns ``[]`` on exception; writes a cold-start or error row
         when set.
@@ -1013,36 +1139,37 @@ class MTTRTrendModule(BaseModule):
                 return [tab_name]
 
             window_days = data.metadata.get("window_days", 30)
-            # D-16-11/D-16-12: view selector
-            mttr_view = data.metadata.get("mttr_view", "owner")
+            # D-16-13: resolved table mode from metadata
+            mode = data.metadata.get("mttr_table_mode", "owner")
 
             # Row 1: title with window disclosure (D-16-04)
             ws["A1"] = f"MTTR Trend — Rolling {window_days}-day window"
             ws["A1"].font = Font(bold=True, size=13)
 
-            table_data_severity = data.metadata.get("table_data_severity", [])
-            table_data_owner    = data.metadata.get("table_data_owner", [])
+            table_data_severity    = data.metadata.get("table_data_severity", [])
+            table_data_owner       = data.metadata.get("table_data_owner", [])
+            table_data_application = data.metadata.get("table_data_application", [])
+            per_sev_mom_direction  = data.metadata.get("per_sev_mom_direction", {})
 
-            # Severity column headers and data writer
-            sev_headers = [
+            # D-16-13: Compact severity numeric block headers
+            sev_num_headers = [
                 "Severity",
                 "MTTR (Days)",
                 "SLA Target (Days)",
-                "Variance (Days)",
                 "Status",
-                "Sample Size",
+                "MoM Delta (Days)",
             ]
-            sev_widths = [20, 14, 18, 16, 18, 14]
+            sev_num_widths = [16, 14, 18, 18, 18]
 
-            # Owner column headers and data writer (no SLA Target, no Variance)
-            owner_headers = [
+            # Owner/Application detail block headers (no SLA Target, no Variance)
+            detail_headers = [
                 "Owner",
                 "MTTR (Days)",
                 "Status",
                 "Sample Size",
                 "MoM Delta (Days)",
             ]
-            owner_widths = [28, 14, 18, 14, 18]
+            detail_widths = [28, 14, 18, 14, 18]
 
             def _write_headers(row_num: int, headers: list[str]) -> None:
                 for col_idx, header in enumerate(headers, start=1):
@@ -1050,29 +1177,35 @@ class MTTRTrendModule(BaseModule):
                     cell.font = Font(bold=True)
                     cell.fill = _FILL_HEADER
 
-            def _write_sev_rows(start_row: int, rows: list) -> int:
-                """Write severity data rows. Returns next available row."""
+            def _write_sev_numeric_rows(start_row: int, rows: list) -> int:
+                """Write compact 4-row severity numeric block. Returns next row."""
                 for row_idx, row in enumerate(rows, start=start_row):
                     mttr  = row.get("mttr_days")
                     insuf = row.get("insufficient", "")
-                    var   = row.get("variance")
+                    sev_name = row.get("label", "")
                     if insuf:
                         mttr_val = insuf
                     elif mttr is not None:
                         mttr_val = mttr
                     else:
                         mttr_val = "No Data"
-                    ws.cell(row=row_idx, column=1, value=row["label"])
+                    # MoM direction token → display string
+                    direction = per_sev_mom_direction.get(sev_name.lower(), "flat")
+                    mom_delta = row.get("mom_delta")
+                    if mom_delta is not None:
+                        mom_str = f"{mom_delta:+.1f}d"
+                    else:
+                        mom_str = "—"
+                    ws.cell(row=row_idx, column=1, value=sev_name)
                     ws.cell(row=row_idx, column=2, value=mttr_val)
-                    ws.cell(row=row_idx, column=3, value=row["sla_days"])
-                    ws.cell(row=row_idx, column=4, value=var if var is not None else "—")
-                    status_cell = ws.cell(row=row_idx, column=5, value=row["status"])
-                    status_cell.fill = _status_fill(row["status"])
-                    ws.cell(row=row_idx, column=6, value=row["sample_size"])
+                    ws.cell(row=row_idx, column=3, value=row.get("sla_days"))
+                    status_cell = ws.cell(row=row_idx, column=4, value=row.get("status", _STATUS_NODATA))
+                    status_cell.fill = _status_fill(row.get("status"))
+                    ws.cell(row=row_idx, column=5, value=mom_str)
                 return start_row + len(rows)
 
-            def _write_owner_rows(start_row: int, rows: list) -> int:
-                """Write owner data rows (no SLA Target or Variance). Returns next row."""
+            def _write_detail_rows(start_row: int, rows: list) -> int:
+                """Write owner or application detail rows. Returns next row."""
                 for row_idx, row in enumerate(rows, start=start_row):
                     mttr  = row.get("mttr_days")
                     insuf = row.get("insufficient", "")
@@ -1093,24 +1226,31 @@ class MTTRTrendModule(BaseModule):
 
             next_row = 3  # row 1 = title, row 2 = blank gap
 
-            if mttr_view in ("severity", "both"):
-                _write_headers(next_row, sev_headers)
-                next_row = _write_sev_rows(next_row + 1, table_data_severity)
-                # Apply column widths for severity columns
-                for col_idx, w in enumerate(sev_widths, start=1):
-                    ws.column_dimensions[get_column_letter(col_idx)].width = w
-                if mttr_view == "both":
-                    next_row += 1  # blank separator row between sections
+            # D-16-13: always write the compact 4-row severity numeric block
+            _write_headers(next_row, sev_num_headers)
+            next_row = _write_sev_numeric_rows(next_row + 1, table_data_severity)
+            for col_idx, w in enumerate(sev_num_widths, start=1):
+                ws.column_dimensions[get_column_letter(col_idx)].width = w
 
-            if mttr_view in ("owner", "both"):
-                _write_headers(next_row, owner_headers)
-                _write_owner_rows(next_row + 1, table_data_owner)
-                # Apply/extend column widths for owner columns
-                for col_idx, w in enumerate(owner_widths, start=1):
+            # Blank separator row
+            next_row += 1
+
+            # D-16-13: focus-driven detail block
+            if mode == "owner" and table_data_owner:
+                detail_headers[0] = "Owner"
+                _write_headers(next_row, detail_headers)
+                _write_detail_rows(next_row + 1, table_data_owner)
+                for col_idx, w in enumerate(detail_widths, start=1):
                     current = ws.column_dimensions[get_column_letter(col_idx)].width
-                    ws.column_dimensions[get_column_letter(col_idx)].width = max(
-                        current or 0, w
-                    )
+                    ws.column_dimensions[get_column_letter(col_idx)].width = max(current or 0, w)
+            elif mode == "application" and table_data_application:
+                detail_headers[0] = "Application"
+                _write_headers(next_row, detail_headers)
+                _write_detail_rows(next_row + 1, table_data_application)
+                for col_idx, w in enumerate(detail_widths, start=1):
+                    current = ws.column_dimensions[get_column_letter(col_idx)].width
+                    ws.column_dimensions[get_column_letter(col_idx)].width = max(current or 0, w)
+            # mode == "none": only the severity numeric block (no detail table)
 
             return [tab_name]
 
@@ -1136,6 +1276,9 @@ class MTTRTrendModule(BaseModule):
         Returns ``""`` on error or empty driver_narrative.
         Cold-start renders the "Trend data being established" notice.
         Inline CSS only — no <style> blocks (Outlook/Gmail/Apple Mail compat).
+
+        D-16-13: Severity table removed. View-disclosure reflects resolved
+        table mode (Owner breakdown / Application breakdown / Gauges only).
         """
         if data.error:
             return ""
@@ -1160,8 +1303,8 @@ class MTTRTrendModule(BaseModule):
         overall     = m.get("overall_mttr")
         window_days = data.metadata.get("window_days", 30)
         sample      = safe_int(m.get("sample_size"))
-        # D-16-11/D-16-12: view label for disclosure note
-        mttr_view   = data.metadata.get("mttr_view", "owner")
+        # D-16-13: resolved table mode governs the disclosure note
+        mode = data.metadata.get("mttr_table_mode", "owner")
 
         overall_str = (
             safe_format(overall, ".1f") + "d"
@@ -1169,12 +1312,13 @@ class MTTRTrendModule(BaseModule):
             else "Insufficient data"
         )
 
-        _view_labels = {
-            "owner":    "Owner breakdown",
-            "severity": "Severity breakdown",
-            "both":     "Severity &amp; Owner breakdown",
+        # D-16-13: mode-to-label map (view-toggle retired; mode is now "owner"/"application"/"none")
+        _mode_labels = {
+            "owner":       "Owner breakdown",
+            "application": "Application breakdown",
+            "none":        "Gauges only",
         }
-        view_label = _view_labels.get(mttr_view, "Owner breakdown")
+        view_label = _mode_labels.get(mode, "Owner breakdown")
 
         return f"""
 <table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;margin-bottom:8px;">
@@ -1243,7 +1387,7 @@ class MTTRTrendModule(BaseModule):
     # ------------------------------------------------------------------
 
     def validate_config(self, config: ModuleConfig) -> list[str]:
-        """Validate optional ``mttr_window_days``, ``min_sample_size``, and ``mttr_view`` options."""
+        """Validate optional ``mttr_window_days``, ``min_sample_size``, and ``mttr_table`` options."""
         errors: list[str] = []
         for key, min_val in [("mttr_window_days", 1), ("min_sample_size", 1)]:
             val = config.options.get(key)
@@ -1258,14 +1402,14 @@ class MTTRTrendModule(BaseModule):
                         f"mttr_trend: '{key}' must be an integer, "
                         f"got {type(val).__name__}"
                     )
-        # D-16-11: validate mttr_view when explicitly set
-        view_val = config.options.get("mttr_view")
-        if view_val is not None:
-            _valid_views = {"owner", "severity", "both"}
-            if str(view_val).lower().strip() not in _valid_views:
+        # D-16-13: validate mttr_table when explicitly set (view-toggle retired)
+        table_val = config.options.get("mttr_table")
+        if table_val is not None:
+            _valid_tables = {"auto", "owner", "application"}
+            if str(table_val).lower().strip() not in _valid_tables:
                 errors.append(
-                    f"mttr_trend: 'mttr_view' must be one of "
-                    f"{sorted(_valid_views)}, got {view_val!r}"
+                    f"mttr_trend: 'mttr_table' must be one of "
+                    f"{sorted(_valid_tables)}, got {table_val!r}"
                 )
         return errors
 
@@ -1301,9 +1445,19 @@ class MTTRTrendModule(BaseModule):
                     "Cold-starts independently of live gauges (QUAL-01)."
                 ),
                 "Owner MoM delta": "Absolute day delta (curr - prev), NOT percentage (D-16-06).",
+                "Per-severity MoM direction": (
+                    "Derived from persisted sev_series via _owner_mom_delta. "
+                    "MTTR lower-is-better: delta < 0 = down (▼ green/faster), "
+                    "delta > 0 = up (▲ red/slower), None/0 = flat (D-16-13)."
+                ),
                 "min_sample_size": (
                     "Default 5. Buckets with n < min_sample render: "
                     "'Insufficient data (N findings — minimum 5 required)' (D-16-07)."
+                ),
+                "mttr_table": (
+                    "D-16-13: {auto, owner, application}. auto = focus-driven: "
+                    "Owner unfocused; Application when tag_category==Owner+tag_value; "
+                    "none when tag_category==Application+tag_value."
                 ),
             },
         }
