@@ -10,17 +10,9 @@ paused_reason: "Resumed 2026-06-12 after gap closure D-16-11/D-16-12 (plans 16-0
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-number: 1
-name: MTTR section renders in a composed-report PDF (split-table design)
-expected: |
-  A composed report including `mttr_trend` (default `mttr_view: owner`) produces a
-  "MTTR Trend (Reopened-Aware)" PDF page with: an overall MTTR gauge vs Critical SLA,
-  a single "MTTR by Owner" table (NO Severity rows mixed in, and NO "SLA Target" column
-  on the Owner cut), a MoM line (or cold-start notice), and a "Rolling 30-day MTTR …"
-  disclosure line — fitting on ONE page. The old combined Severity+Owner table is gone.
-  (Severity gauges/table now appear only when a group sets module_options.mttr_view to
-  severity or both.)
-awaiting: user response
+[round 2 paused — 2 issues (tests 1, 5) locked as D-16-13 + script bootstrap fix;
+tests 2-3 deferred to re-test against the rebuilt module. Proceeding to build.]
+resume_at: 1   # re-run tests 1, 2, 3, 5 against the D-16-13 build
 
 ## Tests
 
@@ -41,23 +33,28 @@ result: [pending]
 
 ### 4. Reopened-aware MTTR — no reopen inflation (correctness lodestar)
 expected: For a finding that was reopened (resurfaced after first-found, then later fixed), MTTR counts from the resurfaced date, not the original first-found. Reopened findings no longer inflate the average toward ~200 days; the overall mean reflects time-since-reopen. (Criterion-3: a finding found -200d, resurfaced -10d, fixed -2d contributes ~8 days, not 198.) If you can't isolate a reopened finding in live data, this is locked by the automated `TestCriterion3ReopenedClock` test — reply "skip".
-result: [pending]
+result: skipped
+reason: "Can't isolate a reopened finding in live data; relying on the automated TestCriterion3ReopenedClock test (re-confirmed passing, overall MTTR = 8.0d)."
 
 ### 5. Snapshot persistence — MTTR fields written, cold-start MoM
 expected: Run `python scripts/capture_trend_snapshot.py` against your data. The newest entry in `data/trend/trend_severity_all_assets.json` now carries `mttr_overall_days`, `mttr_by_severity`, and `mttr_by_owner` (non-null when ≥5 durable fixes exist in the 30-day window). On the first-ever run the MoM trend cold-starts (single snapshot → trend shows "insufficient data", but the live per-severity gauges still render).
-result: [pending]
+result: issue
+reported: "ModuleNotFoundError: No module named 'config' — from config import CACHE_DIR (scripts/capture_trend_snapshot.py:33)"
+severity: blocker
+diagnosis: "scripts/capture_trend_snapshot.py has no sys.path bootstrap, so the documented invocation `python scripts/capture_trend_snapshot.py` puts scripts/ (not the repo root) on sys.path and the root-level `config`/`data`/`tenable_client` imports fail. Sibling scripts (smoke_board_summary_cutover.py, smoke_email_phase2.py) already bootstrap sys.path; this one is missing it. Masked in verification because smoke probes used `python -c \"import scripts.capture_trend_snapshot\"` (run from root). The MTTR-field WRITE behavior itself is covered by tests/content/test_trend_store.py; only the real CLI invocation is broken."
 
 ### 6. board_summary unchanged (D-16-10 regression)
 expected: Run an existing board_summary delivery group (`python run_all.py --group "<board group>" --no-email`). The PDF and Excel render exactly as they did before Phase 16 — same page count, same MTTR-by-severity content, no new or missing sections. The Phase 16 work must not have altered board_summary output.
-result: [pending]
+result: pass
+note: "User confirmed unchanged (ran the 'Test Pull' group). Matches automated guards: mttr_by_severity_module.py byte-unchanged + 9/9 board_summary structural baselines green."
 
 ## Summary
 
 total: 6
-passed: 0
-issues: 0
-pending: 6
-skipped: 0
+passed: 1
+issues: 2
+pending: 2
+skipped: 1
 
 ## Gaps
 
@@ -193,3 +190,25 @@ skipped: 0
     - 4-gauge headline band in all views + MoM direction arrows
     - remove severity table; retire mttr_view; add focus-driven Owner/Application table (+ gauges-only at app depth)
     - Excel severity numeric block; tests + baseline regen
+
+- truth: "The scheduled command `python scripts/capture_trend_snapshot.py` runs without error and writes the snapshot (incl. MTTR fields)"
+  status: failed
+  reason: "UAT Test 5: ModuleNotFoundError: No module named 'config' at scripts/capture_trend_snapshot.py:33. The documented/scheduled invocation `python scripts/capture_trend_snapshot.py` fails because the script has no sys.path bootstrap — running it puts scripts/ on sys.path, not the repo root, so root-level `config`/`data`/`tenable_client` imports fail. Without this, the forward-accumulating MTTR trend never populates in production (cannot be backfilled past Tenable's ~29-day fixed-finding retention)."
+  severity: blocker
+  test: 5
+  decision: |
+    FIX (no design choice — mechanical): add a project-root sys.path bootstrap at the
+    top of scripts/capture_trend_snapshot.py BEFORE the first-party imports, matching the
+    pattern already in scripts/smoke_board_summary_cutover.py / scripts/smoke_email_phase2.py
+    (insert `sys.path.insert(0, str(Path(__file__).resolve().parent.parent))`). Keep it
+    minimal and consistent with the sibling scripts.
+    Add a real-invocation regression check so this can't regress under the import-from-root
+    probe again — e.g. a test that runs the script as a subprocess with `--dry-run` from a
+    NON-root CWD (or asserts it imports cleanly when scripts/ is the only path entry).
+    Audit the other scripts/*.py for the same missing-bootstrap footgun while in here.
+  artifacts:
+    - scripts/capture_trend_snapshot.py
+    - tests/   # real-invocation (subprocess --dry-run) regression test
+  missing:
+    - sys.path root bootstrap so `python scripts/capture_trend_snapshot.py` runs as documented
+    - regression test that exercises the real CLI invocation (not just import-from-root)
