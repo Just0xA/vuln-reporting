@@ -304,27 +304,24 @@ def run_report(
     # Build ModuleConfigs from YAML
     # ------------------------------------------------------------------
     opts_map: dict[str, dict] = module_options or {}
-    module_configs: list[ModuleConfig] = [
-        ModuleConfig(module_id=mid, options=dict(opts_map.get(mid, {}) or {}))
-        for mid in modules
-    ]
 
     # D-16-13: inject active tag scope into the mttr_trend module's options so
     # compute() can resolve focus depth for the auto table mode.  Only the
     # mttr_trend entry's options are augmented; all other modules are untouched.
-    # Operator-supplied mttr_table is preserved (dict.setdefault semantics via
-    # explicit key check — do NOT overwrite any already-set focus keys).
+    # Operator-supplied focus keys are preserved (setdefault semantics).  The
+    # augmentation builds a fresh dict — never mutate the caller's YAML-loaded
+    # config (run_all.py passes the live group_config["module_options"] in), or
+    # an injected tag scope would shadow a later manual --tag-category override.
     if "mttr_trend" in modules:
-        mt_opts = opts_map.setdefault("mttr_trend", {})
-        if "tag_category" not in mt_opts:
-            mt_opts["tag_category"] = tag_category
-        if "tag_value" not in mt_opts:
-            mt_opts["tag_value"] = tag_value
-        # Rebuild module_configs so the augmented opts_map is reflected
-        module_configs = [
-            ModuleConfig(module_id=mid, options=dict(opts_map.get(mid, {}) or {}))
-            for mid in modules
-        ]
+        mt_opts = dict(opts_map.get("mttr_trend", {}) or {})
+        mt_opts.setdefault("tag_category", tag_category)
+        mt_opts.setdefault("tag_value", tag_value)
+        opts_map = {**opts_map, "mttr_trend": mt_opts}
+
+    module_configs: list[ModuleConfig] = [
+        ModuleConfig(module_id=mid, options=dict(opts_map.get(mid, {}) or {}))
+        for mid in modules
+    ]
 
     # Warn about stray module_options keys not referenced in modules
     # (Q4: permissive pass-through — logger.warning only, not an error).

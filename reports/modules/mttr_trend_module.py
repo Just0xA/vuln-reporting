@@ -1149,7 +1149,6 @@ class MTTRTrendModule(BaseModule):
             table_data_severity    = data.metadata.get("table_data_severity", [])
             table_data_owner       = data.metadata.get("table_data_owner", [])
             table_data_application = data.metadata.get("table_data_application", [])
-            per_sev_mom_direction  = data.metadata.get("per_sev_mom_direction", {})
 
             # D-16-13: Compact severity numeric block headers
             sev_num_headers = [
@@ -1189,11 +1188,11 @@ class MTTRTrendModule(BaseModule):
                         mttr_val = mttr
                     else:
                         mttr_val = "No Data"
-                    # MoM direction token → display string
-                    direction = per_sev_mom_direction.get(sev_name.lower(), "flat")
+                    # MoM delta → display string (safe_format per CLAUDE.md;
+                    # mirrors the PDF gauge path at ~:1027).
                     mom_delta = row.get("mom_delta")
                     if mom_delta is not None:
-                        mom_str = f"{mom_delta:+.1f}d"
+                        mom_str = safe_format(mom_delta, "+.1f") + "d"
                     else:
                         mom_str = "—"
                     ws.cell(row=row_idx, column=1, value=sev_name)
