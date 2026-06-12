@@ -1,33 +1,42 @@
 ---
-status: partial
+status: testing
 phase: 16-mttr-rework
-source: [16-01-SUMMARY.md, 16-02-SUMMARY.md, 16-03-SUMMARY.md]
+source: [16-01-SUMMARY.md, 16-02-SUMMARY.md, 16-03-SUMMARY.md, 16-04-SUMMARY.md, 16-05-SUMMARY.md]
 started: 2026-06-12T13:25:00Z
-updated: 2026-06-12T15:52:00Z
-paused_reason: "Test 1 surfaced an MTTR table design issue flagged for discussion; UAT paused to lock the design before continuing tests 2-6."
+updated: 2026-06-12T17:26:00Z
+paused_reason: "Resumed 2026-06-12 after gap closure D-16-11/D-16-12 (plans 16-04/16-05) implemented the mttr_view split tables + owner-default. Test 1 reset to re-test against the new design; render-channel expectations (tests 1-3) updated to match."
 ---
 
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-[paused after test 1 — design discussion pending before resuming test 2]
-resume_at: 2
+number: 1
+name: MTTR section renders in a composed-report PDF (split-table design)
+expected: |
+  A composed report including `mttr_trend` (default `mttr_view: owner`) produces a
+  "MTTR Trend (Reopened-Aware)" PDF page with: an overall MTTR gauge vs Critical SLA,
+  a single "MTTR by Owner" table (NO Severity rows mixed in, and NO "SLA Target" column
+  on the Owner cut), a MoM line (or cold-start notice), and a "Rolling 30-day MTTR …"
+  disclosure line — fitting on ONE page. The old combined Severity+Owner table is gone.
+  (Severity gauges/table now appear only when a group sets module_options.mttr_view to
+  severity or both.)
+awaiting: user response
 
 ## Tests
 
-### 1. MTTR section renders in a composed-report PDF
-expected: A composed report including `mttr_trend` produces a "MTTR Trend (Reopened-Aware)" PDF page: overall MTTR gauge vs Critical SLA, per-severity gauges, Owner breakdown table, MoM line (or cold-start notice), and a "Rolling 30-day MTTR …" disclosure line.
+### 1. MTTR section renders in a composed-report PDF (D-16-13 gauge band + focus-driven table)
+expected: A composed report including `mttr_trend` produces a "MTTR Trend (Reopened-Aware)" PDF page with a HEADLINE BAND of 4 per-severity MTTR gauges (Critical/High/Medium/Low, each vs its config.py SLA) each carrying a MoM direction indicator (▼ green = improving/faster, ▲ red = slipping/slower), fixed at the top of page 1. Below: a focus-driven detail table — Owner breakdown when the report is unfocused (all owners), Application breakdown when focused on a single Owner group, and NO table when focused to a single Application (gauges only). Plus a "Rolling 30-day MTTR …" disclosure line. No severity table (gauges replace it).
 result: issue
-reported: "Having both Severity and Owner in the same table is confusing. The number of rows also makes the data bleed over to a second page. For something aimed at executive leadership the table by owner works, but for something aimed at lower or middle management that the scope would only be at the owner the severity works. This may need a discussion."
-severity: minor
-needs_discussion: true
+reported: "The gauge graphic is not present."
+severity: major
+prior_result: "Round 1 issue (combined Severity+Owner table confusing + 2nd-page bleed) → resolved by D-16-11/12. Round 2 re-test surfaced this NEW issue: owner-default view had no gauge at all (per-severity gauges were gated to severity/both, no standalone overall gauge existed). Redesigned as D-16-13 (4-gauge band, all views, focus-driven table). Pending re-test against the D-16-13 build."
 
-### 2. Excel "MTTR Trend" tab with window disclosure
-expected: The same report's Excel file has an "MTTR Trend" tab. Row 1 discloses the window ("MTTR Trend — Rolling 30-day window"), and columns appear in order: Severity/Owner, MTTR (Days), SLA Target, Variance, Status, Sample Size, MoM Delta.
+### 2. Excel "MTTR Trend" tab with window disclosure (split, owner default)
+expected: The same report's Excel file has an "MTTR Trend" tab. Row 1 discloses the window ("MTTR Trend — Rolling 30-day window"). With the default owner view, the tab shows an Owner section whose columns OMIT "SLA Target (Days)" (Owner rows have no SLA anchor). Columns: Owner, MTTR (Days), [no SLA Target], Status, Sample Size, MoM Delta. (mttr_view: both writes a Severity region and an Owner region separated by a blank row, not one concatenated table.)
 result: [pending]
 
 ### 3. Email panel renders with disclosure + sparse-data wording
-expected: The rendered delivery email body (Outlook/Gmail-safe, inline CSS) shows an MTTR panel as a table with a footer disclosing the rolling window. Any severity/Owner below the 5-finding threshold reads "Insufficient data (N findings — minimum 5 required)" rather than a number.
+expected: The rendered delivery email body (Outlook/Gmail-safe, inline CSS) shows an MTTR panel as a table with a footer disclosing the rolling window AND the active view (e.g. "by Owner"). Any Owner/severity below the 5-finding threshold reads "Insufficient data (N findings — minimum 5 required)" rather than a number.
 result: [pending]
 
 ### 4. Reopened-aware MTTR — no reopen inflation (correctness lodestar)
@@ -46,14 +55,14 @@ result: [pending]
 
 total: 6
 passed: 0
-issues: 1
-pending: 5
+issues: 0
+pending: 6
 skipped: 0
 
 ## Gaps
 
 - truth: "MTTR Trend presents an audience-appropriate breakdown that fits on one page"
-  status: failed
+  status: resolved   # implemented + tested by plans 16-04/16-05 (commits 8030285, 0e4cded, 023ade4); re-verified 16-VERIFICATION.md G1-G7. Pending live re-test as UAT Test 1.
   reason: "User reported: combining Severity and Owner in a single table is confusing, and the row count bleeds onto a second page. Audience split — exec leadership wants the Owner cut; lower/middle management scoped to a single owner wants the Severity cut."
   severity: minor
   test: 1
@@ -111,3 +120,76 @@ skipped: 0
     - module_options.mttr_view selector + split Severity/Owner render across PDF/Excel/email
     - Owner-table SLA-basis fix (drop/relabel hard-coded Critical-SLA anchor)
     - tests for each mttr_view value + default + single-page fit
+
+- truth: "The MTTR module's headline is a 4-gauge severity band (with MoM direction) that renders in every view, and the detail table follows the report's focus level"
+  status: failed
+  reason: "UAT Test 1 round 2: the D-16-11/12 owner-default view rendered NO gauge graphic at all (the only gauges were per-severity, now gated to severity/both; no standalone overall gauge existed). User redesigned the presentation in discussion 2026-06-12."
+  severity: major
+  test: 1
+  needs_discussion: resolved   # D-16-13 locked 2026-06-12, supersedes the D-16-11/12 table-toggle
+  decision: |
+    LOCKED DESIGN D-16-13 (gap-closure spec) — supersedes D-16-11 / D-16-12 table-toggle:
+
+    HEADLINE BAND (renders in ALL views):
+    - 4 per-severity MTTR gauges — Critical / High / Medium / Low — each drawn via the
+      existing reports.modules.chart_utils.draw_gauge, each vs its own SLA read from
+      config.py SLA_DAYS (NEVER hardcoded; per-install configurable — see memory
+      project_sla_days_config_py_authoritative). Un-gate the per-severity gauge block
+      currently at mttr_trend_module.py ~:799-852 (remove the `if mttr_view in
+      ("severity","both")` guard) so it always renders.
+    - Each gauge carries a Month-over-Month DIRECTION indicator from the existing MoM
+      delta: ▼ GREEN when this-month MTTR < last-month (improving/faster), ▲ RED when
+      it increased (slipping/slower), — when flat / no prior month. (MTTR: lower is
+      better — get the arrow polarity right.)
+    - Gauge scope follows the report's tag filter automatically: unfocused → averaged
+      across ALL owners (exec 30,000-ft view); focused on one Owner group → averaged
+      for that group. This is free — compute() already runs on the tag-filtered population.
+    - Averaging is SAMPLE-WEIGHTED across all findings of that severity (NOT a mean of
+      per-owner means — consistency with D-16-02).
+    - Gauges fixed at top of page 1 so leadership always sees them even if the table flows.
+
+    REMOVE the Severity table entirely (redundant with the gauges; ~:913-931 PDF block
+    + Excel/email equivalents).
+
+    FOCUS-DRIVEN DETAIL TABLE (replaces the mttr_view {owner,severity,both} toggle):
+    - Unfocused (no single Owner= filter) → Owner table (MTTR by owner). Flows to page 2 freely.
+    - Focused on a single Owner group (tag_category == "Owner" and tag_value set) →
+      Application table (MTTR by application). The `application` column already exists —
+      board_report_utils.extract_owner() produces both `owner` and `application` columns
+      in one pass.
+    - Focused to a single Application (or narrower) → NO table; gauges only.
+    - Optional explicit override module option `mttr_table ∈ {auto, owner, application}`
+      (default `auto` = focus-driven). RETIRE the `mttr_view` option from 16-04 (and its
+      delivery_config.yaml docs + the 16-05 owner/severity/both tests).
+
+    CHANNELS:
+    - PDF + email panel render gauges as base64 images + the focus-driven table.
+    - Excel cannot show gauge images inline → Excel keeps a compact 4-row severity
+      numeric block (Severity | MTTR | SLA | Status | MoM Delta) standing in for the
+      gauge band, followed by the focus-driven Owner/Application table.
+    - Analyst-detail tab (CONTRACT-02) retains full detail (severity + owner + application).
+
+    OUT OF SCOPE / DEFERRED: MTTR math, window, board_summary (mttr_by_severity_module.py
+    byte-unchanged, D-16-10); a 5th "VPR: None" cohort/gauge → backlog (future milestone).
+    DOC FIX: CLAUDE.md SLA table Medium 45→60 to match config.py.
+
+    Tests required:
+    - 4 severity gauges present in PDF/email for owner (unfocused), application (focused),
+      and gauges-only (single-application) cases.
+    - MoM arrow polarity: MTTR decrease → ▼ green; increase → ▲ red; flat/no-prior → —.
+    - Focus routing: unfocused → Owner table; Owner-focused → Application table;
+      Application-focused → no table.
+    - Severity table no longer emitted in any channel; mttr_view option removed.
+    - Excel severity numeric block + focus-driven table; SLA values come from config.py SLA_DAYS.
+    - board_summary zero-diff still green (D-16-10); mttr_trend baselines regenerated.
+  artifacts:
+    - reports/modules/mttr_trend_module.py
+    - reports/modules/board_report_utils.py   # extract_owner already yields `application`
+    - delivery_config.yaml
+    - tests/test_mttr_trend_module.py
+    - tests/baselines/mttr_trend_test_pull.json
+    - CLAUDE.md   # Medium SLA doc fix 45→60
+  missing:
+    - 4-gauge headline band in all views + MoM direction arrows
+    - remove severity table; retire mttr_view; add focus-driven Owner/Application table (+ gauges-only at app depth)
+    - Excel severity numeric block; tests + baseline regen
