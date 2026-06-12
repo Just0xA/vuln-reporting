@@ -116,3 +116,33 @@
 - Sub-monthly reopen rate (out of scope this milestone)
 - WAS MTTR (gated on pyTenable upgrade)
 - Program Health (RPT-07, Phase 17) / management_summary migration (GEN-01, Phase 18) — both depend on mttr_trend
+
+---
+
+# Post-UAT Addendum — 2026-06-12 (verify-work, Test 1)
+
+**Trigger:** UAT Test 1 surfaced that the MTTR breakdown renders Severity and Owner rows in a *single combined table* (`table_data` concat at `mttr_trend_module.py:574/595`), which (a) reads as confusing, (b) bleeds onto a 2nd page, and (c) mixes two SLA bases in one column (severity rows use per-sev SLA; owner rows hard-code Critical SLA at `:605`). The right cut is audience-dependent.
+
+## Selection model for the Severity vs Owner breakdown
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Configurable `mttr_view`, split tables | Separate Severity and Owner tables; `module_options.mttr_view ∈ {owner, severity, both}` lets each group render its relevant cut. Fixes confusion + page-bleed + audience fit + the misleading shared SLA column. | ✓ |
+| Always split, render both | Two separate tables always; fixes header/SLA confusion but both cuts still print → can still overflow with many owners. | |
+| Keep combined, paginate only | Lowest change; keeps the confusing mix and meaningless Owner SLA-target column. | |
+
+**User's choice:** Configurable `mttr_view` (split tables). → D-16-11
+
+## Default `mttr_view` when a group does not set it
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| `owner` | By-Owner cut (exec-leadership headline); single table fits a page by default; severity is opt-in. | ✓ |
+| `both` | Closest to current behavior; safest backward-compat but a many-owner group can still bleed. | |
+| `severity` | Legacy mttr_by_severity framing; Owner opt-in. | |
+
+**User's choice:** `owner`. → D-16-12
+
+## Build path
+
+Tracked as a **Phase 16 gap-closure** (defect in the delivered module). Locked spec captured in `16-UAT.md` Gaps; to be planned via `/gsd-plan-phase 16 --gaps` and executed, then UAT resumes at Test 2.
