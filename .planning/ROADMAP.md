@@ -1,4 +1,4 @@
-# Roadmap: Vulnerability Management Reporting Suite
+﻿# Roadmap: Vulnerability Management Reporting Suite
 
 ## Milestones
 
@@ -128,12 +128,14 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 3. A fixture where a finding was first found 200 days ago, `resurfaced_date` is 10 days ago, and `last_fixed` is 2 days ago produces an MTTR of approximately 8 days, not 198 days — the reopened-cycle inflation is eliminated.
 4. Board_summary groups that reference `mttr_by_severity` continue to deliver without change; `mttr_by_severity_module.py` is byte-unchanged; new `mttr_trend` baselines are re-captured and pass the structural smoke check.
 5. Per-severity sample sizes below the minimum threshold (default 5) render "Insufficient data (N findings)" rather than a potentially misleading single-finding average; zero fixed-findings-in-scope returns `_empty_result()` with gray RAG.
-**Plans**: 5 plans (3 original + 2 gap-closure)
+**Plans**: 7 plans (3 original + 4 gap-closure)
 - [x] 16-01-PLAN.md — Extend snapshot store + capture script with rolling-30-day MTTR aggregate (overall/per-severity/per-Owner; D-16-03/09)
 - [x] 16-02-PLAN.md — New four-channel `mttr_trend` module (reopened-aware clock, sample-weighted mean, MoM + Owner cut) + composed_report frozenset
 - [x] 16-03-PLAN.md — Acceptance suite (criterion-3 lodestar, cold-start, min_sample, Owner-drift) + `mttr_trend` baselines + board_summary zero-diff (D-16-10)
 - [x] 16-04-PLAN.md — Gap closure (D-16-11/12): configurable `mttr_view` {owner,severity,both} with split Severity/Owner tables across PDF/Excel/email + Owner SLA-basis fix (default owner)
 - [x] 16-05-PLAN.md — Gap closure tests: mttr_view owner/severity/both/default + Owner-SLA-drop + single-page fit; regenerate `mttr_trend` baselines; re-assert board_summary zero-diff (D-16-10)
+- [ ] 16-06-PLAN.md — Gap closure (D-16-13): always-on 4-gauge severity band (MoM down/up arrows) in all views + focus-driven Owner/Application table; retire mttr_view, add mttr_table override; plumb focus via composed_report; fix capture_trend_snapshot sys.path bootstrap; CLAUDE.md Medium SLA 45 to 60
+- [ ] 16-07-PLAN.md — Gap closure tests (D-16-13): 4-gauge presence all views, MoM arrow polarity, focus routing, severity-table absent, Excel severity block + config SLA, snapshot real-CLI subprocess regression; regenerate mttr_trend baselines; re-assert board_summary zero-diff (D-16-10)
 
 ---
 
