@@ -983,3 +983,856 @@ class TestStructuralBaselines:
         assert diffs == [], (
             f"Zero-match baseline drift detected:\n" + "\n".join(diffs)
         )
+
+
+# ===========================================================================
+# 14. MTTR VIEW — default (unset → owner) (D-16-12)
+# ===========================================================================
+
+class TestMttrViewDefault:
+    """
+    mttr_view unset → defaults to 'owner'.
+
+    D-16-12: exec default is owner-only (fits one page). Verify that:
+      - metadata["mttr_view"] == "owner"
+      - No Severity rows appear in PDF or Excel headline channels
+      - Owner rows DO appear (rendering is owner-only)
+    """
+
+    def _make_multi_owner_rows(self) -> list[dict]:
+        """6 fixed Critical findings across 2 owners, sufficient for min_sample=1."""
+        return [
+            {
+                "state": "fixed", "severity": "critical",
+                "asset_uuid": _uuid(i + 1),
+                "first_found": REF - timedelta(days=20),
+                "last_fixed":  REF - timedelta(days=2),
+            }
+            for i in range(6)
+        ]
+
+    def _make_multi_owner_assets(self) -> list[dict]:
+        return [
+            {"asset_uuid": _uuid(1), "tags": "Owner=TeamA"},
+            {"asset_uuid": _uuid(2), "tags": "Owner=TeamA"},
+            {"asset_uuid": _uuid(3), "tags": "Owner=TeamA"},
+            {"asset_uuid": _uuid(4), "tags": "Owner=TeamB"},
+            {"asset_uuid": _uuid(5), "tags": "Owner=TeamB"},
+            {"asset_uuid": _uuid(6), "tags": "Owner=TeamB"},
+        ]
+
+    def test_default_view_resolves_to_owner(self):
+        """No mttr_view option set → metadata["mttr_view"] == "owner"."""
+        data = _run(
+            self._make_multi_owner_rows(),
+            asset_rows=self._make_multi_owner_assets(),
+            min_sample_size=1,
+        )
+        assert data.error is None
+        assert data.metadata.get("mttr_view") == "owner", (
+            f"Expected default mttr_view='owner', got {data.metadata.get('mttr_view')!r}"
+        )
+
+    def test_default_view_owner_rows_present_in_metadata(self):
+        """Default view: table_data_owner is non-empty."""
+        data = _run(
+            self._make_multi_owner_rows(),
+            asset_rows=self._make_multi_owner_assets(),
+            min_sample_size=1,
+        )
+        assert data.error is None
+        owner_rows = data.metadata.get("table_data_owner", [])
+        assert len(owner_rows) > 0, "Expected owner rows in default view"
+
+    def test_default_view_pdf_has_owner_section_not_severity(self):
+        """Default view PDF: 'MTTR by Owner' present, 'MTTR by Severity' absent."""
+        data = _run(
+            self._make_multi_owner_rows(),
+            asset_rows=self._make_multi_owner_assets(),
+            min_sample_size=1,
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1)
+        pdf_html = mod.render_pdf_section(data, cfg)
+        assert "MTTR by Owner" in pdf_html, "Expected 'MTTR by Owner' section in default PDF"
+        assert "MTTR by Severity" not in pdf_html, (
+            "Expected NO 'MTTR by Severity' section in default (owner) PDF"
+        )
+
+    def test_default_view_excel_has_owner_headers_not_severity_headers(self):
+        """Default view Excel: Owner headers present; 'SLA Target (Days)' absent."""
+        data = _run(
+            self._make_multi_owner_rows(),
+            asset_rows=self._make_multi_owner_assets(),
+            min_sample_size=1,
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1)
+        wb = openpyxl.Workbook()
+        tabs = mod.render_excel_tabs(data, wb, cfg)
+        assert len(tabs) > 0
+        ws = wb[tabs[0]]
+        all_values = [
+            str(ws.cell(r, c).value or "")
+            for r in range(1, ws.max_row + 1)
+            for c in range(1, ws.max_column + 1)
+        ]
+        assert "Owner" in all_values, "Expected 'Owner' header in default Excel"
+        assert "SLA Target (Days)" not in all_values, (
+            "Expected NO 'SLA Target (Days)' header in default (owner) Excel"
+        )
+
+    def test_default_view_email_panel_disclosure_says_owner(self):
+        """Default view email panel: disclosure mentions owner breakdown."""
+        data = _run(
+            self._make_multi_owner_rows(),
+            asset_rows=self._make_multi_owner_assets(),
+            min_sample_size=1,
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1)
+        email_html = mod.render_email_panel(data, cfg)
+        assert "Owner breakdown" in email_html, (
+            f"Expected 'Owner breakdown' in default email panel, got: {email_html!r}"
+        )
+
+
+# ===========================================================================
+# 15. MTTR VIEW — explicit owner (D-16-11)
+# ===========================================================================
+
+class TestMttrViewOwner:
+    """
+    mttr_view="owner" → only Owner table/rows in headline channels.
+
+    Builds a fixture with BOTH severities AND owners so absence of severity
+    rows in the headline render is meaningful (not vacuously true).
+    """
+
+    def _make_mixed_rows(self) -> list[dict]:
+        """6 fixed findings: 3 Critical, 3 High — across 2 owners."""
+        rows = []
+        for i in range(3):
+            rows.append({
+                "state": "fixed", "severity": "critical",
+                "asset_uuid": _uuid(i + 1),
+                "first_found": REF - timedelta(days=20),
+                "last_fixed":  REF - timedelta(days=2),
+            })
+        for i in range(3, 6):
+            rows.append({
+                "state": "fixed", "severity": "high",
+                "asset_uuid": _uuid(i + 1),
+                "first_found": REF - timedelta(days=15),
+                "last_fixed":  REF - timedelta(days=3),
+            })
+        return rows
+
+    def _make_two_owner_assets(self) -> list[dict]:
+        return [
+            {"asset_uuid": _uuid(1), "tags": "Owner=Alpha"},
+            {"asset_uuid": _uuid(2), "tags": "Owner=Alpha"},
+            {"asset_uuid": _uuid(3), "tags": "Owner=Alpha"},
+            {"asset_uuid": _uuid(4), "tags": "Owner=Beta"},
+            {"asset_uuid": _uuid(5), "tags": "Owner=Beta"},
+            {"asset_uuid": _uuid(6), "tags": "Owner=Beta"},
+        ]
+
+    def test_owner_view_metadata_key_is_owner(self):
+        """mttr_view='owner' → metadata['mttr_view'] == 'owner'."""
+        data = _run(
+            self._make_mixed_rows(),
+            asset_rows=self._make_two_owner_assets(),
+            min_sample_size=1,
+            mttr_view="owner",
+        )
+        assert data.error is None
+        assert data.metadata.get("mttr_view") == "owner"
+
+    def test_owner_view_pdf_no_severity_section(self):
+        """owner view PDF: 'MTTR by Severity' heading absent."""
+        data = _run(
+            self._make_mixed_rows(),
+            asset_rows=self._make_two_owner_assets(),
+            min_sample_size=1,
+            mttr_view="owner",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="owner")
+        pdf_html = mod.render_pdf_section(data, cfg)
+        assert "MTTR by Severity" not in pdf_html, (
+            "Owner view PDF must not render the 'MTTR by Severity' section"
+        )
+        assert "MTTR by Owner" in pdf_html, (
+            "Owner view PDF must render the 'MTTR by Owner' section"
+        )
+
+    def test_owner_view_pdf_no_severity_row_labels(self):
+        """owner view PDF: row label 'Critical' not present in owner-only table."""
+        data = _run(
+            self._make_mixed_rows(),
+            asset_rows=self._make_two_owner_assets(),
+            min_sample_size=1,
+            mttr_view="owner",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="owner")
+        pdf_html = mod.render_pdf_section(data, cfg)
+        # The severity row labels should NOT appear as table rows in the owner view.
+        # They may appear in the overall MTTR line (e.g. "Critical SLA ...") but NOT
+        # inside a severity table row. Check that no <td>Critical</td> exists.
+        assert "<td>Critical</td>" not in pdf_html, (
+            "Owner view PDF must not contain severity table row for 'Critical'"
+        )
+        assert "<td>High</td>" not in pdf_html, (
+            "Owner view PDF must not contain severity table row for 'High'"
+        )
+
+    def test_owner_view_excel_headers_owner_only(self):
+        """owner view Excel: 'Owner' header present, 'SLA Target (Days)' absent."""
+        data = _run(
+            self._make_mixed_rows(),
+            asset_rows=self._make_two_owner_assets(),
+            min_sample_size=1,
+            mttr_view="owner",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="owner")
+        wb = openpyxl.Workbook()
+        tabs = mod.render_excel_tabs(data, wb, cfg)
+        ws = wb[tabs[0]]
+        all_values = [
+            str(ws.cell(r, c).value or "")
+            for r in range(1, ws.max_row + 1)
+            for c in range(1, ws.max_column + 1)
+        ]
+        assert "Owner" in all_values
+        assert "SLA Target (Days)" not in all_values, (
+            "Owner view Excel must not include 'SLA Target (Days)' header"
+        )
+        # 'Severity' column header should also be absent
+        assert "Severity" not in all_values, (
+            "Owner view Excel must not include 'Severity' column header"
+        )
+
+    def test_owner_view_owner_rows_in_metadata(self):
+        """owner view: table_data_owner is non-empty, table_data_severity still populated (analyst)."""
+        data = _run(
+            self._make_mixed_rows(),
+            asset_rows=self._make_two_owner_assets(),
+            min_sample_size=1,
+            mttr_view="owner",
+        )
+        assert data.error is None
+        assert len(data.metadata.get("table_data_owner", [])) > 0
+        # Severity data still computed (for analyst tabs) — table_data_severity non-empty
+        assert len(data.metadata.get("table_data_severity", [])) > 0
+
+
+# ===========================================================================
+# 16. MTTR VIEW — severity (D-16-11)
+# ===========================================================================
+
+class TestMttrViewSeverity:
+    """
+    mttr_view="severity" → only Severity table renders in headline channels.
+    Owner rows must be absent from PDF and Excel headline output.
+    """
+
+    def _make_rows(self) -> list[dict]:
+        """6 fixed Critical findings across 2 owners."""
+        return [
+            {
+                "state": "fixed", "severity": "critical",
+                "asset_uuid": _uuid(i + 1),
+                "first_found": REF - timedelta(days=20),
+                "last_fixed":  REF - timedelta(days=2),
+            }
+            for i in range(6)
+        ]
+
+    def _make_assets(self) -> list[dict]:
+        return [
+            {"asset_uuid": _uuid(1), "tags": "Owner=Gamma"},
+            {"asset_uuid": _uuid(2), "tags": "Owner=Gamma"},
+            {"asset_uuid": _uuid(3), "tags": "Owner=Gamma"},
+            {"asset_uuid": _uuid(4), "tags": "Owner=Delta"},
+            {"asset_uuid": _uuid(5), "tags": "Owner=Delta"},
+            {"asset_uuid": _uuid(6), "tags": "Owner=Delta"},
+        ]
+
+    def test_severity_view_metadata_key(self):
+        """mttr_view='severity' → metadata['mttr_view'] == 'severity'."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="severity",
+        )
+        assert data.error is None
+        assert data.metadata.get("mttr_view") == "severity"
+
+    def test_severity_view_pdf_has_severity_section(self):
+        """severity view PDF: 'MTTR by Severity' heading present."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="severity",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="severity")
+        pdf_html = mod.render_pdf_section(data, cfg)
+        assert "MTTR by Severity" in pdf_html
+
+    def test_severity_view_pdf_no_owner_section(self):
+        """severity view PDF: 'MTTR by Owner' heading absent."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="severity",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="severity")
+        pdf_html = mod.render_pdf_section(data, cfg)
+        assert "MTTR by Owner" not in pdf_html, (
+            "Severity view PDF must not render the 'MTTR by Owner' section"
+        )
+
+    def test_severity_view_excel_has_severity_header(self):
+        """severity view Excel: 'Severity' and 'SLA Target (Days)' headers present."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="severity",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="severity")
+        wb = openpyxl.Workbook()
+        tabs = mod.render_excel_tabs(data, wb, cfg)
+        ws = wb[tabs[0]]
+        all_values = [
+            str(ws.cell(r, c).value or "")
+            for r in range(1, ws.max_row + 1)
+            for c in range(1, ws.max_column + 1)
+        ]
+        assert "Severity" in all_values, "Expected 'Severity' column header"
+        assert "SLA Target (Days)" in all_values, "Expected 'SLA Target (Days)' header"
+
+    def test_severity_view_excel_no_owner_rows(self):
+        """severity view Excel: owner label 'Gamma' absent from all cell values."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="severity",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="severity")
+        wb = openpyxl.Workbook()
+        tabs = mod.render_excel_tabs(data, wb, cfg)
+        ws = wb[tabs[0]]
+        all_values = [
+            str(ws.cell(r, c).value or "")
+            for r in range(1, ws.max_row + 1)
+            for c in range(1, ws.max_column + 1)
+        ]
+        assert "Gamma" not in all_values, (
+            "Severity view Excel must not include owner row values"
+        )
+        assert "Delta" not in all_values
+
+    def test_severity_view_email_panel_disclosure_says_severity(self):
+        """severity view email panel: disclosure mentions severity breakdown."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="severity",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="severity")
+        email_html = mod.render_email_panel(data, cfg)
+        assert "Severity breakdown" in email_html or "severity" in email_html.lower(), (
+            f"Expected severity disclosure in email panel, got: {email_html!r}"
+        )
+
+
+# ===========================================================================
+# 17. MTTR VIEW — both (D-16-11)
+# ===========================================================================
+
+class TestMttrViewBoth:
+    """
+    mttr_view="both" → BOTH sections render as two DISTINCT tables/sections.
+
+    Not one concatenated list. Assert two separate headed regions:
+      - 'MTTR by Severity' heading present
+      - 'MTTR by Owner' heading present
+      - Both appear in the SAME render (not separate passes)
+      - Excel tab has BOTH a Severity header AND an Owner header
+    """
+
+    def _make_rows(self) -> list[dict]:
+        """6 Critical findings across 2 owners for a meaningful both-view test."""
+        return [
+            {
+                "state": "fixed", "severity": "critical",
+                "asset_uuid": _uuid(i + 1),
+                "first_found": REF - timedelta(days=20),
+                "last_fixed":  REF - timedelta(days=2),
+            }
+            for i in range(6)
+        ]
+
+    def _make_assets(self) -> list[dict]:
+        return [
+            {"asset_uuid": _uuid(1), "tags": "Owner=Epsilon"},
+            {"asset_uuid": _uuid(2), "tags": "Owner=Epsilon"},
+            {"asset_uuid": _uuid(3), "tags": "Owner=Epsilon"},
+            {"asset_uuid": _uuid(4), "tags": "Owner=Zeta"},
+            {"asset_uuid": _uuid(5), "tags": "Owner=Zeta"},
+            {"asset_uuid": _uuid(6), "tags": "Owner=Zeta"},
+        ]
+
+    def test_both_view_metadata_key(self):
+        """mttr_view='both' → metadata['mttr_view'] == 'both'."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="both",
+        )
+        assert data.error is None
+        assert data.metadata.get("mttr_view") == "both"
+
+    def test_both_view_pdf_has_severity_and_owner_sections(self):
+        """both view PDF: BOTH 'MTTR by Severity' AND 'MTTR by Owner' present."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="both",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="both")
+        pdf_html = mod.render_pdf_section(data, cfg)
+        assert "MTTR by Severity" in pdf_html, "both view PDF must have 'MTTR by Severity'"
+        assert "MTTR by Owner" in pdf_html, "both view PDF must have 'MTTR by Owner'"
+
+    def test_both_view_pdf_has_two_distinct_sections_not_concatenated(self):
+        """both view PDF: Severity heading appears BEFORE Owner heading (two sections)."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="both",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="both")
+        pdf_html = mod.render_pdf_section(data, cfg)
+        sev_idx = pdf_html.find("MTTR by Severity")
+        own_idx = pdf_html.find("MTTR by Owner")
+        assert sev_idx != -1 and own_idx != -1
+        assert sev_idx < own_idx, (
+            "In 'both' view, 'MTTR by Severity' heading must appear before 'MTTR by Owner'"
+        )
+
+    def test_both_view_excel_has_severity_and_owner_headers(self):
+        """both view Excel: BOTH 'Severity' AND 'Owner' column headers present."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="both",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="both")
+        wb = openpyxl.Workbook()
+        tabs = mod.render_excel_tabs(data, wb, cfg)
+        ws = wb[tabs[0]]
+        all_values = [
+            str(ws.cell(r, c).value or "")
+            for r in range(1, ws.max_row + 1)
+            for c in range(1, ws.max_column + 1)
+        ]
+        assert "Severity" in all_values, "both view Excel must have 'Severity' header"
+        assert "Owner" in all_values, "both view Excel must have 'Owner' header"
+        assert "SLA Target (Days)" in all_values, (
+            "both view Excel must have 'SLA Target (Days)' in the Severity block"
+        )
+
+    def test_both_view_excel_owner_rows_present(self):
+        """both view Excel: owner label values ('Epsilon'/'Zeta') present in worksheet."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="both",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="both")
+        wb = openpyxl.Workbook()
+        tabs = mod.render_excel_tabs(data, wb, cfg)
+        ws = wb[tabs[0]]
+        all_values = [
+            str(ws.cell(r, c).value or "")
+            for r in range(1, ws.max_row + 1)
+            for c in range(1, ws.max_column + 1)
+        ]
+        assert "Epsilon" in all_values or "Zeta" in all_values, (
+            "both view Excel must include Owner row values"
+        )
+
+    def test_both_view_email_panel_disclosure_says_severity_and_owner(self):
+        """both view email panel: disclosure mentions both severity and owner."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="both",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="both")
+        email_html = mod.render_email_panel(data, cfg)
+        # The both-view label is "Severity & Owner breakdown"
+        assert "Owner" in email_html and (
+            "Severity" in email_html or "severity" in email_html.lower()
+        ), (
+            f"both view email panel must mention both Severity and Owner, got: {email_html!r}"
+        )
+
+
+# ===========================================================================
+# 18. OWNER SLA-BASIS FIX — no SLA Target in owner view (D-16-12)
+# ===========================================================================
+
+class TestOwnerSlaBasisFix:
+    """
+    In owner view, the Excel tab must NOT have 'SLA Target (Days)' header,
+    and no owner row dict carries sla_days == SLA_DAYS["critical"] (15) as
+    a meaningful SLA target. The latent ~:605 bug (hard-coded Critical SLA
+    for owner rows) is fixed and proven absent.
+
+    D-16-12: Owner table does NOT show the arbitrary Critical-SLA anchor
+    as 'SLA Target'. sla_days=None for all owner rows.
+    """
+
+    def _make_rows(self) -> list[dict]:
+        return [
+            {
+                "state": "fixed", "severity": "critical",
+                "asset_uuid": _uuid(i + 1),
+                "first_found": REF - timedelta(days=20),
+                "last_fixed":  REF - timedelta(days=2),
+            }
+            for i in range(6)
+        ]
+
+    def _make_assets(self) -> list[dict]:
+        return [
+            {"asset_uuid": _uuid(i + 1), "tags": "Owner=TeamC"}
+            for i in range(6)
+        ]
+
+    def test_owner_view_excel_no_sla_target_header(self):
+        """owner view Excel: 'SLA Target (Days)' header absent."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="owner",
+        )
+        assert data.error is None
+        mod = MTTRTrendModule()
+        cfg = _config(min_sample_size=1, mttr_view="owner")
+        wb = openpyxl.Workbook()
+        tabs = mod.render_excel_tabs(data, wb, cfg)
+        ws = wb[tabs[0]]
+        all_values = [
+            str(ws.cell(r, c).value or "")
+            for r in range(1, ws.max_row + 1)
+            for c in range(1, ws.max_column + 1)
+        ]
+        assert "SLA Target (Days)" not in all_values, (
+            "Owner view Excel must NOT include 'SLA Target (Days)' header — "
+            "Critical SLA anchor has been dropped for owner rows (D-16-12)"
+        )
+
+    def test_owner_rows_sla_days_is_none(self):
+        """All owner table_data rows must have sla_days=None (no SLA anchor)."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="owner",
+        )
+        assert data.error is None
+        owner_rows = data.metadata.get("table_data_owner", [])
+        assert len(owner_rows) > 0, "Expected at least one owner row"
+        for row in owner_rows:
+            assert row.get("sla_days") is None, (
+                f"Owner row '{row.get('label')}' has sla_days={row.get('sla_days')!r} — "
+                f"expected None (Critical SLA anchor dropped, D-16-12)"
+            )
+
+    def test_owner_rows_no_sla_days_equal_to_critical_sla(self):
+        """No owner row has sla_days == 15 (Critical SLA hard-code removed)."""
+        from config import SLA_DAYS
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="owner",
+        )
+        assert data.error is None
+        owner_rows = data.metadata.get("table_data_owner", [])
+        critical_sla = SLA_DAYS["critical"]
+        for row in owner_rows:
+            assert row.get("sla_days") != critical_sla, (
+                f"Owner row '{row.get('label')}' has sla_days=={critical_sla} — "
+                f"the latent Critical-SLA hard-code is still present (D-16-12 regression)"
+            )
+
+    def test_owner_rows_variance_is_none(self):
+        """All owner table_data rows must have variance=None (no SLA basis)."""
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="owner",
+        )
+        assert data.error is None
+        owner_rows = data.metadata.get("table_data_owner", [])
+        for row in owner_rows:
+            assert row.get("variance") is None, (
+                f"Owner row '{row.get('label')}' has variance={row.get('variance')!r} — "
+                f"expected None (no variance without an SLA basis)"
+            )
+
+    def test_severity_rows_still_have_sla_days(self):
+        """
+        Confirm the fix is selective: severity rows retain their per-severity
+        sla_days (the fix only removes it for owner rows).
+        """
+        data = _run(
+            self._make_rows(),
+            asset_rows=self._make_assets(),
+            min_sample_size=1,
+            mttr_view="owner",
+        )
+        assert data.error is None
+        sev_rows = data.metadata.get("table_data_severity", [])
+        assert len(sev_rows) > 0
+        for row in sev_rows:
+            assert row.get("sla_days") is not None, (
+                f"Severity row '{row.get('label')}' unexpectedly has sla_days=None"
+            )
+
+
+# ===========================================================================
+# 19. MTTR VIEW — bad value fallback + validate_config rejection (D-16-11)
+# ===========================================================================
+
+class TestMttrViewBadValueFallback:
+    """
+    mttr_view="bogus" → no crash; module falls back to 'owner'.
+    validate_config(ModuleConfig("mttr_trend", options={"mttr_view": "bogus"}))
+    returns a non-empty error list.
+
+    T-16-18: the operator-config trust boundary is enforced by test.
+    """
+
+    def _make_rows(self) -> list[dict]:
+        return [
+            {
+                "state": "fixed", "severity": "critical",
+                "asset_uuid": _uuid(1),
+                "first_found": REF - timedelta(days=20),
+                "last_fixed":  REF - timedelta(days=2),
+            }
+        ] * 5
+
+    def test_bad_value_no_crash(self):
+        """mttr_view='bogus' → compute() returns data.error is None."""
+        data = _run(
+            self._make_rows(),
+            min_sample_size=1,
+            mttr_view="bogus",
+        )
+        assert data.error is None, (
+            f"compute() crashed with bad mttr_view: {data.error}"
+        )
+
+    def test_bad_value_resolves_to_owner(self):
+        """mttr_view='bogus' → metadata['mttr_view'] falls back to 'owner'."""
+        data = _run(
+            self._make_rows(),
+            min_sample_size=1,
+            mttr_view="bogus",
+        )
+        assert data.error is None
+        assert data.metadata.get("mttr_view") == "owner", (
+            f"Expected fallback to 'owner', got {data.metadata.get('mttr_view')!r}"
+        )
+
+    def test_bad_value_validate_config_returns_error(self):
+        """validate_config with mttr_view='bogus' returns a non-empty error list."""
+        mod = MTTRTrendModule()
+        cfg = ModuleConfig("mttr_trend", options={"mttr_view": "bogus"})
+        errors = mod.validate_config(cfg)
+        assert len(errors) > 0, (
+            "validate_config must return errors for unknown mttr_view value 'bogus'"
+        )
+
+    def test_bad_value_validate_config_error_mentions_mttr_view(self):
+        """validate_config error message references 'mttr_view'."""
+        mod = MTTRTrendModule()
+        cfg = ModuleConfig("mttr_trend", options={"mttr_view": "bogus"})
+        errors = mod.validate_config(cfg)
+        assert any("mttr_view" in e for e in errors), (
+            f"Expected error mentioning 'mttr_view', got: {errors}"
+        )
+
+    def test_valid_values_pass_validate_config(self):
+        """validate_config accepts all three valid mttr_view values."""
+        mod = MTTRTrendModule()
+        for valid in ("owner", "severity", "both"):
+            cfg = ModuleConfig("mttr_trend", options={"mttr_view": valid})
+            errors = mod.validate_config(cfg)
+            assert errors == [], (
+                f"validate_config should accept mttr_view={valid!r}, got: {errors}"
+            )
+
+    def test_uppercase_bad_value_resolves_to_owner(self):
+        """mttr_view='OWNER' (valid uppercase) falls back to owner after lowering."""
+        data = _run(
+            self._make_rows(),
+            min_sample_size=1,
+            mttr_view="OWNER",
+        )
+        assert data.error is None
+        # "OWNER" .lower().strip() → "owner" which IS in the whitelist
+        assert data.metadata.get("mttr_view") == "owner"
+
+    def test_whitespace_value_resolves_with_strip(self):
+        """mttr_view=' severity ' (with whitespace) resolves to 'severity'."""
+        data = _run(
+            self._make_rows(),
+            min_sample_size=1,
+            mttr_view=" severity ",
+        )
+        assert data.error is None
+        assert data.metadata.get("mttr_view") == "severity"
+
+
+# ===========================================================================
+# 20. SINGLE-CUT FITS ONE PAGE — owner-only page-count assertion (D-16-12)
+# ===========================================================================
+
+class TestSingleCutFitsOnePage:
+    """
+    A representative owner-only bundle (4-6 owners, >=5 findings each)
+    must produce a PDF with pdf_page_count == 1.
+
+    This proves D-16-12's "fits one page" claim — the combined Severity+Owner
+    render bled onto a second page; the owner-only default must not.
+
+    Uses extract_structural_snapshot(bundle, slug)["pdf_page_count"] == 1,
+    mirroring the TestStructuralBaselines bundle-assembly pattern.
+    """
+
+    def _build_owner_only_bundle(self, n_owners: int = 5, findings_per_owner: int = 6) -> dict:
+        """Build a representative populated owner-only bundle."""
+        import openpyxl as xl
+        # Create n_owners owners with findings_per_owner each
+        fixed_rows = []
+        asset_rows = []
+        uuid_counter = 0
+        for owner_idx in range(n_owners):
+            owner_name = f"Owner{chr(65 + owner_idx)}"  # OwnerA, OwnerB, ...
+            for _ in range(findings_per_owner):
+                uuid_counter += 1
+                fixed_rows.append({
+                    "state": "fixed", "severity": "critical",
+                    "asset_uuid": _uuid(uuid_counter),
+                    "first_found": REF - timedelta(days=20),
+                    "last_fixed":  REF - timedelta(days=2),
+                })
+                asset_rows.append({
+                    "asset_uuid": _uuid(uuid_counter),
+                    "tags": f"Owner={owner_name}",
+                })
+
+        fixed_df = _make_fixed_vulns(fixed_rows)
+        assets_df = _make_assets(asset_rows)
+
+        mod = MTTRTrendModule()
+        # owner-only (default — no mttr_view set)
+        cfg = ModuleConfig("mttr_trend", options={"min_sample_size": 1})
+        data = mod.compute(
+            pd.DataFrame(), assets_df, REF, cfg,
+            fixed_vulns_df=fixed_df,
+        )
+
+        wb = xl.Workbook()
+        wb.remove(wb.active)
+        mod.render_excel_tabs(data, wb, cfg)
+        pdf_html = mod.render_pdf_section(data, cfg)
+        email_html = mod.render_email_panel(data, cfg)
+
+        return {
+            "pdf_html":              pdf_html,
+            "excel_workbook":        wb,
+            "analyst_workbook_path": None,
+            "analyst_excel":         None,
+            "email_body_html":       email_html,
+            "email_kpis":            {},
+            "email_inline_images":   [],
+            "metrics":               data.metrics,
+            "errors":                [],
+            "module_results":        [data],
+        }
+
+    def test_owner_only_pdf_page_count_is_1(self):
+        """
+        Owner-only render with 5 owners / 6 findings each → pdf_page_count == 1.
+
+        This is the D-16-12 single-page claim: the owner-only view fits on one page,
+        unlike the old combined Severity+Owner render which bled onto a second page.
+        """
+        from tests.baseline_utils import extract_structural_snapshot
+        bundle = self._build_owner_only_bundle(n_owners=5, findings_per_owner=6)
+        snap = extract_structural_snapshot(bundle, "mttr_trend_single_page_test")
+        assert snap["pdf_page_count"] == 1, (
+            f"Owner-only render with 5 owners should fit on 1 PDF page, "
+            f"got {snap['pdf_page_count']} pages — D-16-12 single-page claim not met"
+        )
+
+    def test_six_owners_pdf_page_count_is_1(self):
+        """6 owners / 5 findings each (upper bound of representative range) → 1 page."""
+        from tests.baseline_utils import extract_structural_snapshot
+        bundle = self._build_owner_only_bundle(n_owners=6, findings_per_owner=5)
+        snap = extract_structural_snapshot(bundle, "mttr_trend_single_page_test_6")
+        assert snap["pdf_page_count"] == 1, (
+            f"Owner-only render with 6 owners should fit on 1 PDF page, "
+            f"got {snap['pdf_page_count']} pages"
+        )
