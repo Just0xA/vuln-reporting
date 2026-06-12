@@ -1,0 +1,27 @@
+{
+  "analyst_excel_present": false,
+  "bundle_keys_present": [
+    "analyst_excel",
+    "analyst_workbook_path",
+    "email_body_html",
+    "email_inline_images",
+    "email_kpis",
+    "errors",
+    "excel_workbook",
+    "metrics",
+    "module_results",
+    "pdf_html"
+  ],
+  "email_inline_image_cids_per_module": [],
+  "email_panel_count": 0,
+  "excel_tab_names_sorted": [
+    "MTTR Trend"
+  ],
+  "group_slug": "mttr_trend_test_pull_zero_match",
+  "panel_drivers_all_no_data_in_scope": false,
+  "pdf_has_risk_status_summary_header": false,
+  "pdf_page_count": 1,
+  "pdf_rag_cell_count": 0,
+  "rag_cells_all_no_data": false,
+  "schema_version": 1
+}
