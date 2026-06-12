@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Management Summary Reporting Improvement
-status: verifying
-stopped_at: Phase 16 context gathered
-last_updated: "2026-06-12T12:35:09.757Z"
+status: ready_to_plan
+stopped_at: Phase 16 complete (3/3) — ready to discuss Phase 17
+last_updated: 2026-06-12T12:46:16.405Z
 last_activity: 2026-06-12
 progress:
   total_phases: 5
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** Phase 16 — mttr-rework
+**Current focus:** Phase 17 — program health overview
 
 ## Current Position
 
-Phase: 16 (mttr-rework) — COMPLETE
-Plan: 3 of 3 (all plans done)
-Status: Phase complete — ready for verification
+Phase: 17
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-06-12
 
 ```

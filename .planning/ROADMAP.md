@@ -191,7 +191,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 13. Owner Segmentation + Comp. | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 14. Shared Substrates + composed_report Gates | v1.4 | 3/3 | Complete    | 2026-06-11 |
 | 15. Independent New Modules | v1.4 | 6/6 | Complete    | 2026-06-11 |
-| 16. MTTR Rework | v1.4 | 3/3 | Complete   | 2026-06-12 |
+| 16. MTTR Rework | v1.4 | 3/3 | Complete    | 2026-06-12 |
 | 17. Program Health Overview | v1.4 | 0/TBD | Not started | - |
 | 18. management_summary Migration + Docs | v1.4 | 0/TBD | Not started | - |
 
