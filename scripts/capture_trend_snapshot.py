@@ -30,7 +30,10 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
-from config import CACHE_DIR
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
+
+from config import CACHE_DIR  # noqa: E402
 from data.fetchers import (
     fetch_all_assets,
     fetch_all_vulnerabilities,
