@@ -143,4 +143,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-11 — v1.4 Management Summary Reporting Improvement milestone started*
+*Last updated: 2026-06-12 — v1.4 in progress; Phase 16 (MTTR rework, RPT-05) complete*
