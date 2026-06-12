@@ -864,3 +864,131 @@ def test_existing_severity_fields_unchanged(tmp_path):
     assert "month" in entry
     assert "tag_filter" in entry
     assert "generated_at" in entry
+
+
+# ---------------------------------------------------------------------------
+# Phase 16 Plan 01 — MTTR aggregate persistence (D-16-09, RPT-05)
+# ---------------------------------------------------------------------------
+
+
+def test_mttr_aggregate_fields_written(tmp_path):
+    """
+    capture_snapshot called WITH mttr_overall_days, mttr_by_severity, and
+    mttr_by_owner writes all three keys into the snapshot entry with the
+    exact float/dict values supplied (D-16-09, RPT-05).
+
+    Mirrors test_new_aggregate_fields_written (Phase 15 analog).
+    MTTR values are floats — the round-trip asserts float identity, not int.
+    """
+    df = _open_df_with_states([
+        {"state": "open"},
+        {"state": "open"},
+    ])
+    assets_df = _assets_df(n=5)
+
+    path = capture_snapshot(
+        df, assets_df, datetime(2026, 6, 1), "severity", "all_assets",
+        trend_dir=tmp_path,
+        mttr_overall_days=14.3,
+        mttr_by_severity={"critical": 8.5, "high": 18.0, "medium": 35.2, "low": None},
+        mttr_by_owner={"Team Alpha": 12.7, "Team Beta": 22.1},
+    )
+
+    entry = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+
+    # mttr_overall_days: float round-trip
+    assert entry["mttr_overall_days"] == 14.3, (
+        f"Expected mttr_overall_days=14.3, got {entry['mttr_overall_days']!r}"
+    )
+
+    # mttr_by_severity: dict round-trip (includes a None-value key)
+    assert isinstance(entry["mttr_by_severity"], dict), (
+        f"Expected dict for mttr_by_severity, got {type(entry['mttr_by_severity'])}"
+    )
+    assert entry["mttr_by_severity"]["critical"] == 8.5
+    assert entry["mttr_by_severity"]["high"] == 18.0
+    assert entry["mttr_by_severity"]["medium"] == 35.2
+    assert entry["mttr_by_severity"]["low"] is None
+
+    # mttr_by_owner: dict round-trip
+    assert isinstance(entry["mttr_by_owner"], dict), (
+        f"Expected dict for mttr_by_owner, got {type(entry['mttr_by_owner'])}"
+    )
+    assert entry["mttr_by_owner"]["Team Alpha"] == 12.7
+    assert entry["mttr_by_owner"]["Team Beta"] == 22.1
+
+
+def test_mttr_params_default_to_none(tmp_path):
+    """
+    capture_snapshot called WITHOUT the three MTTR kwargs writes all three
+    keys as explicit None (JSON null) — never missing (D-16-09 implicit-
+    optional-field convention so snap.get() returns None, never KeyError).
+
+    Mirrors test_new_params_default_to_none (Phase 15 analog).
+    """
+    df = _open_df(n=3)
+    assets_df = _assets_df(n=5)
+
+    path = capture_snapshot(
+        df, assets_df, datetime(2026, 6, 1), "severity", "all_assets",
+        trend_dir=tmp_path,
+    )
+
+    entry = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+    assert entry["mttr_overall_days"] is None, (
+        f"Expected mttr_overall_days=None when not supplied, got {entry['mttr_overall_days']!r}"
+    )
+    assert entry["mttr_by_severity"] is None, (
+        f"Expected mttr_by_severity=None when not supplied, got {entry['mttr_by_severity']!r}"
+    )
+    assert entry["mttr_by_owner"] is None, (
+        f"Expected mttr_by_owner=None when not supplied, got {entry['mttr_by_owner']!r}"
+    )
+
+
+# --- D-16-09: old snapshot without MTTR fields is cold-start-safe ---
+
+
+def test_old_snapshot_readable_without_mttr_fields(tmp_path):
+    """
+    A hand-built "old" snapshot dict lacking mttr_overall_days/mttr_by_severity/
+    mttr_by_owner, written to disk and loaded via read_trend, reads back cold-
+    start-safe: snap.get("mttr_overall_days") is None, and the dict-typed fields
+    degrade to empty dict via (snap.get(...) or {}) — never KeyError or TypeError.
+
+    This promotes the D-16-09 contract from the __main__ smoke block into a
+    collected pytest test.  Mirrors test_old_snapshot_readable_without_new_fields
+    (Phase 15 analog).
+    """
+    old_snap = {
+        "snapshots": [{
+            "month":        "2026-05",
+            "tag_filter":   "all_assets",
+            "critical":     3,
+            "high":         1,
+            "medium":       0,
+            "low":          0,
+            "asset_count":  10,
+            "generated_at": "2026-05-01T00:00:00Z",
+            # NOTE: no mttr_overall_days, mttr_by_severity, mttr_by_owner keys
+        }]
+    }
+    snap_file = tmp_path / "trend_severity_all_assets.json"
+    snap_file.write_text(json.dumps(old_snap), encoding="utf-8")
+
+    # read_trend must not raise
+    result = read_trend("severity", "all_assets", trend_dir=tmp_path)
+    assert len(result["snapshots"]) == 1
+
+    snap = result["snapshots"][0]
+
+    # D-16-09 cold-start access form — never snap["mttr_by_owner"] (KeyError)
+    assert snap.get("mttr_overall_days") is None, (
+        "Old snapshot must cold-start mttr_overall_days to None (no KeyError)"
+    )
+    assert (snap.get("mttr_by_severity") or {}) == {}, (
+        "Old snapshot must cold-start mttr_by_severity to empty dict (no TypeError)"
+    )
+    assert (snap.get("mttr_by_owner") or {}) == {}, (
+        "Old snapshot must cold-start mttr_by_owner to empty dict (no TypeError)"
+    )
