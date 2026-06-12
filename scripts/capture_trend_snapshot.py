@@ -384,6 +384,39 @@ def main(argv: list[str] | None = None) -> int:
             logger.warning("MTTR aggregate computation failed — fields will cold-start: %s", exc)
             mttr_overall_days = mttr_by_severity = mttr_by_owner = None
 
+    # ---- Phase 17: compute SLA-posture aggregate for snapshot persistence (D-17-03/04) ----
+    # Reopened-aware Crit+High SLA rate — severity dimension only (D-17-04).
+    # Fail-soft: a computation failure sets the field None and must not abort the snapshot (T-17-02).
+    sla_rate_crit_high: Optional[float] = None
+    try:
+        import pandas as pd  # noqa: PLC0415 — imported inside the block for clarity
+        from config import SLA_DAYS  # noqa: PLC0415
+        from utils.open_count import open_findings_at  # noqa: PLC0415
+
+        open_df = open_findings_at(df, snapshot_date)
+        ch_df = open_df[open_df["severity"].str.lower().isin({"critical", "high"})]
+
+        if not ch_df.empty:
+            # T-17-03: wrap snapshot_date as tz-aware Timestamp (Pitfall 7 — match MTTR block)
+            snap_ts = pd.Timestamp(snapshot_date, tz="UTC")
+            ff_ts = pd.to_datetime(ch_df["first_found"], utc=True, errors="coerce")
+            # CoW-safe: assign to a local variable, never ch_df["days_open"] = ... (Pitfall 3)
+            days_open = (snap_ts - ff_ts).dt.days.clip(lower=0)
+            sla_days_col = ch_df["severity"].str.lower().map(SLA_DAYS)
+            within = days_open.notna() & sla_days_col.notna() & (days_open <= sla_days_col)
+            # A3: result is a float percentage 0–100, NOT a fraction
+            sla_rate_crit_high = round(float(within.sum()) / len(ch_df) * 100, 1)
+
+        logger.info(
+            "SLA-posture aggregate — sla_rate_crit_high=%s (crit_high_open=%d)",
+            f"{sla_rate_crit_high:.1f}" if sla_rate_crit_high is not None else "None",
+            len(ch_df) if "ch_df" in dir() else 0,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Fail-soft: SLA-posture aggregate failure must not abort the severity snapshot (T-17-02)
+        logger.warning("SLA-posture aggregate failed — field will cold-start: %s", exc)
+        sla_rate_crit_high = None
+
     try:
         path = capture_snapshot(
             df, assets_df, snapshot_date, "severity", "all_assets",
@@ -395,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
             mttr_overall_days=mttr_overall_days,
             mttr_by_severity=mttr_by_severity,
             mttr_by_owner=mttr_by_owner,
+            sla_rate_crit_high=sla_rate_crit_high,
         )
         logger.info("Severity snapshot written: %s", path)
     except Exception as exc:  # noqa: BLE001
