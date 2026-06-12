@@ -90,7 +90,7 @@ Severity is determined by the **VPR (Vulnerability Priority Rating)** score from
 | -------- | --------------- | ---------- |
 | Critical | 9.0 – 10.0      | 15         |
 | High     | 7.0 – 8.9       | 30         |
-| Medium   | 4.0 – 6.9       | 45         |
+| Medium   | 4.0 – 6.9       | 60         |
 | Low      | 0.1 – 3.9       | 120        |
 
 A vulnerability is **overdue** when `today - first_found_date > SLA_days` AND not remediated.
