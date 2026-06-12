@@ -19,7 +19,7 @@ The June-2026 management/exec trend-cut report batch built as thin four-channel 
 - [x] **RPT-02**: A reader can see **Vulnerability Density** (vulns per asset) trended month-over-month, using each month's own asset-count denominator.
 - [x] **RPT-03**: A reader can see **Reopened Vulnerabilities** (build/config regressions: `state==REOPENED` / `resurfaced_date`) with an Owner cut and an analyst drill-down.
 - [x] **RPT-04**: A reader can see **Accepted & Recast** posture (ACCEPTED and RECASTED tracked separately) with current vs previous-month ▲▼% change, cut by Owner; sourced from `severity_modification_type` / `recast_rule_uuid` + `fetch_recast_rules()`.
-- [ ] **RPT-05**: A reader can see a **reworked MTTR** (`mttr_trend`, new MODULE_ID) that discloses its ~30-day measurement window, uses a sample-weighted overall mean, is reopened-aware (no reopen-cycle inflation), and adds month-over-month trend + an Owner cut on the four-channel contract.
+- [x] **RPT-05**: A reader can see a **reworked MTTR** (`mttr_trend`, new MODULE_ID) that discloses its ~30-day measurement window, uses a sample-weighted overall mean, is reopened-aware (no reopen-cycle inflation), and adds month-over-month trend + an Owner cut on the four-channel contract.
 - [x] **RPT-06**: A reader can see an **External / DMZ exposure cut** of host-vuln findings (scope from SUB-01) plus the analyst mismatch list; current-snapshot only (WAS and MoM trend deferred).
 - [ ] **RPT-07**: A reader can see a **Program Health Overview** one-pager composing New-vs-Remediated velocity, MTTR, and SLA posture into a composite RAG with an Owner velocity table; cold-start-safe.
 
@@ -102,7 +102,7 @@ Final phase assignments (roadmap created 2026-06-11).
 | QUAL-02 | Phase 15 (first verified; enforced Phases 16–18) | Complete |
 | QUAL-03 | Phase 15 (first verified; enforced Phases 16–18) | Complete |
 | QUAL-05 | Phase 15 (first verified; enforced Phases 16–18) | Complete |
-| RPT-05 | Phase 16 | Pending |
+| RPT-05 | Phase 16 | Complete |
 | RPT-07 | Phase 17 | Pending |
 | GEN-01 | Phase 18 | Pending |
 | QUAL-04 | Phase 18 | Pending |
