@@ -236,6 +236,8 @@ def capture_snapshot(
     mttr_overall_days: Optional[float] = None,
     mttr_by_severity: Optional[dict] = None,
     mttr_by_owner: Optional[dict] = None,
+    # ---- Phase 17 addition (D-17-04) ----
+    sla_rate_crit_high: Optional[float] = None,
 ) -> Path:
     """
     Write an atomic monthly snapshot of open-finding counts.
@@ -306,6 +308,11 @@ def capture_snapshot(
         or None (None when sample < min_sample). Empty dict when no fixed findings
         were in scope. None when computation did not run. Keys are internal Owner
         tag names only — never hostnames, IPs, or asset-level data (QUAL-05).
+    sla_rate_crit_high : float or None, optional
+        Percentage (0–100) of open Critical+High findings within SLA at snapshot
+        date, computed reopened-aware over config.SLA_DAYS targets (D-17-03/04).
+        None when there are no open Crit+High findings in scope, or when
+        computation failed (fail-soft, D-17-04 cold-start).
 
     Notes
     -----
@@ -388,6 +395,8 @@ def capture_snapshot(
         "mttr_overall_days":   mttr_overall_days,
         "mttr_by_severity":    mttr_by_severity,
         "mttr_by_owner":       mttr_by_owner,
+        # Phase 17 — explicit null per D-17-04 implicit-optional-field convention (D-16-09 pattern).
+        "sla_rate_crit_high":  sla_rate_crit_high,
         "generated_at":        generated_at_str,
     }
 
@@ -550,6 +559,10 @@ if __name__ == "__main__":
         assert (_old_snap.get("mttr_by_owner") or {}) == {}, (
             "Old snapshot must cold-start mttr_by_owner to empty dict (no TypeError)"
         )
+        assert _old_snap.get("sla_rate_crit_high") is None, (
+            "Old snapshot must cold-start sla_rate_crit_high to None (no KeyError)"
+        )
+        print("Backward-compat cold-start (sla_rate_crit_high): OK")
         print("Backward-compat cold-start: OK")
 
         print("Smoke test passed.")
