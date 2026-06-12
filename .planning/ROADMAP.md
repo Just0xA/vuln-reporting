@@ -126,7 +126,10 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 3. A fixture where a finding was first found 200 days ago, `resurfaced_date` is 10 days ago, and `last_fixed` is 2 days ago produces an MTTR of approximately 8 days, not 198 days — the reopened-cycle inflation is eliminated.
 4. Board_summary groups that reference `mttr_by_severity` continue to deliver without change; `mttr_by_severity_module.py` is byte-unchanged; new `mttr_trend` baselines are re-captured and pass the structural smoke check.
 5. Per-severity sample sizes below the minimum threshold (default 5) render "Insufficient data (N findings)" rather than a potentially misleading single-finding average; zero fixed-findings-in-scope returns `_empty_result()` with gray RAG.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 16-01-PLAN.md — Extend snapshot store + capture script with rolling-30-day MTTR aggregate (overall/per-severity/per-Owner; D-16-03/09)
+- [ ] 16-02-PLAN.md — New four-channel `mttr_trend` module (reopened-aware clock, sample-weighted mean, MoM + Owner cut) + composed_report frozenset
+- [ ] 16-03-PLAN.md — Acceptance suite (criterion-3 lodestar, cold-start, min_sample, Owner-drift) + `mttr_trend` baselines + board_summary zero-diff (D-16-10)
 
 ---
 
