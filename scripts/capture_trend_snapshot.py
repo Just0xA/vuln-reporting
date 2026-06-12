@@ -28,6 +28,7 @@ import sys
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Optional
 
 from config import CACHE_DIR
 from data.fetchers import (
@@ -293,6 +294,93 @@ def main(argv: list[str] | None = None) -> int:
             "new_findings_count will cold-start for this snapshot: %s", exc,
         )
 
+    # ---- Phase 16: compute MTTR aggregate for snapshot persistence (D-16-03) ----
+    # Window applied here (in the capture script), not inside the module (Pitfall C).
+    # Fail-soft: a computation failure must not abort the severity snapshot (T-16-03).
+    mttr_overall_days: Optional[float] = None
+    mttr_by_severity: Optional[dict] = None
+    mttr_by_owner: Optional[dict] = None
+
+    if fixed_vulns_df is not None and not fixed_vulns_df.empty:
+        try:
+            import pandas as pd  # noqa: PLC0415 — imported inside the block for clarity
+
+            window_days = 30  # configurable in future; default per D-16-04
+            window_cutoff = (
+                pd.Timestamp(snapshot_date, tz="UTC") - pd.Timedelta(days=window_days)
+            )
+
+            # D-16-01: durably-fixed only (state == "FIXED")
+            state_upper = fixed_vulns_df["state"].astype(str).str.upper()
+            lf = pd.to_datetime(fixed_vulns_df["last_fixed"], utc=True, errors="coerce")
+            window_mask = (state_upper == "FIXED") & (lf >= window_cutoff)
+            windowed = fixed_vulns_df[window_mask].copy()
+
+            if not windowed.empty:
+                # D-16-02: COALESCE clock start — resurfaced_date when present, else first_found
+                # Pitfall A: coerce both sides to datetime64[ns, UTC] before subtraction
+                _nat = pd.Series([pd.NaT] * len(windowed), index=windowed.index, dtype="object")
+                last_fixed_ts = pd.to_datetime(
+                    windowed["last_fixed"] if "last_fixed" in windowed.columns else _nat,
+                    utc=True, errors="coerce",
+                )
+                first_found_ts = pd.to_datetime(
+                    windowed["first_found"] if "first_found" in windowed.columns else _nat,
+                    utc=True, errors="coerce",
+                )
+                resurfaced_ts = pd.to_datetime(
+                    windowed["resurfaced_date"] if "resurfaced_date" in windowed.columns else _nat,
+                    utc=True, errors="coerce",
+                )
+                clock_start = resurfaced_ts.where(resurfaced_ts.notna(), other=first_found_ts)
+                days_col = (last_fixed_ts - clock_start).dt.days.clip(lower=0)
+                # CoW-compliant: .assign() only — never windowed["days_to_fix"] = ... after filter
+                windowed = windowed.assign(days_to_fix=days_col)
+                windowed = windowed[
+                    windowed["days_to_fix"].notna() & (windowed["days_to_fix"] >= 0)
+                ]
+
+            if not windowed.empty:
+                # D-16-02 consequence: flat mean = sample-weighted overall MTTR
+                mttr_overall_days = round(float(windowed["days_to_fix"].mean()), 2)
+
+                # Per-severity (None when n < MIN_SAMPLE)
+                MIN_SAMPLE = 5
+                mttr_by_severity = {}
+                for sev in ("critical", "high", "medium", "low"):
+                    sev_df = windowed[windowed["severity"].astype(str).str.lower() == sev]
+                    mttr_by_severity[sev] = (
+                        round(float(sev_df["days_to_fix"].mean()), 2)
+                        if len(sev_df) >= MIN_SAMPLE else None
+                    )
+
+                # Per-Owner (D-16-06): extract_owner already imported for the owner snapshot call
+                from reports.modules.board_report_utils import extract_owner  # noqa: PLC0415
+                enriched_for_mttr = extract_owner(assets_df)
+                uuid_to_owner = dict(zip(
+                    enriched_for_mttr.drop_duplicates("asset_uuid")["asset_uuid"],
+                    enriched_for_mttr.drop_duplicates("asset_uuid")["owner"],
+                ))
+                owner_col = windowed["asset_uuid"].map(uuid_to_owner).fillna("Unassigned")
+                windowed_w_owner = windowed.assign(owner=owner_col)
+                mttr_by_owner = {}
+                for owner, grp in windowed_w_owner.groupby("owner", dropna=False):
+                    mttr_by_owner[str(owner)] = (
+                        round(float(grp["days_to_fix"].mean()), 2)
+                        if len(grp) >= MIN_SAMPLE else None
+                    )
+
+            logger.info(
+                "MTTR aggregate — overall=%s by_severity=%s by_owner_keys=%s",
+                f"{mttr_overall_days:.2f}" if mttr_overall_days is not None else "None",
+                {k: v for k, v in (mttr_by_severity or {}).items()},
+                list((mttr_by_owner or {}).keys()),
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Fail-soft: MTTR aggregate failure must not abort the severity snapshot (T-16-03)
+            logger.warning("MTTR aggregate computation failed — fields will cold-start: %s", exc)
+            mttr_overall_days = mttr_by_severity = mttr_by_owner = None
+
     try:
         path = capture_snapshot(
             df, assets_df, snapshot_date, "severity", "all_assets",
@@ -301,6 +389,9 @@ def main(argv: list[str] | None = None) -> int:
             accepted_count=accepted_count,
             recast_count=recast_count,
             fixed_vulns_df=fixed_vulns_df,
+            mttr_overall_days=mttr_overall_days,
+            mttr_by_severity=mttr_by_severity,
+            mttr_by_owner=mttr_by_owner,
         )
         logger.info("Severity snapshot written: %s", path)
     except Exception as exc:  # noqa: BLE001
