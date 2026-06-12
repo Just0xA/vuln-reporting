@@ -992,3 +992,97 @@ def test_old_snapshot_readable_without_mttr_fields(tmp_path):
     assert (snap.get("mttr_by_owner") or {}) == {}, (
         "Old snapshot must cold-start mttr_by_owner to empty dict (no TypeError)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 17 Plan 01 — SLA-posture aggregate persistence (D-17-04, RPT-07)
+# ---------------------------------------------------------------------------
+
+
+def test_sla_rate_crit_high_roundtrip(tmp_path):
+    """
+    capture_snapshot called WITH sla_rate_crit_high writes the float into the
+    snapshot entry and reads it back with the exact value supplied (D-17-04,
+    RPT-07).
+
+    Mirrors test_mttr_aggregate_fields_written (Phase 16 analog).
+    sla_rate_crit_high is a float percentage 0–100 — round-trip asserts float
+    identity, not int.
+    """
+    df = _open_df_with_states([
+        {"state": "open"},
+        {"state": "open"},
+    ])
+    assets_df = _assets_df(n=5)
+
+    path = capture_snapshot(
+        df, assets_df, datetime(2026, 6, 1), "severity", "all_assets",
+        trend_dir=tmp_path,
+        sla_rate_crit_high=87.3,
+    )
+
+    entry = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+
+    assert entry["sla_rate_crit_high"] == 87.3, (
+        f"Expected sla_rate_crit_high=87.3, got {entry['sla_rate_crit_high']!r}"
+    )
+
+
+def test_sla_rate_params_default_to_none(tmp_path):
+    """
+    capture_snapshot called WITHOUT sla_rate_crit_high writes the key as
+    explicit None (JSON null) — never missing (D-17-04 implicit-optional-field
+    convention so snap.get() returns None, never KeyError).
+
+    Mirrors test_mttr_params_default_to_none (Phase 16 analog).
+    """
+    df = _open_df(n=3)
+    assets_df = _assets_df(n=5)
+
+    path = capture_snapshot(
+        df, assets_df, datetime(2026, 6, 1), "severity", "all_assets",
+        trend_dir=tmp_path,
+    )
+
+    entry = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+    assert entry["sla_rate_crit_high"] is None, (
+        f"Expected sla_rate_crit_high=None when not supplied, got {entry['sla_rate_crit_high']!r}"
+    )
+
+
+def test_sla_rate_backward_compat(tmp_path):
+    """
+    A hand-built "old" snapshot dict lacking sla_rate_crit_high, written to disk
+    and loaded via read_trend, reads back cold-start-safe: snap.get(
+    "sla_rate_crit_high") is None — never KeyError.
+
+    This promotes the D-17-04 backward-compat contract from the __main__ smoke
+    block into a collected pytest test.  Mirrors
+    test_old_snapshot_readable_without_mttr_fields (Phase 16 analog).
+    """
+    old_snap = {
+        "snapshots": [{
+            "month":        "2026-05",
+            "tag_filter":   "all_assets",
+            "critical":     3,
+            "high":         1,
+            "medium":       0,
+            "low":          0,
+            "asset_count":  10,
+            "generated_at": "2026-05-01T00:00:00Z",
+            # NOTE: no sla_rate_crit_high key — simulates a pre-Phase-17 snapshot
+        }]
+    }
+    snap_file = tmp_path / "trend_severity_all_assets.json"
+    snap_file.write_text(json.dumps(old_snap), encoding="utf-8")
+
+    # read_trend must not raise
+    result = read_trend("severity", "all_assets", trend_dir=tmp_path)
+    assert len(result["snapshots"]) == 1
+
+    snap = result["snapshots"][0]
+
+    # D-17-04 cold-start access form — never snap["sla_rate_crit_high"] (KeyError)
+    assert snap.get("sla_rate_crit_high") is None, (
+        "Old snapshot must cold-start sla_rate_crit_high to None (no KeyError)"
+    )
