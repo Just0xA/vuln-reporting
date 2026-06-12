@@ -769,6 +769,8 @@ class MTTRTrendModule(BaseModule):
         window_days   = data.metadata.get("window_days", 30)
         current_month = data.metadata.get("current_month", "")
         overall_mttr  = m.get("overall_mttr")
+        # D-16-11/D-16-12: view selector governs which section(s) render
+        mttr_view = data.metadata.get("mttr_view", "owner")
 
         # D-16-04 disclosure
         disclosure = (
@@ -794,88 +796,60 @@ class MTTRTrendModule(BaseModule):
             f"</p>"
         )
 
-        # Per-severity gauges
+        # Per-severity gauges — only for severity and both views (D-16-11)
         gauges_html = ""
-        for sev in _SEVERITIES:
-            mttr   = m.get(f"{sev}_mttr")
-            sla    = float(SLA_DAYS[sev])
-            status = m.get(f"{sev}_status", _STATUS_NODATA)
-            color  = (
-                _COLOR_GREEN if status == _STATUS_WITHIN else
-                _COLOR_AMBER if status == _STATUS_NEAR   else
-                _COLOR_RED   if status == _STATUS_EXCEED else
-                _COLOR_GREY
-            )
-            thresholds = [
-                (sla,        color),
-                (sla * 1.25, _COLOR_AMBER),
-                (sla * 2,    _COLOR_RED),
-            ]
-
-            if mttr is None:
-                n     = m.get(f"{sev}_sample", 0)
-                insuf = data.metadata.get("min_sample", 5)
-                msg   = (
-                    f"Insufficient data ({n} findings — minimum {insuf} required)"
-                    if n > 0
-                    else "No Data"
+        if mttr_view in ("severity", "both"):
+            for sev in _SEVERITIES:
+                sev_mttr   = m.get(f"{sev}_mttr")
+                sla        = float(SLA_DAYS[sev])
+                status     = m.get(f"{sev}_status", _STATUS_NODATA)
+                color      = (
+                    _COLOR_GREEN if status == _STATUS_WITHIN else
+                    _COLOR_AMBER if status == _STATUS_NEAR   else
+                    _COLOR_RED   if status == _STATUS_EXCEED else
+                    _COLOR_GREY
                 )
-                gauge_inner = (
-                    f'<div style="text-align:center;padding:16pt;">'
-                    f'<span style="color:#9E9E9E;font-size:9pt;">{msg}</span>'
+                thresholds = [
+                    (sla,        color),
+                    (sla * 1.25, _COLOR_AMBER),
+                    (sla * 2,    _COLOR_RED),
+                ]
+
+                if sev_mttr is None:
+                    n     = m.get(f"{sev}_sample", 0)
+                    insuf = data.metadata.get("min_sample", 5)
+                    msg   = (
+                        f"Insufficient data ({n} findings — minimum {insuf} required)"
+                        if n > 0
+                        else "No Data"
+                    )
+                    gauge_inner = (
+                        f'<div style="text-align:center;padding:16pt;">'
+                        f'<span style="color:#9E9E9E;font-size:9pt;">{msg}</span>'
+                        f"</div>"
+                    )
+                else:
+                    b64 = draw_gauge(
+                        value           = sev_mttr,
+                        min_val         = 0,
+                        max_val         = sla * 2,
+                        thresholds      = thresholds,
+                        title           = f"MTTR — {sev.capitalize()}",
+                        unit            = "d",
+                        reference_line  = sla,
+                        reference_label = "SLA",
+                    )
+                    gauge_inner = (
+                        f'<img src="data:image/png;base64,{b64}" '
+                        f'style="width:100%;max-width:160pt;">'
+                    )
+
+                gauges_html += (
+                    f'<div style="display:inline-block;text-align:center;'
+                    f'width:23%;margin:0 1%;">'
+                    f"{gauge_inner}"
                     f"</div>"
                 )
-            else:
-                b64 = draw_gauge(
-                    value          = mttr,
-                    min_val        = 0,
-                    max_val        = sla * 2,
-                    thresholds     = thresholds,
-                    title          = f"MTTR — {sev.capitalize()}",
-                    unit           = "d",
-                    reference_line = sla,
-                    reference_label = "SLA",
-                )
-                gauge_inner = (
-                    f'<img src="data:image/png;base64,{b64}" '
-                    f'style="width:100%;max-width:160pt;">'
-                )
-
-            gauges_html += (
-                f'<div style="display:inline-block;text-align:center;'
-                f'width:23%;margin:0 1%;">'
-                f"{gauge_inner}"
-                f"</div>"
-            )
-
-        # SLA + Owner table
-        table_rows = ""
-        for row in data.table_data:
-            mttr  = row.get("mttr_days")
-            insuf = row.get("insufficient", "")
-            if insuf:
-                mttr_str = insuf
-            elif mttr is not None:
-                mttr_str = safe_format(mttr, ".1f") + "d"
-            else:
-                mttr_str = "No Data"
-
-            var     = row.get("variance")
-            var_str = (safe_format(var, "+.1f") + "d") if var is not None else "—"
-            mom     = row.get("mom_delta")
-            mom_str = (safe_format(mom, "+.1f") + "d") if mom is not None else "—"
-
-            table_rows += (
-                f"<tr>"
-                f"<td>{row['label']}</td>"
-                f"<td style='text-align:right;'>{mttr_str}</td>"
-                f"<td style='text-align:right;'>{row['sla_days']}d</td>"
-                f"<td style='text-align:right;'>{var_str}</td>"
-                f"<td>{row['status']}</td>"
-                f"<td style='text-align:right;'>{safe_int(row['sample_size'])}</td>"
-                f"<td style='text-align:right;'>{mom_str}</td>"
-                f"</tr>"
-            )
 
         snapshots_cold = data.metadata.get("snapshots_cold", True)
         mom_notice = (
@@ -885,37 +859,117 @@ class MTTRTrendModule(BaseModule):
             if snapshots_cold else ""
         )
 
-        return f"""
-<div class="module-section">
-  <h2 class="section-heading">{data.display_name}</h2>
-  {overall_line}
-  <div style="text-align:center;margin-bottom:8pt;">
-    {gauges_html}
-  </div>
-  {disclosure}
-  {mom_notice}
-  <table class="data-table" style="width:100%;margin-top:8pt;">
+        # Build view-gated table section(s)
+        table_data_severity = data.metadata.get("table_data_severity", [])
+        table_data_owner    = data.metadata.get("table_data_owner", [])
+
+        def _pdf_sev_rows(rows: list) -> str:
+            """Build HTML <tr> rows for the Severity table (with SLA Target + Variance)."""
+            html = ""
+            for row in rows:
+                mttr  = row.get("mttr_days")
+                insuf = row.get("insufficient", "")
+                mttr_str = insuf if insuf else (
+                    safe_format(mttr, ".1f") + "d" if mttr is not None else "No Data"
+                )
+                var     = row.get("variance")
+                var_str = (safe_format(var, "+.1f") + "d") if var is not None else "—"
+                html += (
+                    f"<tr>"
+                    f"<td>{row['label']}</td>"
+                    f"<td style='text-align:right;'>{mttr_str}</td>"
+                    f"<td style='text-align:right;'>{row['sla_days']}d</td>"
+                    f"<td style='text-align:right;'>{var_str}</td>"
+                    f"<td>{row['status']}</td>"
+                    f"<td style='text-align:right;'>{safe_int(row['sample_size'])}</td>"
+                    f"</tr>"
+                )
+            return html
+
+        def _pdf_owner_rows(rows: list) -> str:
+            """Build HTML <tr> rows for the Owner table (no SLA Target, no Variance)."""
+            html = ""
+            for row in rows:
+                mttr  = row.get("mttr_days")
+                insuf = row.get("insufficient", "")
+                mttr_str = insuf if insuf else (
+                    safe_format(mttr, ".1f") + "d" if mttr is not None else "No Data"
+                )
+                mom     = row.get("mom_delta")
+                mom_str = (safe_format(mom, "+.1f") + "d") if mom is not None else "—"
+                html += (
+                    f"<tr>"
+                    f"<td>{row['label']}</td>"
+                    f"<td style='text-align:right;'>{mttr_str}</td>"
+                    f"<td>{row['status']}</td>"
+                    f"<td style='text-align:right;'>{safe_int(row['sample_size'])}</td>"
+                    f"<td style='text-align:right;'>{mom_str}</td>"
+                    f"</tr>"
+                )
+            return html
+
+        sections_html = ""
+
+        if mttr_view in ("severity", "both"):
+            sev_rows_html = _pdf_sev_rows(table_data_severity)
+            sections_html += f"""
+  <h3 style="font-size:11pt;margin-top:10pt;margin-bottom:4pt;">MTTR by Severity</h3>
+  <table class="data-table" style="width:100%;margin-top:4pt;">
     <thead>
       <tr>
-        <th>Severity / Owner</th>
+        <th>Severity</th>
         <th style="text-align:right;">MTTR (Days)</th>
         <th style="text-align:right;">SLA Target</th>
         <th style="text-align:right;">Variance</th>
+        <th>Status</th>
+        <th style="text-align:right;">Sample Size</th>
+      </tr>
+    </thead>
+    <tbody>
+      {sev_rows_html}
+    </tbody>
+  </table>"""
+
+        if mttr_view in ("owner", "both"):
+            owner_rows_html = _pdf_owner_rows(table_data_owner)
+            sections_html += f"""
+  <h3 style="font-size:11pt;margin-top:10pt;margin-bottom:4pt;">MTTR by Owner</h3>
+  <table class="data-table" style="width:100%;margin-top:4pt;">
+    <thead>
+      <tr>
+        <th>Owner</th>
+        <th style="text-align:right;">MTTR (Days)</th>
         <th>Status</th>
         <th style="text-align:right;">Sample Size</th>
         <th style="text-align:right;">MoM Delta (Days)</th>
       </tr>
     </thead>
     <tbody>
-      {table_rows}
+      {owner_rows_html}
     </tbody>
-  </table>
+  </table>"""
+
+        gauges_block = (
+            f'<div style="text-align:center;margin-bottom:8pt;">'
+            f"{gauges_html}"
+            f"</div>"
+            if gauges_html else ""
+        )
+
+        return f"""
+<div class="module-section">
+  <h2 class="section-heading">{data.display_name}</h2>
+  {overall_line}
+  {gauges_block}
+  {disclosure}
+  {mom_notice}
+  {sections_html}
   <p class="explanatory-text">
     MTTR uses reopened-aware date math: clock resets to resurfaced_date when a
     finding re-emerges. Overall MTTR is a sample-weighted flat mean (not a mean
     of per-severity means). MoM delta = current month MTTR minus prior month
-    MTTR (absolute days). Severity rows use per-severity SLA target; Owner rows
-    use Critical SLA ({SLA_DAYS["critical"]}d) as the anchor.
+    MTTR (absolute days). Severity table uses per-severity SLA targets. Owner
+    table shows velocity (MTTR + MoM delta) without an SLA anchor.
   </p>
 </div>"""
 
@@ -932,9 +986,11 @@ class MTTRTrendModule(BaseModule):
         """
         Write a single "MTTR Trend" tab with window disclosure in row 1.
 
-        Column order (D-16-05):
-        Severity/Owner, MTTR (Days), SLA Target (Days),
-        Variance (Days), Status, Sample Size, MoM Delta (Days).
+        Column layout is view-dependent (D-16-11/D-16-12):
+        - owner    : Owner, MTTR (Days), Status, Sample Size, MoM Delta (Days)
+        - severity : Severity, MTTR (Days), SLA Target (Days), Variance (Days),
+                     Status, Sample Size
+        - both     : Severity block, blank row, Owner block (two regions, one tab)
 
         Returns ``[]`` on exception; writes a cold-start or error row
         when set.
@@ -957,53 +1013,104 @@ class MTTRTrendModule(BaseModule):
                 return [tab_name]
 
             window_days = data.metadata.get("window_days", 30)
+            # D-16-11/D-16-12: view selector
+            mttr_view = data.metadata.get("mttr_view", "owner")
 
             # Row 1: title with window disclosure (D-16-04)
             ws["A1"] = f"MTTR Trend — Rolling {window_days}-day window"
             ws["A1"].font = Font(bold=True, size=13)
 
-            # Headers (D-16-05 column order)
-            headers = [
-                "Severity / Owner",
+            table_data_severity = data.metadata.get("table_data_severity", [])
+            table_data_owner    = data.metadata.get("table_data_owner", [])
+
+            # Severity column headers and data writer
+            sev_headers = [
+                "Severity",
                 "MTTR (Days)",
                 "SLA Target (Days)",
                 "Variance (Days)",
                 "Status",
                 "Sample Size",
+            ]
+            sev_widths = [20, 14, 18, 16, 18, 14]
+
+            # Owner column headers and data writer (no SLA Target, no Variance)
+            owner_headers = [
+                "Owner",
+                "MTTR (Days)",
+                "Status",
+                "Sample Size",
                 "MoM Delta (Days)",
             ]
-            for col_idx, header in enumerate(headers, start=1):
-                cell = ws.cell(row=3, column=col_idx, value=header)
-                cell.font = Font(bold=True)
-                cell.fill = _FILL_HEADER
+            owner_widths = [28, 14, 18, 14, 18]
 
-            # Data rows
-            for row_idx, row in enumerate(data.table_data, start=4):
-                mttr  = row.get("mttr_days")
-                insuf = row.get("insufficient", "")
-                var   = row.get("variance")
-                mom   = row.get("mom_delta")
+            def _write_headers(row_num: int, headers: list[str]) -> None:
+                for col_idx, header in enumerate(headers, start=1):
+                    cell = ws.cell(row=row_num, column=col_idx, value=header)
+                    cell.font = Font(bold=True)
+                    cell.fill = _FILL_HEADER
 
-                if insuf:
-                    mttr_val = insuf
-                elif mttr is not None:
-                    mttr_val = mttr
-                else:
-                    mttr_val = "No Data"
+            def _write_sev_rows(start_row: int, rows: list) -> int:
+                """Write severity data rows. Returns next available row."""
+                for row_idx, row in enumerate(rows, start=start_row):
+                    mttr  = row.get("mttr_days")
+                    insuf = row.get("insufficient", "")
+                    var   = row.get("variance")
+                    if insuf:
+                        mttr_val = insuf
+                    elif mttr is not None:
+                        mttr_val = mttr
+                    else:
+                        mttr_val = "No Data"
+                    ws.cell(row=row_idx, column=1, value=row["label"])
+                    ws.cell(row=row_idx, column=2, value=mttr_val)
+                    ws.cell(row=row_idx, column=3, value=row["sla_days"])
+                    ws.cell(row=row_idx, column=4, value=var if var is not None else "—")
+                    status_cell = ws.cell(row=row_idx, column=5, value=row["status"])
+                    status_cell.fill = _status_fill(row["status"])
+                    ws.cell(row=row_idx, column=6, value=row["sample_size"])
+                return start_row + len(rows)
 
-                ws.cell(row=row_idx, column=1, value=row["label"])
-                ws.cell(row=row_idx, column=2, value=mttr_val)
-                ws.cell(row=row_idx, column=3, value=row["sla_days"])
-                ws.cell(row=row_idx, column=4, value=var if var is not None else "—")
-                status_cell = ws.cell(row=row_idx, column=5, value=row["status"])
-                status_cell.fill = _status_fill(row["status"])
-                ws.cell(row=row_idx, column=6, value=row["sample_size"])
-                ws.cell(row=row_idx, column=7, value=mom if mom is not None else "—")
+            def _write_owner_rows(start_row: int, rows: list) -> int:
+                """Write owner data rows (no SLA Target or Variance). Returns next row."""
+                for row_idx, row in enumerate(rows, start=start_row):
+                    mttr  = row.get("mttr_days")
+                    insuf = row.get("insufficient", "")
+                    mom   = row.get("mom_delta")
+                    if insuf:
+                        mttr_val = insuf
+                    elif mttr is not None:
+                        mttr_val = mttr
+                    else:
+                        mttr_val = "No Data"
+                    ws.cell(row=row_idx, column=1, value=row["label"])
+                    ws.cell(row=row_idx, column=2, value=mttr_val)
+                    status_cell = ws.cell(row=row_idx, column=3, value=row["status"])
+                    status_cell.fill = _status_fill(row["status"])
+                    ws.cell(row=row_idx, column=4, value=row["sample_size"])
+                    ws.cell(row=row_idx, column=5, value=mom if mom is not None else "—")
+                return start_row + len(rows)
 
-            # Column widths
-            widths = [28, 14, 18, 16, 18, 14, 18]
-            for col_idx, w in enumerate(widths, start=1):
-                ws.column_dimensions[get_column_letter(col_idx)].width = w
+            next_row = 3  # row 1 = title, row 2 = blank gap
+
+            if mttr_view in ("severity", "both"):
+                _write_headers(next_row, sev_headers)
+                next_row = _write_sev_rows(next_row + 1, table_data_severity)
+                # Apply column widths for severity columns
+                for col_idx, w in enumerate(sev_widths, start=1):
+                    ws.column_dimensions[get_column_letter(col_idx)].width = w
+                if mttr_view == "both":
+                    next_row += 1  # blank separator row between sections
+
+            if mttr_view in ("owner", "both"):
+                _write_headers(next_row, owner_headers)
+                _write_owner_rows(next_row + 1, table_data_owner)
+                # Apply/extend column widths for owner columns
+                for col_idx, w in enumerate(owner_widths, start=1):
+                    current = ws.column_dimensions[get_column_letter(col_idx)].width
+                    ws.column_dimensions[get_column_letter(col_idx)].width = max(
+                        current or 0, w
+                    )
 
             return [tab_name]
 
@@ -1053,12 +1160,21 @@ class MTTRTrendModule(BaseModule):
         overall     = m.get("overall_mttr")
         window_days = data.metadata.get("window_days", 30)
         sample      = safe_int(m.get("sample_size"))
+        # D-16-11/D-16-12: view label for disclosure note
+        mttr_view   = data.metadata.get("mttr_view", "owner")
 
         overall_str = (
             safe_format(overall, ".1f") + "d"
             if overall is not None
             else "Insufficient data"
         )
+
+        _view_labels = {
+            "owner":    "Owner breakdown",
+            "severity": "Severity breakdown",
+            "both":     "Severity &amp; Owner breakdown",
+        }
+        view_label = _view_labels.get(mttr_view, "Owner breakdown")
 
         return f"""
 <table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;margin-bottom:8px;">
@@ -1072,6 +1188,7 @@ class MTTRTrendModule(BaseModule):
       <em style="font-size:11px;color:#555;">{data.driver_narrative}</em><br>
       <span style="font-size:10px;color:#757575;">
         Rolling {window_days}-day MTTR. Current month is partial.
+        See attached report for {view_label}.
       </span>
     </td>
   </tr>
