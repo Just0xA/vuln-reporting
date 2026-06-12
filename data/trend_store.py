@@ -528,4 +528,28 @@ if __name__ == "__main__":
         assert len(_result3["snapshots"]) == 2, "Different month must append"
         print("Month append: OK")
 
+        # D-16-09: backward-compat cold-start assertion.
+        # A snapshot written WITHOUT the three MTTR fields (pre-Phase-16 snapshot)
+        # must read back as cold-start values, never KeyError or TypeError.
+        # Use snap.get() / (snap.get(...) or {}) access form — never snap["mttr_by_owner"]
+        # (raises KeyError on old snapshots) or (snap.get(...) or {}).get(k) (safe per Pitfall B).
+        _old_snap = {
+            "month": "2026-04",
+            "tag_filter": "all_assets",
+            "critical": 10, "high": 5, "medium": 2, "low": 1,
+            "asset_count": 20,
+            "generated_at": "2026-04-01T00:00:00Z",
+            # NOTE: no mttr_overall_days, mttr_by_severity, mttr_by_owner keys
+        }
+        assert _old_snap.get("mttr_overall_days") is None, (
+            "Old snapshot must cold-start mttr_overall_days to None (no KeyError)"
+        )
+        assert (_old_snap.get("mttr_by_severity") or {}) == {}, (
+            "Old snapshot must cold-start mttr_by_severity to empty dict (no TypeError)"
+        )
+        assert (_old_snap.get("mttr_by_owner") or {}) == {}, (
+            "Old snapshot must cold-start mttr_by_owner to empty dict (no TypeError)"
+        )
+        print("Backward-compat cold-start: OK")
+
         print("Smoke test passed.")
