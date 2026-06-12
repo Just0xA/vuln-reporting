@@ -152,7 +152,10 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 2. The email panel renders a 4-tile KPI row (Open Critical delta, Net velocity, SLA rate delta, MTTR trend) and a one-paragraph narrative with no `NaN%` values — each tile degrades gracefully when its upstream signal is unavailable (Amber "data incomplete" composite RAG, explicit missing-signal note).
 3. When fewer than 2 S1 snapshots exist, the module renders current-values-only tiles with a cold-start notice on MoM delta fields, not a crash.
 4. The Owner velocity table shows each Owner's MoM delta on open Critical+High and flags Owners whose open count increased >20% MoM as outliers.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 17-01-PLAN.md — S1 snapshot SLA-posture field (`sla_rate_crit_high`): trend_store + capture script + round-trip tests (D-17-03/04)
+- [ ] 17-02-PLAN.md — `program_health` module compute: 4-signal re-derivation, OD-5 composite + missing-cap, cold-start Amber, Owner velocity, composed_report gate (D-17-01/05/06/07/08/09)
+- [ ] 17-03-PLAN.md — four-channel render: PDF sparklines + Owner table, email 4-tile + narrative, Excel/analyst tabs, RAG strip (D-17-06/09)
 **UI hint**: yes
 
 ---
@@ -198,7 +201,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 14. Shared Substrates + composed_report Gates | v1.4 | 3/3 | Complete    | 2026-06-11 |
 | 15. Independent New Modules | v1.4 | 6/6 | Complete    | 2026-06-11 |
 | 16. MTTR Rework | v1.4 | 7/7 | Complete    | 2026-06-12 |
-| 17. Program Health Overview | v1.4 | 0/TBD | Not started | - |
+| 17. Program Health Overview | v1.4 | 0/3 | Planned | - |
 | 18. management_summary Migration + Docs | v1.4 | 0/TBD | Not started | - |
 
 ## Backlog
