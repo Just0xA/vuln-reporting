@@ -16,7 +16,8 @@ findings:
   warning: 4
   info: 5
   total: 9
-status: issues_found
+status: resolved
+resolution: "WR-01..WR-04 fixed in commit fix(16): resolve code-review warnings (config mutation, safe_format, dead code). Info items left as advisory."
 ---
 
 # Phase 16: Code Review Report (D-16-13 Gap-Closure)
