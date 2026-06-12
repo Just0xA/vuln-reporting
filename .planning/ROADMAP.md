@@ -54,7 +54,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 - [x] **Phase 14: Shared Substrates + composed_report Gates** — external-scope classifier, asset-count denominator, trend/recast kwargs gates
  (completed 2026-06-11)
 - [x] **Phase 15: Independent New Modules** — New vs Remediated, Vulnerability Density, Reopened Vulns, Accepted & Recast, External/DMZ Exposure (completed 2026-06-11)
-- [ ] **Phase 16: MTTR Rework** — `mttr_trend` MODULE_ID, window disclosure, sample-weighted mean, reopened-aware denominator, trend + Owner
+- [x] **Phase 16: MTTR Rework** — `mttr_trend` MODULE_ID, window disclosure, sample-weighted mean, reopened-aware denominator, trend + Owner (completed 2026-06-12)
 - [ ] **Phase 17: Program Health Overview** — composite MoM velocity dashboard composing Modules 1 + 6 + SLA signals
 - [ ] **Phase 18: management_summary Migration + Docs** — GEN-01 cutover onto module render contract; auditor runbooks for all v1.4 modules
 
@@ -129,7 +129,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 **Plans**: 3 plans
 - [x] 16-01-PLAN.md — Extend snapshot store + capture script with rolling-30-day MTTR aggregate (overall/per-severity/per-Owner; D-16-03/09)
 - [x] 16-02-PLAN.md — New four-channel `mttr_trend` module (reopened-aware clock, sample-weighted mean, MoM + Owner cut) + composed_report frozenset
-- [ ] 16-03-PLAN.md — Acceptance suite (criterion-3 lodestar, cold-start, min_sample, Owner-drift) + `mttr_trend` baselines + board_summary zero-diff (D-16-10)
+- [x] 16-03-PLAN.md — Acceptance suite (criterion-3 lodestar, cold-start, min_sample, Owner-drift) + `mttr_trend` baselines + board_summary zero-diff (D-16-10)
 
 ---
 
@@ -191,7 +191,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 13. Owner Segmentation + Comp. | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 14. Shared Substrates + composed_report Gates | v1.4 | 3/3 | Complete    | 2026-06-11 |
 | 15. Independent New Modules | v1.4 | 6/6 | Complete    | 2026-06-11 |
-| 16. MTTR Rework | v1.4 | 2/3 | In Progress|  |
+| 16. MTTR Rework | v1.4 | 3/3 | Complete   | 2026-06-12 |
 | 17. Program Health Overview | v1.4 | 0/TBD | Not started | - |
 | 18. management_summary Migration + Docs | v1.4 | 0/TBD | Not started | - |
 

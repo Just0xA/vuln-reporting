@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Management Summary Reporting Improvement
-status: executing
+status: verifying
 stopped_at: Phase 16 context gathered
-last_updated: "2026-06-12T12:17:31.525Z"
+last_updated: "2026-06-12T12:35:09.757Z"
 last_activity: 2026-06-12
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
-  completed_plans: 11
-  percent: 40
+  completed_plans: 12
+  percent: 60
 ---
 
 # Project State
@@ -25,9 +25,9 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 ## Current Position
 
-Phase: 16 (mttr-rework) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
+Phase: 16 (mttr-rework) — COMPLETE
+Plan: 3 of 3 (all plans done)
+Status: Phase complete — ready for verification
 Last activity: 2026-06-12
 
 ```
@@ -46,6 +46,10 @@ Phase 14 [ ] Phase 15 [ ] Phase 16 [ ] Phase 17 [ ] Phase 18 [ ]
 
 (Reset at milestone boundary; accumulates as v1.4 phases ship.)
 
+| Phase | Plan | Duration (s) | Tasks | Files |
+|-------|------|-------------|-------|-------|
+| 16-mttr-rework | 03 | 540 | 3 | 5 |
+
 ## Accumulated Context
 
 ### Roadmap Evolution
@@ -60,6 +64,9 @@ Decisions logged in PROJECT.md "Key Decisions" table. Prior milestone decision l
 - [Phase ?]: D-15 enforced: run_report() signature frozen — kwargs injected via ReportComposer fan-out only
 - [Phase ?]: D-16: trend gate forwards full read_trend() dict {snapshots,insufficient_data} under trend_snapshots; recast gate forwards recast_rules_df
 - [Phase ?]: D-17: frozensets seeded with sc4_kwargs_stub only in Phase 14; real v1.4 module IDs added by the phase that builds them
+- [Phase 16-03]: Fingerprint-guard approach for board_summary baselines — live-data-origin baselines cannot be reproduced synthetically; hard-coded expected constants detect structural drift; zero-match cold-start path reproduced via _make_composer
+- [Phase 16-03]: pytest.mark.baseline registered in pytest.ini for --strict-markers compliance (structural self-guard tests require committed baseline JSON files)
+- [Phase 16-03]: CoW test fixture isolation — warnings from fixture code filtered to reports/ source path only to avoid false positives from fixture helpers
 
 ### v1.4 Plan-Time Open Decisions (lock per phase)
 
@@ -153,7 +160,7 @@ Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 whic
 
 ## Session Continuity
 
-Last session: 2026-06-12T12:17:31.518Z
-Stopped at: Phase 16 context gathered
+Last session: 2026-06-12T12:35:00.000Z
+Stopped at: Completed Phase 16 Plan 03 (16-03-PLAN.md)
 Resume file: None
-Next command: `/gsd-plan-phase 14`
+Next command: `/gsd-execute-phase 16` (phase complete — ready for verification)
