@@ -135,7 +135,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 - [x] 16-04-PLAN.md — Gap closure (D-16-11/12): configurable `mttr_view` {owner,severity,both} with split Severity/Owner tables across PDF/Excel/email + Owner SLA-basis fix (default owner)
 - [x] 16-05-PLAN.md — Gap closure tests: mttr_view owner/severity/both/default + Owner-SLA-drop + single-page fit; regenerate `mttr_trend` baselines; re-assert board_summary zero-diff (D-16-10)
 - [x] 16-06-PLAN.md — Gap closure (D-16-13): always-on 4-gauge severity band (MoM down/up arrows) in all views + focus-driven Owner/Application table; retire mttr_view, add mttr_table override; plumb focus via composed_report; fix capture_trend_snapshot sys.path bootstrap; CLAUDE.md Medium SLA 45 to 60
-- [ ] 16-07-PLAN.md — Gap closure tests (D-16-13): 4-gauge presence all views, MoM arrow polarity, focus routing, severity-table absent, Excel severity block + config SLA, snapshot real-CLI subprocess regression; regenerate mttr_trend baselines; re-assert board_summary zero-diff (D-16-10)
+- [x] 16-07-PLAN.md — Gap closure tests (D-16-13): 4-gauge presence all views, MoM arrow polarity, focus routing, severity-table absent, Excel severity block + config SLA, snapshot real-CLI subprocess regression; regenerate mttr_trend baselines; re-assert board_summary zero-diff (D-16-10)
 
 ---
 
@@ -197,7 +197,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 13. Owner Segmentation + Comp. | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 14. Shared Substrates + composed_report Gates | v1.4 | 3/3 | Complete    | 2026-06-11 |
 | 15. Independent New Modules | v1.4 | 6/6 | Complete    | 2026-06-11 |
-| 16. MTTR Rework | v1.4 | 6/7 | In Progress|  |
+| 16. MTTR Rework | v1.4 | 7/7 | Complete   | 2026-06-12 |
 | 17. Program Health Overview | v1.4 | 0/TBD | Not started | - |
 | 18. management_summary Migration + Docs | v1.4 | 0/TBD | Not started | - |
 
