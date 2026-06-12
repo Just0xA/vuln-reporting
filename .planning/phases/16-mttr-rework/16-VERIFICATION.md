@@ -1,9 +1,11 @@
 ---
 phase: 16-mttr-rework
-verified: 2026-06-12T12:58:00Z
+verified: 2026-06-12T17:06:00Z
 status: passed
-score: 5/5 must-haves verified
+score: 5/5 original must-haves + 7/7 gap-closure must-haves verified
 overrides_applied: 0
+reverified: 2026-06-12T17:06:00Z
+reverification_reason: "Gap closure D-16-11/D-16-12 (plans 16-04/16-05) — mttr_view split tables + Owner-SLA fix"
 ---
 
 # Phase 16: MTTR Rework Verification Report
@@ -129,5 +131,45 @@ No gaps. All five ROADMAP success criteria are verified by live code probes and 
 
 ---
 
-_Verified: 2026-06-12T12:58:00Z_
-_Verifier: Claude (gsd-verifier)_
+## Gap Closure — D-16-11 / D-16-12 (plans 16-04, 16-05)
+
+**Re-verified:** 2026-06-12T17:06:00Z (orchestrator filesystem-fallback; two `gsd-verifier` spawns truncated on the Windows stdio boundary without writing the artifact — evidence below gathered by independent probes.)
+
+UAT Test 1 (run after the original PASSED verification) surfaced a design defect: the `mttr_trend` module concatenated Severity and Owner breakdowns into one mixed table that bled onto a second page, and Owner rows hard-coded the Critical SLA (15) as a meaningless "SLA Target". Decisions D-16-11 (configurable `mttr_view` + split tables) and D-16-12 (default `owner`) were locked in `16-UAT.md`. Plans 16-04 (impl) and 16-05 (tests) closed the gap.
+
+### Gap-Closure Observable Truths
+
+| # | Truth | Status | Evidence |
+|---|-------|--------|----------|
+| G1 | `mttr_view ∈ {owner, severity, both}` read via `config.options.get("mttr_view", "owner")`, whitelisted with safe `owner` default | VERIFIED | `mttr_trend_module.py:336` `_raw_view = str(config.options.get("mttr_view", "owner")).lower().strip()`; unknown values warn + fall back to `owner`. |
+| G2 | `validate_config` rejects invalid `mttr_view` at dry-run time | VERIFIED | `mttr_trend_module.py:1261-1262` validates `mttr_view` when explicitly set. |
+| G3 | Combined table split into independent Severity + Owner sections across PDF + Excel + email panel | VERIFIED | View read in each render channel: PDF `:773`, Excel `:1017`, email `:1164`. Code review confirmed each channel gates on `mttr_view in (...)` independently and consistently. |
+| G4 | Owner rows carry `sla_days=None` — no hard-coded Critical-SLA "SLA Target" emitted (D-16-12 SLA-basis fix) | VERIFIED | `mttr_trend_module.py:626` `"sla_days": None, # D-16-12: no SLA anchor for Owner cut`; PDF/Excel owner renderers omit the SLA column. Tests `test_owner_rows_sla_days_is_none` / `test_owner_rows_no_sla_days_equal_to_critical_sla` pass. |
+| G5 | D-16-10 preserved — `mttr_by_severity_module.py` byte-unchanged; board_summary baselines unchanged | VERIFIED | `git diff --quiet -- reports/modules/mttr_by_severity_module.py` exits 0; `tests/test_board_summary_baseline.py` 9/9 pass. |
+| G6 | Tests cover owner/severity/both/default/bad-value/Owner-SLA-drop/single-page-fit | VERIFIED | 36 new view-selector tests across 7 classes (`TestMttrViewDefault/Owner/Severity/Both`, `TestOwnerSlaBasisFix`, `TestMttrViewBadValueFallback`, `TestSingleCutFitsOnePage`) — all pass. |
+| G7 | Full Phase-16 suite green; broader suite shows no regression | VERIFIED | `pytest tests/test_mttr_trend_module.py tests/test_board_summary_baseline.py` → **88 passed**. `pytest tests/unit tests/content` → **180 passed**. |
+
+**Score:** 7/7 gap-closure truths verified.
+
+### Requirements Coverage (gap closure)
+
+RPT-05 carried in both `16-04-PLAN.md` and `16-05-PLAN.md` frontmatter (`requirements: [RPT-05]`). Still maps RPT-05 → Phase 16 in REQUIREMENTS.md.
+
+### Advisory Code-Review Findings (non-blocking)
+
+`gsd-code-review` (standard depth) confirmed the gap-closure deliverables correct (mttr_view whitelist, split-table logic across all three channels, Owner sla_days=None, frozenset memberships intact, `mttr_by_severity_module.py` untouched). It also raised follow-ups that **do not fire in the current call path** and do not block the goal:
+- **CR-01 (latent):** the `_pdf_sev_rows` closure interpolates `sla_days` without a `None` guard — would render `Noned` only if a caller passed the combined/owner list to the severity renderer (does not happen today; severity rows always get a real int).
+- **WR-01 (latent):** `_write_owner_rows` return value discarded — harmless until content is appended after the owner block.
+- **WR-03 (test confidence):** `TestOwnerVanished.test_owner_in_snapshot_1_only_omitted_from_current_table` is vacuously true (no `trend_snapshots` passed) — the snapshot-only-owner-leak scenario is not actually exercised by that test.
+- **IN-01 (doc):** `CLAUDE.md` SLA table shows Medium=45d while `config.py` `SLA_DAYS` has 60d (pre-existing doc drift; `config.py` is the source of truth).
+
+Recommend addressing CR-01 / WR-01 / WR-03 via `/gsd:code-review 16 --fix` or a small follow-up; none affect the shipped gap-closure behavior.
+
+### Gap-Closure Summary
+
+No blocking gaps. The locked D-16-11/D-16-12 spec is fully implemented and tested; the original phase goal remains intact (board_summary zero-diff preserved, no regression).
+
+---
+
+_Verified: 2026-06-12T12:58:00Z (original) · Re-verified: 2026-06-12T17:06:00Z (gap closure)_
+_Verifier: Claude (gsd-verifier original; orchestrator filesystem-fallback for gap-closure re-verification)_
