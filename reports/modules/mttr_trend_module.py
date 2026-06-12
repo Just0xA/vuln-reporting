@@ -18,6 +18,17 @@ D-16-04  Window disclosure: the rolling-window value (default 30 days,
 D-16-06  Owner cut: MoM with per-Owner cold-start + drift reconciliation;
          calendar-month X-axis with partial-month flag (D-16-08).
 
+D-16-11  View selector: ``mttr_view ∈ {owner, severity, both}`` (default
+         ``owner``) splits the breakdown into two independent tables/sections —
+         a Severity table and an Owner table, each with its own header.  Applied
+         consistently across PDF, Excel, and email panel.  Analyst-detail tab
+         (CONTRACT-02) always carries both cuts regardless of ``mttr_view``.
+
+D-16-12  Default view is ``owner``: single Owner table renders by default
+         (exec headline; fits one page).  The Owner table does NOT show an
+         SLA Target column — the Critical-SLA anchor is meaningless for Owner
+         rows and is dropped.
+
 Cold-start (QUAL-01): when ``trend_snapshots`` is absent or
 ``insufficient_data=True``, the MoM trend line cold-starts independently —
 per-severity gauges still render from live ``fixed_vulns_df``. The two paths
@@ -38,6 +49,14 @@ min_sample_size : int, default 5
     Minimum durably-fixed findings to compute MTTR for any bucket.
     Sub-threshold buckets render:
     "Insufficient data (N findings — minimum 5 required)"
+mttr_view : str, default "owner"
+    Controls which breakdown table(s) appear in PDF, Excel, and the email
+    panel.  Must be one of ``{owner, severity, both}``.  Unknown values log
+    a WARNING and fall back to ``owner``.
+    - ``owner``    — Owner table only (no Severity rows).  Exec default.
+    - ``severity`` — Severity table only (with per-severity SLA Target column).
+    - ``both``     — Two distinct tables: Severity first, then Owner.
+    The analyst-detail workbook (CONTRACT-02) always carries both cuts.
 """
 
 from __future__ import annotations
@@ -313,6 +332,18 @@ class MTTRTrendModule(BaseModule):
             window_days = int(config.options.get("mttr_window_days", 30))
             min_sample  = int(config.options.get("min_sample_size", 5))
 
+            # D-16-11/D-16-12: view selector — whitelist to {owner, severity, both}
+            _raw_view = str(config.options.get("mttr_view", "owner")).lower().strip()
+            _valid_views = {"owner", "severity", "both"}
+            if _raw_view not in _valid_views:
+                logger.warning(
+                    "%s unknown mttr_view=%r — falling back to 'owner'",
+                    self._log_prefix(), _raw_view,
+                )
+                mttr_view = "owner"
+            else:
+                mttr_view = _raw_view
+
             # ----------------------------------------------------------------
             # D-16-01: durably-fixed filter — state == "FIXED" only
             # Never uses "state == fixed OR last_fixed.notna()" (includes REOPENED)
@@ -452,12 +483,13 @@ class MTTRTrendModule(BaseModule):
                 owner_col = fixed_df["asset_uuid"].map(uuid_to_owner).fillna("Unassigned")
                 fixed_df_w_owner = fixed_df.assign(owner=owner_col)
 
-                owner_mttr:     dict[str, Optional[float]] = {}
-                owner_sample:   dict[str, int]             = {}
-                owner_status:   dict[str, str]             = {}
-                owner_variance: dict[str, Optional[float]] = {}
-                owner_insuf:    dict[str, str]             = {}
-                critical_sla    = SLA_DAYS["critical"]
+                owner_mttr:   dict[str, Optional[float]] = {}
+                owner_sample: dict[str, int]             = {}
+                owner_status: dict[str, str]             = {}
+                owner_insuf:  dict[str, str]             = {}
+                # Critical SLA used only for status label (velocity reference);
+                # NOT emitted as an SLA Target for Owner rows (D-16-12).
+                critical_sla = SLA_DAYS["critical"]
 
                 for owner, grp in fixed_df_w_owner.groupby("owner", dropna=False):
                     owner_str = str(owner)
@@ -467,25 +499,22 @@ class MTTRTrendModule(BaseModule):
                         continue
                     owner_sample[owner_str] = n
                     if n < min_sample:
-                        owner_mttr[owner_str]     = None
-                        owner_status[owner_str]   = _STATUS_NODATA
-                        owner_variance[owner_str] = None
-                        owner_insuf[owner_str]    = (
+                        owner_mttr[owner_str]   = None
+                        owner_status[owner_str] = _STATUS_NODATA
+                        owner_insuf[owner_str]  = (
                             f"Insufficient data ({n} findings — minimum {min_sample} required)"
                         )
                     else:
                         m = round(float(grp["days_to_fix"].mean()), 1)
-                        owner_mttr[owner_str]     = m
+                        owner_mttr[owner_str]   = m
                         status, _ = _status_from_ratio(m / critical_sla)
-                        owner_status[owner_str]   = status
-                        owner_variance[owner_str] = round(m - critical_sla, 1)
-                        owner_insuf[owner_str]    = ""
+                        owner_status[owner_str] = status
+                        owner_insuf[owner_str]  = ""
             else:
-                owner_mttr     = {}
-                owner_sample   = {}
-                owner_status   = {}
-                owner_variance = {}
-                owner_insuf    = {}
+                owner_mttr   = {}
+                owner_sample = {}
+                owner_status = {}
+                owner_insuf  = {}
 
             # ----------------------------------------------------------------
             # RAG strip (CONTRACT-03) — overall MTTR vs Critical SLA anchor
@@ -569,46 +598,41 @@ class MTTRTrendModule(BaseModule):
                 driver_narrative = "Insufficient fixed findings to compute MTTR."
 
             # ----------------------------------------------------------------
-            # table_data — per-severity rows for PDF/Excel
+            # D-16-11: two independent breakdown lists (split Severity / Owner)
             # ----------------------------------------------------------------
-            table_data: list[dict] = []
+
+            # Severity rows — per-severity SLA Target and Variance are meaningful
+            table_data_severity: list[dict] = []
             for sev in _SEVERITIES:
-                mttr    = per_sev_mttr.get(sev)
-                sla     = per_sev_sla[sev]
-                n       = per_sev_sample.get(sev, 0)
-                insuf   = per_sev_insufficient.get(sev, "")
-                status  = per_sev_status.get(sev, _STATUS_NODATA)
-                var     = per_sev_variance.get(sev)
-
-                table_data.append({
-                    "label":       sev.capitalize(),
-                    "mttr_days":   mttr,
-                    "sla_days":    sla,
-                    "variance":    var,
-                    "status":      status,
-                    "sample_size": n,
-                    "mom_delta":   None,       # severity rows: no MoM delta
-                    "insufficient": insuf,
+                table_data_severity.append({
+                    "label":        sev.capitalize(),
+                    "mttr_days":    per_sev_mttr.get(sev),
+                    "sla_days":     per_sev_sla[sev],
+                    "variance":     per_sev_variance.get(sev),
+                    "status":       per_sev_status.get(sev, _STATUS_NODATA),
+                    "sample_size":  per_sev_sample.get(sev, 0),
+                    "mom_delta":    None,   # severity rows: no MoM delta
+                    "insufficient": per_sev_insufficient.get(sev, ""),
                 })
 
-            # Append per-Owner rows
+            # Owner rows — D-16-11/D-16-12: drop meaningless Critical-SLA anchor.
+            # sla_days=None and variance=None; renderers omit the SLA Target column
+            # for the Owner cut.  mom_delta and sample_size remain (SLA-independent).
+            table_data_owner: list[dict] = []
             for owner_str in sorted(owner_mttr.keys()):
-                mttr    = owner_mttr[owner_str]
-                n       = owner_sample.get(owner_str, 0)
-                insuf   = owner_insuf.get(owner_str, "")
-                status  = owner_status.get(owner_str, _STATUS_NODATA)
-                var     = owner_variance.get(owner_str)
-                mom     = owner_mom.get(owner_str)
-                table_data.append({
-                    "label":       owner_str,
-                    "mttr_days":   mttr,
-                    "sla_days":    SLA_DAYS["critical"],  # anchor
-                    "variance":    var,
-                    "status":      status,
-                    "sample_size": n,
-                    "mom_delta":   mom,
-                    "insufficient": insuf,
+                table_data_owner.append({
+                    "label":        owner_str,
+                    "mttr_days":    owner_mttr[owner_str],
+                    "sla_days":     None,   # D-16-12: no SLA anchor for Owner cut
+                    "variance":     None,   # meaningless without an SLA basis
+                    "status":       owner_status.get(owner_str, _STATUS_NODATA),
+                    "sample_size":  owner_sample.get(owner_str, 0),
+                    "mom_delta":    owner_mom.get(owner_str),
+                    "insufficient": owner_insuf.get(owner_str, ""),
                 })
+
+            # Combined list kept only for analyst_rows (CONTRACT-02 keeps both cuts)
+            table_data: list[dict] = table_data_severity + table_data_owner
 
             # ----------------------------------------------------------------
             # chart_data
@@ -685,11 +709,14 @@ class MTTRTrendModule(BaseModule):
                 chart_data   = chart_data,
                 summary_text = summary_text,
                 metadata     = {
-                    "window_days":    window_days,
-                    "current_month":  current_month,
-                    "snapshots_cold": snapshots_cold,
-                    "min_sample":     min_sample,
-                    "computed_at":    (
+                    "window_days":         window_days,
+                    "current_month":       current_month,
+                    "snapshots_cold":      snapshots_cold,
+                    "min_sample":          min_sample,
+                    "mttr_view":           mttr_view,
+                    "table_data_severity": table_data_severity,
+                    "table_data_owner":    table_data_owner,
+                    "computed_at":         (
                         report_date.isoformat()
                         if hasattr(report_date, "isoformat")
                         else str(report_date)
@@ -1099,7 +1126,7 @@ class MTTRTrendModule(BaseModule):
     # ------------------------------------------------------------------
 
     def validate_config(self, config: ModuleConfig) -> list[str]:
-        """Validate optional ``mttr_window_days`` and ``min_sample_size`` options."""
+        """Validate optional ``mttr_window_days``, ``min_sample_size``, and ``mttr_view`` options."""
         errors: list[str] = []
         for key, min_val in [("mttr_window_days", 1), ("min_sample_size", 1)]:
             val = config.options.get(key)
@@ -1114,6 +1141,15 @@ class MTTRTrendModule(BaseModule):
                         f"mttr_trend: '{key}' must be an integer, "
                         f"got {type(val).__name__}"
                     )
+        # D-16-11: validate mttr_view when explicitly set
+        view_val = config.options.get("mttr_view")
+        if view_val is not None:
+            _valid_views = {"owner", "severity", "both"}
+            if str(view_val).lower().strip() not in _valid_views:
+                errors.append(
+                    f"mttr_trend: 'mttr_view' must be one of "
+                    f"{sorted(_valid_views)}, got {view_val!r}"
+                )
         return errors
 
     # ------------------------------------------------------------------
