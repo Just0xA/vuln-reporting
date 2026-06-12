@@ -232,6 +232,10 @@ def capture_snapshot(
     accepted_count: Optional[int] = None,
     recast_count: Optional[int] = None,
     fixed_vulns_df: Optional[pd.DataFrame] = None,
+    # ---- Phase 16 additions (D-16-03 / D-16-09) ----
+    mttr_overall_days: Optional[float] = None,
+    mttr_by_severity: Optional[dict] = None,
+    mttr_by_owner: Optional[dict] = None,
 ) -> Path:
     """
     Write an atomic monthly snapshot of open-finding counts.
@@ -289,6 +293,19 @@ def capture_snapshot(
         Fixed/remediated findings for this snapshot period. Used to derive
         ``fixed_findings_count`` (count where last_fixed month == snapshot month
         AND state == FIXED). None when not available.
+    mttr_overall_days : float or None, optional
+        Sample-weighted mean days_to_fix over durably-fixed findings in the
+        rolling window (D-16-02 consequence). None when sample is below threshold
+        or computation failed (fail-soft, D-16-09 cold-start).
+    mttr_by_severity : dict or None, optional
+        Per-severity MTTR dict keyed ``critical``/``high``/``medium``/``low``;
+        each value is float or None (None when sample < min_sample). None when
+        computation did not run.
+    mttr_by_owner : dict or None, optional
+        Per-Owner MTTR dict keyed by internal Owner tag name; each value is float
+        or None (None when sample < min_sample). Empty dict when no fixed findings
+        were in scope. None when computation did not run. Keys are internal Owner
+        tag names only — never hostnames, IPs, or asset-level data (QUAL-05).
 
     Notes
     -----
@@ -366,6 +383,11 @@ def capture_snapshot(
         "recast_count":        recast_count,
         "new_findings_count":  new_findings_count,
         "fixed_findings_count": fixed_findings_count,
+        # Phase 16 — explicit null when not supplied so snap.get() returns None
+        # consistently (never KeyError) per D-16-09 implicit-optional-field convention.
+        "mttr_overall_days":   mttr_overall_days,
+        "mttr_by_severity":    mttr_by_severity,
+        "mttr_by_owner":       mttr_by_owner,
         "generated_at":        generated_at_str,
     }
 
