@@ -22,7 +22,7 @@ fix_summary: "validate_config now returns list[str] per the BaseModule contract 
 
 ### 2. Live sla_rate_crit_high snapshot capture
 expected: Run `python scripts/capture_trend_snapshot.py` against a live or staging Tenable tenant. Snapshot JSON contains `"sla_rate_crit_high": <float 0–100>` (or `null` when zero Crit+High open), no `KeyError`; capture log shows the computed rate or the fail-soft "SLA-posture aggregate failed" WARNING.
-result: pass (field-capture verified; full MoM render pending month-2)
+result: pass
 note: |
   CORRECTION: initially marked pass off the severity file alone without tracing the
   consumer — user correctly challenged after seeing all scalar aggregates null in the
@@ -36,9 +36,14 @@ note: |
     these scalars — true since Phases 13/15/16. Owner snapshot's real payload is the per-owner
     breakdowns (populated), which the Owner velocity table reads. Not a Phase 17 regression.
   - Per D-17-04, sla_rate_crit_high is severity-dimension only; owner-level SLA was deferred.
-  LIMITATION: only 1 severity snapshot exists, so the module still cold-starts; the full
-  MoM SLA delta (curr vs prev) is not exercised until a 2nd monthly snapshot. Field capture
-  is verified; live MoM render is verifiable next month.
+  MoM RENDER PROVEN (user-approved month-2 simulation, throwaway + restored): injected a
+  synthetic 2026-05 prior severity+owner snapshot against the REAL cached vulns/assets, then
+  rendered. Result: cold_start=False, composite_rag=green ("4/4 On Track"), PDF emitted 4
+  sparkline <img> cells, no NaN%, owner velocity table = 15 rows with MoM column active and
+  2 owners correctly flagged as >20%-rise outliers (Configuration Management, ATM). Trend
+  files restored to the single real 2026-06 record afterward (verified). Full four-channel
+  live MoM path confirmed working — no longer dependent on waiting for a real month 2.
+  VERDICT (user-approved): pass — field capture verified + MoM render proven.
 
 ### 3. PDF render visual inspection (sparkline row + Owner table)
 expected: Run a composed_report batch with program_health included and open the output PDF. Page shows 4 colored mini-sparklines in a row (red Open-Critical, blue Net Velocity, green SLA, orange MTTR) each with current value + MoM arrow, and below them an Owner velocity table (Owner / Open Crit+High / MoM Delta / Status) with the red "▲ Outlier" marker on >20% MoM-rise owners. Cold-start pages show the notice instead of sparklines.
