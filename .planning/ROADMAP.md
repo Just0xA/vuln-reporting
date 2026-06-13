@@ -57,7 +57,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
  (completed 2026-06-11)
 - [x] **Phase 16: MTTR Rework** — `mttr_trend` MODULE_ID, window disclosure, sample-weighted mean, reopened-aware denominator, trend + Owner
  (completed 2026-06-12)
-- [ ] **Phase 17: Program Health Overview** — composite MoM velocity dashboard composing Modules 1 + 6 + SLA signals
+- [x] **Phase 17: Program Health Overview** — composite MoM velocity dashboard composing Modules 1 + 6 + SLA signals (completed 2026-06-13)
 - [ ] **Phase 18: management_summary Migration + Docs** — GEN-01 cutover onto module render contract; auditor runbooks for all v1.4 modules
 
 ## Phase Details
@@ -155,7 +155,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 **Plans**: 3 plans
 - [x] 17-01-PLAN.md — S1 snapshot SLA-posture field (`sla_rate_crit_high`): trend_store + capture script + round-trip tests (D-17-03/04)
 - [x] 17-02-PLAN.md — `program_health` module compute: 4-signal re-derivation, OD-5 composite + missing-cap, cold-start Amber, Owner velocity, composed_report gate (D-17-01/05/06/07/08/09)
-- [ ] 17-03-PLAN.md — four-channel render: PDF sparklines + Owner table, email 4-tile + narrative, Excel/analyst tabs, RAG strip (D-17-06/09)
+- [x] 17-03-PLAN.md — four-channel render: PDF sparklines + Owner table, email 4-tile + narrative, Excel/analyst tabs, RAG strip (D-17-06/09)
 **UI hint**: yes
 
 ---
@@ -201,7 +201,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 14. Shared Substrates + composed_report Gates | v1.4 | 3/3 | Complete    | 2026-06-11 |
 | 15. Independent New Modules | v1.4 | 6/6 | Complete    | 2026-06-11 |
 | 16. MTTR Rework | v1.4 | 7/7 | Complete    | 2026-06-12 |
-| 17. Program Health Overview | v1.4 | 2/3 | In Progress|  |
+| 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
 | 18. management_summary Migration + Docs | v1.4 | 0/TBD | Not started | - |
 
 ## Backlog
