@@ -1490,7 +1490,8 @@ class ProgramHealthModule(BaseModule):
 
         Returns the pre-built ``data.rag_strip`` dict when present.
         Falls back to a gray "No Data" cell on error or empty strip.
-        Amber composite maps to STATUS_COLOR["yellow"] (#f57c00) — never #fbc02d.
+        Amber composite maps to STATUS_COLOR["yellow"] (#f57c00) — never the
+        Medium-severity color (which is reserved for severity tables only).
         """
         if data.error or not data.rag_strip:
             return build_rag_strip_entry(
