@@ -379,10 +379,11 @@ class ProgramHealthModule(BaseModule):
                 return self._empty_result("vulns_df is empty", config)
 
             # ----------------------------------------------------------------
-            # Read validated module_options
+            # Read module_options. The composer runs validate_config() before
+            # compute() (rejecting non-coercible values), so the int()/float()
+            # reads below are safe; each also carries a per-key default. Any
+            # residual bad value is caught by this method's fail-soft wrapper.
             # ----------------------------------------------------------------
-            config = self.validate_config(config)  # coerces + falls back to defaults
-
             green_count_min   = int(config.options.get("green_count_min",   4))
             amber_count_min   = int(config.options.get("amber_count_min",   2))
             open_crit_flat    = int(config.options.get("open_crit_flat_abs", 5))
@@ -1505,61 +1506,47 @@ class ProgramHealthModule(BaseModule):
     # validate_config
     # ------------------------------------------------------------------
 
-    def validate_config(self, config: ModuleConfig) -> ModuleConfig:
+    def validate_config(self, config: ModuleConfig) -> list[str]:
         """
-        Coerce and validate all program_health module_options.
+        Validate the program_health module_options.
 
-        Coercion rules (T-17-04 threshold-injection mitigation):
-          green_count_min, amber_count_min, open_crit_flat_abs → int
-          sla_rate_flat_pct, mttr_flat_days, owner_outlier_pct   → float
-
-        On a bad value: log WARNING and fall back to the default.
-        Returns a ModuleConfig with a clean options dict (defaults filled in).
+        Per the four-channel contract, ``validate_config`` returns a
+        ``list[str]`` of error messages (empty list = valid); the composer
+        treats a non-empty return as a config-validation failure. The int
+        thresholds (``green_count_min``, ``amber_count_min``,
+        ``open_crit_flat_abs``) and float thresholds (``sla_rate_flat_pct``,
+        ``mttr_flat_days``, ``owner_outlier_pct``) are checked for coercibility
+        here (T-17-04 threshold-injection mitigation); ``compute()`` re-reads
+        them defensively with ``int()``/``float()`` and per-key defaults.
         """
-        _int_keys   = [
-            ("green_count_min",   4),
-            ("amber_count_min",   2),
-            ("open_crit_flat_abs", 5),
-        ]
-        _float_keys = [
-            ("sla_rate_flat_pct",  2.0),
-            ("mttr_flat_days",     1.0),
-            ("owner_outlier_pct", 20.0),
-        ]
+        _int_keys   = ("green_count_min", "amber_count_min", "open_crit_flat_abs")
+        _float_keys = ("sla_rate_flat_pct", "mttr_flat_days", "owner_outlier_pct")
 
-        clean = dict(config.options)
+        errors: list[str] = []
 
-        for key, default in _int_keys:
-            val = clean.get(key)
+        for key in _int_keys:
+            val = config.options.get(key)
             if val is not None:
                 try:
-                    clean[key] = int(val)
+                    int(val)
                 except (TypeError, ValueError):
-                    logger.warning(
-                        "%s validate_config: '%s' must be an integer, "
-                        "got %r — falling back to default %d",
-                        self._log_prefix(), key, val, default,
+                    errors.append(
+                        f"program_health: '{key}' must be an integer, "
+                        f"got {type(val).__name__}"
                     )
-                    clean[key] = default
-            else:
-                clean[key] = default
 
-        for key, default in _float_keys:
-            val = clean.get(key)
+        for key in _float_keys:
+            val = config.options.get(key)
             if val is not None:
                 try:
-                    clean[key] = float(val)
+                    float(val)
                 except (TypeError, ValueError):
-                    logger.warning(
-                        "%s validate_config: '%s' must be a float, "
-                        "got %r — falling back to default %s",
-                        self._log_prefix(), key, val, default,
+                    errors.append(
+                        f"program_health: '{key}' must be a number, "
+                        f"got {type(val).__name__}"
                     )
-                    clean[key] = default
-            else:
-                clean[key] = default
 
-        return ModuleConfig(module_id=config.module_id, options=clean)
+        return errors
 
     # ------------------------------------------------------------------
     # get_audit_info

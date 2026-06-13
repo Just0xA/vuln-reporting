@@ -1192,3 +1192,45 @@ class TestPdfOwnerOutlierMarker:
         assert "MTTR" in email_html, (
             "Email panel must contain missing signal name 'MTTR' in narrative/note"
         )
+
+
+class TestValidateConfigContract:
+    """validate_config must return list[str] (empty = valid), per the four-channel
+    contract — NOT a ModuleConfig. Regression for the UAT blocker where the composer
+    crashed with 'can only join an iterable' on `'; '.join(config_errors)'."""
+
+    def test_returns_list_not_moduleconfig(self):
+        """The no-options common case must return an empty list, not a ModuleConfig."""
+        errors = ProgramHealthModule().validate_config(_make_config())
+        assert isinstance(errors, list), (
+            "validate_config must return list[str], not ModuleConfig"
+        )
+        assert errors == [], "default/empty options must be valid (no errors)"
+
+    def test_join_does_not_raise(self):
+        """The composer joins the return value — it must be an iterable of strings."""
+        errors = ProgramHealthModule().validate_config(_make_config())
+        assert "; ".join(errors) == ""  # would TypeError if non-iterable returned
+
+    def test_valid_options_pass(self):
+        errors = ProgramHealthModule().validate_config(
+            ModuleConfig(
+                "program_health",
+                options={"green_count_min": 4, "owner_outlier_pct": 25.0},
+            )
+        )
+        assert errors == []
+
+    def test_bad_int_option_reports_error(self):
+        errors = ProgramHealthModule().validate_config(
+            ModuleConfig("program_health", options={"green_count_min": "abc"})
+        )
+        assert len(errors) == 1
+        assert "green_count_min" in errors[0]
+
+    def test_bad_float_option_reports_error(self):
+        errors = ProgramHealthModule().validate_config(
+            ModuleConfig("program_health", options={"owner_outlier_pct": "high"})
+        )
+        assert len(errors) == 1
+        assert "owner_outlier_pct" in errors[0]
