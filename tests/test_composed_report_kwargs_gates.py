@@ -90,14 +90,16 @@ def _make_module_config() -> ModuleConfig:
 # ---------------------------------------------------------------------------
 
 def test_frozensets_membership():
-    """D-17 + Phase 15/16: the gate frozensets hold the SC#4 stub plus exactly the
+    """D-17 + Phase 15/16/17: the gate frozensets hold the SC#4 stub plus exactly the
     modules that legitimately need each fetch. mttr_trend (Phase 16, D-16-03) reads
-    the rolling-30-day MTTR aggregate from trend snapshots for its MoM cut, so it
-    belongs in the trend-snapshots set. Current-snapshot modules (reopened_vulns,
-    external_dmz) are MoM-free per D-03 and must NOT appear in either set."""
+    the rolling-30-day MTTR aggregate from trend snapshots for its MoM cut, and
+    program_health (Phase 17, D-17-01) re-derives its four MoM signals from the same
+    trend substrate, so both belong in the trend-snapshots set. Current-snapshot
+    modules (reopened_vulns, external_dmz) are MoM-free per D-03 and must NOT appear
+    in either set."""
     assert _MODULES_NEEDING_TREND_SNAPSHOTS == frozenset(
-        {"sc4_kwargs_stub", "new_vs_remediated", "vuln_density", "accepted_recast", "mttr_trend"}
-    ), "_MODULES_NEEDING_TREND_SNAPSHOTS membership drifted (D-17 / Phase 15 / Phase 16)"
+        {"sc4_kwargs_stub", "new_vs_remediated", "vuln_density", "accepted_recast", "mttr_trend", "program_health"}
+    ), "_MODULES_NEEDING_TREND_SNAPSHOTS membership drifted (D-17 / Phase 15 / Phase 16 / Phase 17)"
     assert _MODULES_NEEDING_RECAST_RULES == frozenset(
         {"sc4_kwargs_stub", "accepted_recast"}
     ), "_MODULES_NEEDING_RECAST_RULES membership drifted (D-17 / Phase 15)"
