@@ -22,8 +22,23 @@ fix_summary: "validate_config now returns list[str] per the BaseModule contract 
 
 ### 2. Live sla_rate_crit_high snapshot capture
 expected: Run `python scripts/capture_trend_snapshot.py` against a live or staging Tenable tenant. Snapshot JSON contains `"sla_rate_crit_high": <float 0–100>` (or `null` when zero Crit+High open), no `KeyError`; capture log shows the computed rate or the fail-soft "SLA-posture aggregate failed" WARNING.
-result: pass
-note: "Live capture computed and persisted sla_rate_crit_high=42.4 (crit_high_open=78377) into the 2026-06 severity record — verified directly in data/trend/trend_severity_all_assets.json. The initial 'null' the user saw was a STALE pre-field 2026-06 record (cold-start backward-compat default); this run overwrote it with the real value. No code defect — computation (capture_trend_snapshot.py:391-408), passthrough (:431), and persistence (trend_store.py:399) all correct."
+result: pass (field-capture verified; full MoM render pending month-2)
+note: |
+  CORRECTION: initially marked pass off the severity file alone without tracing the
+  consumer — user correctly challenged after seeing all scalar aggregates null in the
+  OWNER snapshot (trend_owner_all_assets.json). Re-verified properly:
+  - Module reads Signal 3 SLA from snap.get('sla_rate_crit_high') where snap comes from
+    trend_snapshots = read_trend(dimension='severity') (composed_report.py:234;
+    program_health_module.py:15,411,433-434). Severity snapshot = 42.4 (crit_high_open=78377). OK.
+  - Owner snapshot's null scalar aggregates (on_time_asset_count, reopened_count, mttr_*,
+    new/fixed_findings_count, sla_rate_crit_high) are BY DESIGN + pre-existing: the owner
+    capture_snapshot() call (capture_trend_snapshot.py:445) passes only enriched_assets, never
+    these scalars — true since Phases 13/15/16. Owner snapshot's real payload is the per-owner
+    breakdowns (populated), which the Owner velocity table reads. Not a Phase 17 regression.
+  - Per D-17-04, sla_rate_crit_high is severity-dimension only; owner-level SLA was deferred.
+  LIMITATION: only 1 severity snapshot exists, so the module still cold-starts; the full
+  MoM SLA delta (curr vs prev) is not exercised until a 2nd monthly snapshot. Field capture
+  is verified; live MoM render is verifiable next month.
 
 ### 3. PDF render visual inspection (sparkline row + Owner table)
 expected: Run a composed_report batch with program_health included and open the output PDF. Page shows 4 colored mini-sparklines in a row (red Open-Critical, blue Net Velocity, green SLA, orange MTTR) each with current value + MoM arrow, and below them an Owner velocity table (Owner / Open Crit+High / MoM Delta / Status) with the red "▲ Outlier" marker on >20% MoM-rise owners. Cold-start pages show the notice instead of sparklines.
