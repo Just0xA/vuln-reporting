@@ -1164,6 +1164,343 @@ class ProgramHealthModule(BaseModule):
 </div>"""
 
     # ------------------------------------------------------------------
+    # render_email_panel  (CONTRACT-01 — 4-tile KPI row + narrative)
+    # ------------------------------------------------------------------
+
+    def render_email_panel(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> str:
+        """
+        CONTRACT-01: modular email body panel.
+
+        Normal: header bg #FFF3E0 with RAG-color left border; 4-tile KPI
+        row (Open Critical / Net Velocity / SLA Posture (Crit+High) /
+        MTTR (30-day)); driver_narrative; missing-signal note if any.
+
+        Cold-start: header bg #F5F5F5, #757575 left border; current-value
+        tiles; "trend being established" notice; no NaN%.
+
+        Returns "" on error. Inline CSS only (Outlook/Gmail/Apple Mail).
+        T-17-07: html.escape() on all tag-derived strings.
+        """
+        if data.error:
+            return ""
+
+        m = data.metrics
+        cold_start = m.get("cold_start", False)
+
+        # ------------------------------------------------------------------
+        # Cold-start branch (per mttr_trend_module pattern 1285–1294)
+        # ------------------------------------------------------------------
+        if cold_start:
+            open_crit_str  = f"{safe_int(m.get('open_crit_current'))} open"
+            sla_str        = safe_pct(m.get("sla_rate_current"))
+            cold_tiles = (
+                f'<div style="display:table;width:100%;margin:6px 0;">'
+                f'<div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">'
+                f'<strong style="font-size:13px;color:#1F3864;">{safe_int(m.get("open_crit_current"))}</strong>'
+                f'<div style="font-size:10px;color:#757575;">Open Critical</div>'
+                f"</div>"
+                f'<div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">'
+                f'<strong style="font-size:13px;color:#1F3864;">—</strong>'
+                f'<div style="font-size:10px;color:#757575;">Net Velocity</div>'
+                f"</div>"
+                f'<div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">'
+                f'<strong style="font-size:13px;color:#1F3864;">{sla_str}</strong>'
+                f'<div style="font-size:10px;color:#757575;">SLA Posture (Crit+High)</div>'
+                f"</div>"
+                f'<div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">'
+                f'<strong style="font-size:13px;color:#1F3864;">—</strong>'
+                f'<div style="font-size:10px;color:#757575;">MTTR (30-day)</div>'
+                f"</div>"
+                f"</div>"
+            )
+            return f"""
+<table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;margin-bottom:8px;">
+  <tr>
+    <td style="padding:8px 12px;background:#F5F5F5;border-left:4px solid #757575;">
+      <strong style="font-size:13px;">{html.escape(self.DISPLAY_NAME)}</strong><br>
+      <span style="font-size:12px;color:#757575;">
+        Program health trend being established.
+      </span>
+      {cold_tiles}
+      <em style="font-size:11px;color:#555;">{html.escape(data.driver_narrative or '')}</em>
+    </td>
+  </tr>
+</table>"""
+
+        # ------------------------------------------------------------------
+        # Normal render
+        # ------------------------------------------------------------------
+        composite_rag  = m.get("composite_rag", "amber")
+        data_incomplete = m.get("data_incomplete", False)
+        green_count    = m.get("green_count", 0)
+
+        # Map composite_rag → rag_utils key ("amber" → "yellow")
+        rag_key   = "yellow" if composite_rag == "amber" else composite_rag
+        rag_color = STATUS_COLOR.get(rag_key, STATUS_COLOR["no_data"])
+        composite_label = STATUS_LABEL.get(rag_key, composite_rag.title())
+
+        # MoM arrow helpers
+        _COLOR_IMPROVED = "#388e3c"
+        _COLOR_WORSENED = "#d32f2f"
+        _COLOR_FLAT     = "#9E9E9E"
+
+        def _arrow_html(status: str, higher_is_better: bool) -> str:
+            if status == "green":
+                sym   = "▲" if higher_is_better else "▼"
+                color = _COLOR_IMPROVED
+            elif status == "red":
+                sym   = "▼" if higher_is_better else "▲"
+                color = _COLOR_WORSENED
+            else:
+                sym, color = "—", _COLOR_FLAT
+            return f'<span style="color:{color};font-weight:bold;">{sym}</span>'
+
+        # Tile values
+        open_crit_val = (
+            f"{safe_int(m.get('open_crit_current'))} open"
+        )
+        net_vel_curr = m.get("net_delta_current")
+        if net_vel_curr is not None:
+            prefix = "+" if net_vel_curr >= 0 else ""
+            net_vel_val = f"{prefix}{safe_format(net_vel_curr, '.0f')} MoM"
+        else:
+            net_vel_val = "—"
+        sla_val  = safe_pct(m.get("sla_rate_current"))
+        mttr_val = (
+            safe_format(m.get("mttr_current"), ".0f") + " d"
+        ) if m.get("mttr_current") is not None else "—"
+
+        # Arrow HTML per signal
+        arrow1 = _arrow_html(m.get("signal_open_crit_status",    "missing"), False)
+        arrow2 = _arrow_html(m.get("signal_net_velocity_status", "missing"), False)
+        arrow3 = _arrow_html(m.get("signal_sla_rate_status",     "missing"), True)
+        arrow4 = _arrow_html(m.get("signal_mttr_status",         "missing"), False)
+
+        tiles_html = f"""
+<div style="display:table;width:100%;margin:6px 0;">
+  <div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">
+    <strong style="font-size:13px;color:#1F3864;">{html.escape(open_crit_val)}</strong>
+    {arrow1}
+    <div style="font-size:10px;color:#757575;">Open Critical</div>
+  </div>
+  <div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">
+    <strong style="font-size:13px;color:#1F3864;">{html.escape(net_vel_val)}</strong>
+    {arrow2}
+    <div style="font-size:10px;color:#757575;">Net Velocity</div>
+  </div>
+  <div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">
+    <strong style="font-size:13px;color:#1F3864;">{html.escape(sla_val)}</strong>
+    {arrow3}
+    <div style="font-size:10px;color:#757575;">SLA Posture (Crit+High)</div>
+  </div>
+  <div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">
+    <strong style="font-size:13px;color:#1F3864;">{html.escape(mttr_val)}</strong>
+    {arrow4}
+    <div style="font-size:10px;color:#757575;">MTTR (30-day)</div>
+  </div>
+</div>"""
+
+        # Missing-signal note
+        missing_names = m.get("missing_signal_names", [])
+        missing_note = ""
+        if missing_names and data_incomplete:
+            names_str = ", ".join(html.escape(n) for n in missing_names)
+            missing_note = (
+                f'<span style="font-size:10px;color:#757575;">'
+                f"Note: {names_str} data incomplete this period.</span>"
+            )
+
+        narrative_html = (
+            f'<em style="font-size:11px;color:#555;">'
+            f"{html.escape(data.driver_narrative or '')}</em>"
+        )
+
+        return f"""
+<table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;margin-bottom:8px;">
+  <tr>
+    <td style="padding:8px 12px;background:#FFF3E0;border-left:4px solid {rag_color};">
+      <strong style="font-size:13px;">{html.escape(self.DISPLAY_NAME)}</strong><br>
+      <span style="font-size:12px;">
+        {html.escape(str(green_count))} of 4 signals on track &mdash; {html.escape(composite_label)}
+      </span>
+      {tiles_html}
+      {narrative_html}<br>
+      {missing_note}
+    </td>
+  </tr>
+</table>"""
+
+    # ------------------------------------------------------------------
+    # render_excel_tabs  ("Program Health" + "Owner Velocity")
+    # ------------------------------------------------------------------
+
+    def render_excel_tabs(
+        self,
+        data:     ModuleData,
+        workbook: Any,
+        config:   ModuleConfig,
+    ) -> list[str]:
+        """
+        Write "Program Health" summary tab and "Owner Velocity" tab.
+
+        Program Health: A1 title 13pt bold; A2 subtitle italic #757575;
+        composite status + 4 signal current values/arrows.
+        Owner Velocity: aggregate-only (QUAL-05 — no asset-level fields).
+        Returns [] on exception.
+        """
+        tab_ph = "Program Health"
+        tab_ov = "Owner Velocity"
+
+        try:
+            # ----------------------------------------------------------------
+            # Tab 1 — Program Health summary
+            # ----------------------------------------------------------------
+            ws_ph = workbook.create_sheet(tab_ph)
+
+            if data.error:
+                ws_ph["A1"] = "Error"
+                ws_ph["B1"] = data.error
+                ws_ov = workbook.create_sheet(tab_ov)
+                ws_ov["A1"] = "Error"
+                return [tab_ph, tab_ov]
+
+            m          = data.metrics
+            cold_start = m.get("cold_start", False)
+
+            ws_ph["A1"] = "Program Health Overview"
+            ws_ph["A1"].font = Font(bold=True, size=13)
+
+            if cold_start:
+                ws_ph["A2"] = "Trend being established — month-over-month direction available from next snapshot."
+            else:
+                ws_ph["A2"] = data.summary_text or ""
+            ws_ph["A2"].font = Font(italic=True, color="757575")
+
+            # Signal rows
+            _FILL_HDR = PatternFill("solid", fgColor="1F3864")
+
+            signal_rows = [
+                ("Signal", "Current Value", "MoM Direction"),
+                ("Open Critical",         safe_int(m.get("open_crit_current")),  m.get("signal_open_crit_status",    "—")),
+                ("Net Velocity",
+                 (("+" if (m.get("net_delta_current") or 0) >= 0 else "")
+                  + safe_format(m.get("net_delta_current"), ".0f"))
+                 if m.get("net_delta_current") is not None else "—",
+                 m.get("signal_net_velocity_status", "—")),
+                ("SLA Posture (Crit+High)", safe_pct(m.get("sla_rate_current")),  m.get("signal_sla_rate_status",    "—")),
+                ("MTTR (30-day)",
+                 safe_format(m.get("mttr_current"), ".0f") + " d"
+                 if m.get("mttr_current") is not None else "—",
+                 m.get("signal_mttr_status", "—")),
+            ]
+
+            for r_idx, (label, curr_val, direction) in enumerate(signal_rows, start=4):
+                ws_ph.cell(row=r_idx, column=1, value=label)
+                ws_ph.cell(row=r_idx, column=2, value=curr_val)
+                ws_ph.cell(row=r_idx, column=3, value=direction)
+                if r_idx == 4:  # header row
+                    for c in range(1, 4):
+                        ws_ph.cell(row=r_idx, column=c).font = Font(bold=True)
+                        ws_ph.cell(row=r_idx, column=c).fill = _FILL_HDR
+
+            for col_idx, w in enumerate([28, 18, 18], start=1):
+                ws_ph.column_dimensions[get_column_letter(col_idx)].width = w
+
+            # ----------------------------------------------------------------
+            # Tab 2 — Owner Velocity (aggregate-only, QUAL-05)
+            # ----------------------------------------------------------------
+            ws_ov = workbook.create_sheet(tab_ov)
+            ws_ov["A1"] = "Owner Velocity — Open Critical + High"
+            ws_ov["A1"].font = Font(bold=True, size=13)
+
+            owner_rows     = data.table_data or []
+            mom_suppressed = m.get("owner_mom_suppressed", True)
+
+            if mom_suppressed:
+                ov_headers = ["Owner", "Open Crit+High"]
+                ov_widths  = [28, 18]
+            else:
+                ov_headers = ["Owner", "Open Crit+High", "MoM Delta", "Status"]
+                ov_widths  = [28, 18, 14, 18]
+
+            for c_idx, hdr in enumerate(ov_headers, start=1):
+                cell = ws_ov.cell(row=3, column=c_idx, value=hdr)
+                cell.font = Font(bold=True)
+                cell.fill = _FILL_HDR
+
+            for r_idx, row in enumerate(owner_rows, start=4):
+                ws_ov.cell(row=r_idx, column=1, value=str(row.get("owner", "")))
+                ws_ov.cell(row=r_idx, column=2, value=row.get("open_crit_high"))
+                if not mom_suppressed:
+                    mom_delta = row.get("mom_delta")
+                    ws_ov.cell(row=r_idx, column=3, value=mom_delta)
+                    ws_ov.cell(row=r_idx, column=4, value="▲ Outlier" if row.get("outlier") else "—")
+
+            for c_idx, w in enumerate(ov_widths, start=1):
+                ws_ov.column_dimensions[get_column_letter(c_idx)].width = w
+
+            return [tab_ph, tab_ov]
+
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "%s render_excel_tabs() failed: %s",
+                self._log_prefix(), exc, exc_info=True,
+            )
+            return []
+
+    # ------------------------------------------------------------------
+    # render_analyst_tabs  (CONTRACT-02 — aggregate-only, QUAL-05)
+    # ------------------------------------------------------------------
+
+    def render_analyst_tabs(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> list[tuple[str, pd.DataFrame]]:
+        """
+        CONTRACT-02: analyst-detail workbook tabs.
+
+        Returns [("PH — Owner Detail", df)] when data available.
+        Returns [] on error or cold-start (no MoM data to show).
+        QUAL-05: columns are aggregate-only — Owner tag name + aggregate
+        Crit+High counts + MoM delta/%/outlier. No asset UUIDs, IPs,
+        hostnames, or plugin IDs.
+        """
+        if data.error or not data.analyst_rows:
+            return []
+        if data.metrics.get("cold_start"):
+            return []
+        return data.analyst_rows
+
+    # ------------------------------------------------------------------
+    # render_rag_strip_entry  (CONTRACT-03)
+    # ------------------------------------------------------------------
+
+    def render_rag_strip_entry(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> dict:
+        """
+        CONTRACT-03: cover-page RAG strip cell.
+
+        Returns the pre-built ``data.rag_strip`` dict when present.
+        Falls back to a gray "No Data" cell on error or empty strip.
+        Amber composite maps to STATUS_COLOR["yellow"] (#f57c00) — never #fbc02d.
+        """
+        if data.error or not data.rag_strip:
+            return build_rag_strip_entry(
+                display_name       = self.DISPLAY_NAME,
+                headline_value_str = NO_DATA_HEADLINE,
+                status             = "no_data",
+            )
+        return data.rag_strip
+
+    # ------------------------------------------------------------------
     # validate_config
     # ------------------------------------------------------------------
 
