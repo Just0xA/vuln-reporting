@@ -245,7 +245,12 @@ class ProgramHealthModule(BaseModule):
                         open_df["severity"].str.lower().isin(["critical", "high"])
                     ]
                     if not ch_df.empty and "first_found" in ch_df.columns:
-                        snap_ts = pd.Timestamp(report_date, tz="UTC")
+                        # Coerce report_date to UTC-aware Timestamp (handles tz-naive + tz-aware)
+                        snap_ts = (
+                            pd.Timestamp(report_date).tz_convert("UTC")
+                            if getattr(report_date, "tzinfo", None) is not None
+                            else pd.Timestamp(report_date, tz="UTC")
+                        )
                         days_open = (
                             snap_ts - pd.to_datetime(ch_df["first_found"], utc=True, errors="coerce")
                         ).dt.days
@@ -505,7 +510,11 @@ class ProgramHealthModule(BaseModule):
                         open_df_live["severity"].str.lower().isin(["critical", "high"])
                     ]
                     if not ch_live.empty and "first_found" in ch_live.columns:
-                        snap_ts = pd.Timestamp(report_date, tz="UTC")
+                        snap_ts = (
+                            pd.Timestamp(report_date).tz_convert("UTC")
+                            if getattr(report_date, "tzinfo", None) is not None
+                            else pd.Timestamp(report_date, tz="UTC")
+                        )
                         days_open_live = (
                             snap_ts - pd.to_datetime(ch_live["first_found"], utc=True, errors="coerce")
                         ).dt.days
