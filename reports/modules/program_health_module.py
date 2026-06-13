@@ -26,9 +26,13 @@ Cold-start MTTR tile (RESEARCH Open Question 2): always "—" because no
 
 Render channels (Plan 17-03)
 -----------------------------
-Four render channels (PDF, Excel, email panel, analyst tabs) are NOT
-implemented here — this plan delivers compute + ModuleData ONLY. The
-no-op BaseModule defaults are inherited.
+Four render channels implemented: PDF sparkline row + Owner velocity table
+(D-17-09), email 4-tile KPI panel + narrative (D-17-06), Excel "Program
+Health" + "Owner Velocity" tabs, analyst "PH — Owner Detail" tab (QUAL-05),
+and the RAG strip entry (CONTRACT-03).
+
+_render_sparkline_b64 helper: matplotlib Agg, figsize=(2.0,1.2) @120dpi,
+plt.close(fig) mandatory (T-17-08 figure-leak mitigation).
 
 OD-5 composite RAG rule
 ------------------------
@@ -47,11 +51,16 @@ T-17-05 : analyst_rows carry only owner-name + aggregate counts + MoM
           delta — no UUIDs, IPs, hostnames, or plugin IDs (QUAL-05).
 T-17-06 : snap.get() throughout (never []); whole compute wrapped in
           try/except → _empty_result (fail-soft batch).
+T-17-07 : owner/tag strings escaped with html.escape() before interpolation
+          into HTML/PDF markup — never raw f-string interpolated.
+T-17-08 : _render_sparkline_b64 calls plt.close(fig) per figure —
+          prevents matplotlib figure accumulation across many groups.
 """
 
 from __future__ import annotations
 
 import base64
+import html
 import io
 import logging
 from typing import Any, Optional
@@ -60,6 +69,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from config import SLA_DAYS
 from reports.modules.base import BaseModule, ModuleConfig, ModuleData
@@ -823,6 +834,334 @@ class ProgramHealthModule(BaseModule):
                 exc_info=True,
             )
             return self._empty_result(str(exc), config)
+
+    # ------------------------------------------------------------------
+    # _render_sparkline_b64  (T-17-08: plt.close mandatory)
+    # ------------------------------------------------------------------
+
+    def _render_sparkline_b64(
+        self,
+        values:          list,
+        signal_label:    str,
+        current_val_str: str,
+        mom_arrow:       str,
+        arrow_color:     str,
+        line_color:      str,
+    ) -> str:
+        """
+        Render a mini sparkline to a base64-encoded PNG string.
+
+        Parameters
+        ----------
+        values : list
+            Numeric series (may contain None — filtered to non-None pairs).
+        signal_label : str
+            Short label displayed as the chart title (e.g. "Open Critical").
+        current_val_str : str
+            Pre-formatted current value displayed in the title
+            (e.g. "47", "87.3%", "—").
+        mom_arrow : str
+            Unicode arrow symbol (▼ / ▲ / —).
+        arrow_color : str
+            Hex color for the title (matches MoM arrow semantic color).
+        line_color : str
+            Hex color for the sparkline line.
+
+        Returns
+        -------
+        str
+            Base64-encoded PNG string (no data-URI prefix).
+
+        Notes
+        -----
+        T-17-08: ``plt.close(fig)`` is called unconditionally to prevent
+        matplotlib figure accumulation across many group runs.
+        figsize=(2.0, 1.2) at dpi=120 per UI-SPEC §PDF sparkline spec.
+        """
+        fig, ax = plt.subplots(figsize=(2.0, 1.2))
+        try:
+            # Filter out None entries while preserving x-positions
+            x_vals = [i for i, v in enumerate(values) if v is not None]
+            y_vals = [v for v in values if v is not None]
+            if len(y_vals) >= 2:
+                ax.plot(x_vals, y_vals, color=line_color, linewidth=1.5)
+                # Shade area under the line
+                ax.fill_between(x_vals, y_vals, alpha=0.15, color=line_color)
+            elif len(y_vals) == 1:
+                ax.scatter(x_vals, y_vals, color=line_color, s=20)
+            ax.set_title(
+                f"{signal_label}\n{current_val_str} {mom_arrow}",
+                fontsize=7,
+                color=arrow_color,
+                pad=2,
+            )
+            ax.axis("off")
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", dpi=120, bbox_inches="tight")
+            buf.seek(0)
+            return base64.b64encode(buf.getvalue()).decode()
+        finally:
+            plt.close(fig)  # T-17-08: mandatory — prevents figure accumulation
+
+    # ------------------------------------------------------------------
+    # render_pdf_section  (D-17-09: 4 sparklines + Owner velocity table)
+    # ------------------------------------------------------------------
+
+    def render_pdf_section(
+        self,
+        data:   ModuleData,
+        config: ModuleConfig,
+    ) -> str:
+        """
+        Render PDF section: 4-sparkline row (D-17-09) + Owner velocity table.
+
+        Error guard: returns "" when ``data.error`` is set.
+        Cold-start guard: replaces sparkline row with cold-start notice;
+        Owner table still renders (current-snapshot counts, no MoM Delta).
+
+        Sparkline line colors (UI-SPEC §Color — locked):
+          Open-Critical  #d32f2f
+          Net Velocity   #1976d2
+          SLA Posture    #388e3c
+          MTTR           #f57c00
+
+        MoM arrows and colors:
+          ▼ improved  #388e3c
+          ▲ worsened  #d32f2f
+          — flat/missing #9E9E9E
+
+        T-17-07: all owner/tag strings escaped with html.escape() before
+        interpolation into markup.
+        """
+        if data.error:
+            return ""
+
+        m = data.metrics
+        cold_start = m.get("cold_start", False)
+
+        # Locked per-signal line colors (UI-SPEC §Color)
+        _LINE_COLORS = ["#d32f2f", "#1976d2", "#388e3c", "#f57c00"]
+        _SIGNAL_LABELS = ["Open Critical", "Net Velocity", "SLA Posture", "MTTR"]
+        _COLOR_IMPROVED = "#388e3c"
+        _COLOR_WORSENED = "#d32f2f"
+        _COLOR_FLAT     = "#9E9E9E"
+
+        def _mom_arrow_and_color(status: str, higher_is_better: bool) -> tuple[str, str]:
+            """Return (arrow_symbol, color) from signal status."""
+            if status == "green":
+                # Green = improved. Arrow direction: ▼ for lower-is-better, ▲ for higher-is-better
+                arrow = "▲" if higher_is_better else "▼"
+                return arrow, _COLOR_IMPROVED
+            elif status == "red":
+                arrow = "▼" if higher_is_better else "▲"
+                return arrow, _COLOR_WORSENED
+            return "—", _COLOR_FLAT
+
+        # Build explanatory paragraph
+        if cold_start:
+            summary_p = (
+                '<p class="explanatory-text">'
+                "Month-over-month trend being established — available from next snapshot."
+                "</p>"
+            )
+        else:
+            summary_p = (
+                f'<p class="explanatory-text">'
+                f"{html.escape(data.summary_text)}"
+                f"</p>"
+            )
+
+        # ------------------------------------------------------------------
+        # Sparkline row (or cold-start notice)
+        # ------------------------------------------------------------------
+        if cold_start:
+            sparkline_row = (
+                '<p style="color:#9E9E9E;font-style:italic;">'
+                "Month-over-month trend being established — available from next snapshot."
+                "</p>"
+            )
+        else:
+            sparklines_data = [
+                (
+                    m.get("sparkline_open_crit", []),
+                    "Open Critical",
+                    safe_int(m.get("open_crit_current")),
+                    *_mom_arrow_and_color(m.get("signal_open_crit_status", "missing"), False),
+                    "#d32f2f",
+                ),
+                (
+                    m.get("sparkline_net_velocity", []),
+                    "Net Velocity",
+                    (
+                        ("+" if (m.get("net_delta_current") or 0) >= 0 else "")
+                        + safe_format(m.get("net_delta_current"), ".0f")
+                    ) if m.get("net_delta_current") is not None else "—",
+                    *_mom_arrow_and_color(m.get("signal_net_velocity_status", "missing"), False),
+                    "#1976d2",
+                ),
+                (
+                    m.get("sparkline_sla_rate", []),
+                    "SLA Posture",
+                    safe_pct(m.get("sla_rate_current")),
+                    *_mom_arrow_and_color(m.get("signal_sla_rate_status", "missing"), True),
+                    "#388e3c",
+                ),
+                (
+                    m.get("sparkline_mttr", []),
+                    "MTTR",
+                    (safe_format(m.get("mttr_current"), ".0f") + " d")
+                    if m.get("mttr_current") is not None else "—",
+                    *_mom_arrow_and_color(m.get("signal_mttr_status", "missing"), False),
+                    "#f57c00",
+                ),
+            ]
+
+            cells_html = ""
+            for values, label, curr_str, arrow, arrow_color, line_color in sparklines_data:
+                try:
+                    b64 = self._render_sparkline_b64(
+                        values        = values,
+                        signal_label  = label,
+                        current_val_str = curr_str,
+                        mom_arrow     = arrow,
+                        arrow_color   = arrow_color,
+                        line_color    = line_color,
+                    )
+                    img_tag = f'<img src="data:image/png;base64,{b64}" style="width:100%;max-width:160pt;">'
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("%s sparkline render failed for %s: %s", self._log_prefix(), label, exc)
+                    img_tag = f'<span style="color:#9E9E9E;font-size:8pt;">{html.escape(label)}: chart unavailable</span>'
+
+                cells_html += (
+                    f'<div style="display:inline-block;text-align:center;'
+                    f'width:23%;margin:0 1%;">'
+                    f"{img_tag}"
+                    f"</div>"
+                )
+
+            sparkline_row = (
+                f'<p style="font-size:8.5pt;color:#444;margin-bottom:4pt;">'
+                f"Month-over-month signal trends</p>"
+                f'<div style="display:table;width:100%;margin-bottom:8pt;">'
+                f"{cells_html}"
+                f"</div>"
+            )
+
+        # ------------------------------------------------------------------
+        # Owner velocity table
+        # ------------------------------------------------------------------
+        owner_mom_suppressed  = m.get("owner_mom_suppressed", True)
+        owner_insufficient_note = m.get("owner_insufficient_note", False)
+        owner_rows = data.table_data or []
+
+        if cold_start:
+            # Cold-start: current-only (no MoM Delta column)
+            if owner_rows:
+                owner_header = (
+                    "<thead><tr>"
+                    "<th>Owner</th>"
+                    "<th style='text-align:right;'>Open Crit+High</th>"
+                    "</tr></thead>"
+                )
+                owner_body = "".join(
+                    f"<tr>"
+                    f"<td>{html.escape(str(r.get('owner', '')))}</td>"
+                    f"<td style='text-align:right;'>{safe_int(r.get('open_crit_high'))}</td>"
+                    f"</tr>"
+                    for r in owner_rows
+                )
+            else:
+                owner_header = (
+                    "<thead><tr>"
+                    "<th>Owner</th>"
+                    "<th style='text-align:right;'>Open Crit+High</th>"
+                    "</tr></thead>"
+                )
+                owner_body = (
+                    "<tr><td colspan='2' style='color:#9E9E9E;'>"
+                    "No owner data available.</td></tr>"
+                )
+            owner_note = ""
+        else:
+            # Normal: full table with MoM Delta and Status
+            if owner_mom_suppressed:
+                # Snapshot data insufficient — omit MoM Delta column
+                owner_header = (
+                    "<thead><tr>"
+                    "<th>Owner</th>"
+                    "<th style='text-align:right;'>Open Crit+High</th>"
+                    "<th>Status</th>"
+                    "</tr></thead>"
+                )
+                owner_body = "".join(
+                    f"<tr>"
+                    f"<td>{html.escape(str(r.get('owner', '')))}</td>"
+                    f"<td style='text-align:right;'>{safe_int(r.get('open_crit_high'))}</td>"
+                    f"<td>—</td>"
+                    f"</tr>"
+                    for r in owner_rows
+                ) if owner_rows else (
+                    "<tr><td colspan='3' style='color:#9E9E9E;'>"
+                    "No owner data available.</td></tr>"
+                )
+                owner_note = (
+                    '<p style="color:#9E9E9E;font-style:italic;font-size:8pt;">'
+                    "Owner month-over-month trend being established.</p>"
+                    if owner_insufficient_note else ""
+                )
+            else:
+                owner_header = (
+                    "<thead><tr>"
+                    "<th>Owner</th>"
+                    "<th style='text-align:right;'>Open Crit+High</th>"
+                    "<th style='text-align:right;'>MoM Delta</th>"
+                    "<th>Status</th>"
+                    "</tr></thead>"
+                )
+                owner_body_parts = []
+                for r in (owner_rows or []):
+                    outlier = r.get("outlier", False)
+                    mom_delta = r.get("mom_delta")
+                    mom_str = (
+                        ("+" if mom_delta >= 0 else "") + safe_format(mom_delta, ".0f")
+                    ) if mom_delta is not None else "—"
+                    if outlier:
+                        status_cell = (
+                            f'<td style="color:#d32f2f;font-weight:bold;">&#9650; Outlier</td>'
+                        )
+                    else:
+                        status_cell = "<td>—</td>"
+                    owner_body_parts.append(
+                        f"<tr>"
+                        f"<td>{html.escape(str(r.get('owner', '')))}</td>"
+                        f"<td style='text-align:right;'>{safe_int(r.get('open_crit_high'))}</td>"
+                        f"<td style='text-align:right;'>{mom_str}</td>"
+                        f"{status_cell}"
+                        f"</tr>"
+                    )
+                owner_body = "".join(owner_body_parts) if owner_body_parts else (
+                    "<tr><td colspan='4' style='color:#9E9E9E;'>"
+                    "No owner data available.</td></tr>"
+                )
+                owner_note = ""
+
+        owner_table = f"""
+  <h3 class="subsection-heading">Owner Velocity — Open Critical + High</h3>
+  <table class="data-table" style="width:100%;margin-top:4pt;">
+    {owner_header}
+    <tbody>
+      {owner_body}
+    </tbody>
+  </table>
+  {owner_note}"""
+
+        return f"""
+<div class="module-section">
+  <h2 class="section-heading">{data.display_name}</h2>
+  {summary_p}
+  {sparkline_row}
+  {owner_table}
+</div>"""
 
     # ------------------------------------------------------------------
     # validate_config
