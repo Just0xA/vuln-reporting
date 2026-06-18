@@ -85,7 +85,7 @@ These are NOT milestone-scoping decisions — each must be locked in the plan co
 | OD-5 | Program Health composite-RAG threshold rule | Phase 17 | Green = all 4 green; Amber = 2–3 green; Red = 0–1 green |
 | OD-6 | External exposure MoM trend mechanism | Phase 14 | Defer MoM trend to v1.5; current-snapshot-only in v1.4 |
 | OD-7 | MTTR rework MODULE_ID | Phase 16 | New `mttr_trend` MODULE_ID; `mttr_by_severity` untouched |
-| OD-8 | management_summary legacy trend-JSON migration vs cold start | Phase 18 | Cold start; accumulate forward; document discontinuity |
+| OD-8 | management_summary legacy trend-JSON migration vs cold start | Phase 18 | **LOCKED 2026-06-18 → reconstruct-backfill ~12mo from Tenable (D-18-01); cold-start recommendation SUPERSEDED. See `phases/18-management-summary-migration-docs/18-CONTEXT.md`** |
 | Phase 14 P01 | 15 | 2 tasks | 2 files |
 | Phase 14 P02 | 315 | 2 tasks | 3 files |
 | Phase 14-shared-substrates-composed-report-gates P03 | 65 | 4 tasks | 3 files |
@@ -102,7 +102,7 @@ These are NOT milestone-scoping decisions — each must be locked in the plan co
 
 ### v1.3 Settled Constraints (carried forward)
 
-- **S1 is snapshot-capture, NOT reconstruction.** Spike 002: ~29-day Tenable fixed-retention wall forbids backfill. Cold start is real. Multi-month history must accumulate forward from first snapshot.
+- **S1 is snapshot-capture; reconstruction is now ALSO viable (REVISED 2026-06-18).** ~~Spike 002: ~29-day Tenable fixed-retention wall forbids backfill.~~ **The "~29-day wall" was an API default (no time filter), NOT platform retention — real fixed retention is ~15–16mo, retrievable via a bounded `last_fixed`.** Phase 18 reconstructs ~12mo (OD-8/D-18-01). Forward snapshots still mandatory beyond the retrievable window. See `project_tenable_fixed_retention_trend` memory.
 - **Reopened-aware predicate is mandatory.** The naive `last_fixed null OR last_fixed>D` form drops ~19% of all findings (the entire REOPENED population). The two-interval model using `resurfaced_date` resolves it exactly.
 - **Snapshots extend `data/trend/`, not a parallel store.** Must not regress `management_summary` or any other existing trend consumer.
 - **PII discipline (D-04-08) applies to snapshot payloads.** Aggregate counts only; no hostnames, IPs, plugin names, or asset-level fields in persisted files.
