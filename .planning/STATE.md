@@ -110,7 +110,7 @@ These are NOT milestone-scoping decisions — each must be locked in the plan co
 
 ### Pending Todos
 
-None at roadmap creation.
+- **Pass bounded last_fixed lookback in fixed-vuln fetch (Phase 18)** — `2026-06-18-pass-bounded-last-fixed-lookback-in-fixed-vuln-fetch.md`. The 30-day fixed floor is a Tenable API default (no time filter), not retention; real retention ~15-16mo. Fetch rework + revisit OD-8 cold-start & Phase-16 MTTR window. (`include_unlicensed`/asset-licensing investigated & ruled out.)
 
 ### Blockers/Concerns
 
