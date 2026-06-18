@@ -1,4 +1,4 @@
-﻿# Roadmap: Vulnerability Management Reporting Suite
+# Roadmap: Vulnerability Management Reporting Suite
 
 ## Milestones
 
@@ -57,7 +57,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
  (completed 2026-06-11)
 - [x] **Phase 16: MTTR Rework** — `mttr_trend` MODULE_ID, window disclosure, sample-weighted mean, reopened-aware denominator, trend + Owner
  (completed 2026-06-12)
-- [x] **Phase 17: Program Health Overview** — composite MoM velocity dashboard composing Modules 1 + 6 + SLA signals (completed 2026-06-13)
+- [x] **Phase 17: Program Health Overview** — composite MoM velocity dashboard composing Modules 1 + 6 + SLA signals (completed 2026-06-13)
 - [ ] **Phase 18: management_summary Migration + Docs** — GEN-01 cutover onto module render contract; auditor runbooks for all v1.4 modules
 
 ## Phase Details
@@ -119,7 +119,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 **Requirements**: RPT-05
 
 **Open decisions to lock in this phase's plan:**
-- OD-4: MTTR resolved-population definition — Option A (all fixed), B (exclude current-REOPENED), or C (first-time fixes only). Must be locked before any MTTR code is written.
+- OD-4: MTTR resolved-population definition — Option A (all fixed), B (exclude current-REOPENED), or C (first-fix only). Must be locked before any MTTR code is written.
 - OD-7: Confirm MODULE_ID = `mttr_trend`, leaving `mttr_by_severity_module.py` untouched. Board_summary smoke baselines re-captured after rework lands.
 
 **Success Criteria** (what must be TRUE):
@@ -166,18 +166,24 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 **Requirements**: GEN-01, QUAL-04, DOC-02
 
 **Open decisions to lock in this phase's plan:**
-- OD-8: management_summary legacy trend-JSON migration vs cold start — recommended: cold start, accumulate forward, document discontinuity. Must be decided before any migration code is written.
+- OD-8: management_summary legacy trend-JSON migration vs cold start — **LOCKED 2026-06-18 → reconstruct-backfill ~12mo (D-18-01); cold-start recommendation superseded.** See `phases/18-management-summary-migration-docs/18-CONTEXT.md` (D-18-01..D-18-11).
 
-**Key constraint:** The smoke baseline script (`scripts/smoke_management_summary_cutover.py`) capturing structural shape from the current bespoke path MUST be committed as the first plan of this phase, before any migration code is written. The bespoke path (`_save_trend_snapshot`, `_load_trend_history`, `_compute_metric_*`, `_build_pdf`) is removed in the same commit that routes reads through `read_trend()` — no dual-writer window.
+**Key constraint:** The smoke baseline script (`scripts/smoke_management_summary_cutover.py`) capturing structural shape from the current bespoke path MUST be committed as the first plan of this phase, before any migration code is written. The bespoke path (`_save_trend_snapshot`, `_load_trend_history`, `_compute_metric_*`, `_build_pdf`) is removed in the same commit that routes reads through `read_trend()` — no dual-writer window. Gate chain (D-18-10): (1) bounded `last_fixed` fetch rework + consumer audit → (2) reconstruction seeding + overlap-test → (3) smoke baseline → (4) atomic cutover → (5) runbooks.
 
 **Success Criteria** (what must be TRUE):
 1. A structural smoke baseline is captured from the current `management_summary` bespoke path before any migration code exists; the same smoke script passes against the migrated output after cutover — section count, RAG cell count, and module presence all match (D-04-05: values not locked, structure locked).
 2. `management_summary` delivers via `ReportComposer.run_full_pipeline()` with all seven metric modules (`total_vulns_by_severity`, `scan_coverage_sla`, `mttr_trend`, `patch_compliance_rate`, `aged_vulns_assets`, `accepted_recast`, `new_vs_remediated`); the bespoke `_compute_metric_*` functions and private Jinja2 path are deleted in the same commit.
 3. Existing `delivery_config.yaml` groups referencing `management_summary` deliver without YAML changes; the email body routes through `build_email_body_modular()` (non-empty `email_body_html` predicate) and renders correctly in Outlook/Gmail/Apple Mail.
 4. `management_summary` is added to `_CHROME_AWARE_SLUGS` and inherits the PDF chrome header/footer; operator visual UAT confirms all seven metric sections are present in the migrated PDF before the bespoke path is declared removed.
-5. Both `management_summary_*.json` (legacy trend) and `trend_*.json` (S1 store) are never written simultaneously; `_save_trend_snapshot()` is removed in the same plan that routes reads through `read_trend()`; only one trend history grows going forward.
+5. Both `management_summary_*.json` (legacy trend) and `trend_*.json` (S1 store) are never written simultaneously; `_save_trend_snapshot()` is removed in the same plan that routes reads through `read_trend()`; only one trend history grows going forward. Legacy JSON is archived to `data/trend/legacy_archive/`, not deleted (D-18-11).
 6. Auditor calculation runbooks in `docs/` document each of the seven v1.4 modules' metric definitions, data sources, edge-case handling, disclosed MTTR window, and external-scope rule (DOC-02).
-**Plans**: TBD
+7. ~12 months of real MoM history (2025-06 → now) is reconstructed and seeded into the S1 store before the cutover, provenance-marked and overlap-validated; reconstructed months carry `source="reconstructed"`, null `asset_count`, and a partial flag on the Jun–Aug 2025 taper edge (D-18-01/02/03/04/09).
+**Plans**: 5 plans
+- [ ] 18-01-PLAN.md — Structural smoke baseline from the bespoke path, committed before migration code (QUAL-04, gate 3)
+- [ ] 18-02-PLAN.md — Bounded `last_fixed` fetch rework + consumer-audit no-drift gate (GEN-01, D-18-05/06, gate 1)
+- [ ] 18-03-PLAN.md — Reconstruction seeding script + embedded overlap-test gate; one-time operator seed (GEN-01/QUAL-04, D-18-01/02/03/04/08/09, gate 2)
+- [ ] 18-04-PLAN.md — Atomic migration cutover: ReportComposer + 7 modules + chrome-aware + trend wiring + bespoke removal + legacy archive (GEN-01/QUAL-04, gate 4)
+- [ ] 18-05-PLAN.md — DOC-02 auditor runbooks for the seven modules + reconstruction/MTTR/external-scope disclosures (DOC-02, gate 5)
 
 ---
 
@@ -202,7 +208,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 15. Independent New Modules | v1.4 | 6/6 | Complete    | 2026-06-11 |
 | 16. MTTR Rework | v1.4 | 7/7 | Complete    | 2026-06-12 |
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
-| 18. management_summary Migration + Docs | v1.4 | 0/TBD | Not started | - |
+| 18. management_summary Migration + Docs | v1.4 | 0/5 | Not started | - |
 
 ## Backlog
 
@@ -221,6 +227,9 @@ Cross-milestone backlog is tracked in [`PROJECT.md`](PROJECT.md) ("Backlog" / "D
 - **SEV-NONE-01 — Global `vpr_to_severity` "None" tier** — `vpr_score` 0/null → None everywhere; cross-cutting change, sized as its own phase.
 - **EXT-WAS-01** — WAS findings in External Exposure — gated on pyTenable upgrade decision.
 - **EXT-TREND-01** — External Exposure MoM trend via S1 parameterized dimension.
+- **MTTR window widening** — 90-day / all-time MTTR metric-design change now that 12mo of fixed data is retrievable (Phase 18 keeps deliberate rolling-30, D-18-06); its own future phase.
+- **Reconstruct the Feb–Aug 2025 taper tail / full ~16mo** — Phase 18 ships a fixed 12mo window (D-18-02); revisit if a longer horizon is wanted and the taper can be characterized.
+- **Persistent finding-mirror + differential-export architecture** — `indexed_at` differential cursor + stateful local mirror; a v2 strategic trend-sourcing option (out of v1.4 scope).
 - **P15-CLEANUP — Phase-15 code-review Info findings** (non-functional; see [`phases/15-independent-new-modules/15-REVIEW.md`](phases/15-independent-new-modules/15-REVIEW.md)):
   - IN-01 — `safe_format` imported but unused in 4 of 5 new modules (only `vuln_density` calls it).
   - IN-02 — `_rag_fill` defined but unused in `reopened_vulns`, `external_dmz`, `new_vs_remediated` modules.
