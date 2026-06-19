@@ -179,7 +179,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 6. Auditor calculation runbooks in `docs/` document each of the seven v1.4 modules' metric definitions, data sources, edge-case handling, disclosed MTTR window, and external-scope rule (DOC-02).
 7. ~12 months of real MoM history (2025-06 → now) is reconstructed and seeded into the S1 store before the cutover, provenance-marked and overlap-validated; reconstructed months carry `source="reconstructed"`, null `asset_count`, and a partial flag on the Jun–Aug 2025 taper edge (D-18-01/02/03/04/09).
 **Plans**: 5 plans
-- [ ] 18-01-PLAN.md — Structural smoke baseline from the bespoke path, committed before migration code (QUAL-04, gate 3)
+- [x] 18-01-PLAN.md — Structural smoke baseline from the bespoke path, committed before migration code (QUAL-04, gate 3)
 - [ ] 18-02-PLAN.md — Bounded `last_fixed` fetch rework + consumer-audit no-drift gate (GEN-01, D-18-05/06, gate 1)
 - [ ] 18-03-PLAN.md — Reconstruction seeding script + embedded overlap-test gate; one-time operator seed (GEN-01/QUAL-04, D-18-01/02/03/04/08/09, gate 2)
 - [ ] 18-04-PLAN.md — Atomic migration cutover: ReportComposer + 7 modules + chrome-aware + trend wiring + bespoke removal + legacy archive (GEN-01/QUAL-04, gate 4)
@@ -208,7 +208,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 15. Independent New Modules | v1.4 | 6/6 | Complete    | 2026-06-11 |
 | 16. MTTR Rework | v1.4 | 7/7 | Complete    | 2026-06-12 |
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
-| 18. management_summary Migration + Docs | v1.4 | 0/5 | Not started | - |
+| 18. management_summary Migration + Docs | v1.4 | 1/5 | In Progress|  |
 
 ## Backlog
 

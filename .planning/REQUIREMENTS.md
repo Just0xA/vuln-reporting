@@ -32,7 +32,7 @@ The June-2026 management/exec trend-cut report batch built as thin four-channel 
 - [x] **QUAL-01**: Every month-over-month module branches on the trend store's `insufficient_data` (cold-start) signal and renders a cold-start message instead of `NaN%` or a crash; every new tag/Owner scope is treated as a valid cold start.
 - [x] **QUAL-02**: All open-count and MTTR logic uses the reopened-aware two-interval predicate (`open_findings_at`) — no ~19% REOPENED drop, no reopen-cycle MTTR inflation.
 - [x] **QUAL-03**: Every new module renders safely on a zero-row / filtered-to-zero input across all four channels (`safe_pct`/`safe_int`/`safe_format`, `_empty_result()`).
-- [ ] **QUAL-04**: The GEN-01 cutover is guarded by a structural smoke baseline captured **before** any rewrite and visual operator UAT after; the legacy bespoke trend writer is removed in the same change that routes reads through `read_trend()` (no dual-writer window).
+- [x] **QUAL-04**: The GEN-01 cutover is guarded by a structural smoke baseline captured **before** any rewrite and visual operator UAT after; the legacy bespoke trend writer is removed in the same change that routes reads through `read_trend()` (no dual-writer window).
 - [x] **QUAL-05**: Any new persisted trend snapshot, baseline, or committed artifact contains aggregate counts only — no hostnames, IPs, plugin names, or asset-level fields (D-04-08).
 
 ### Documentation (DOC)
@@ -105,7 +105,7 @@ Final phase assignments (roadmap created 2026-06-11).
 | RPT-05 | Phase 16 | Complete |
 | RPT-07 | Phase 17 | Complete |
 | GEN-01 | Phase 18 | Pending |
-| QUAL-04 | Phase 18 | Pending |
+| QUAL-04 | Phase 18 | Complete |
 | DOC-02 | Phase 18 | Pending |
 
 **Coverage:**
