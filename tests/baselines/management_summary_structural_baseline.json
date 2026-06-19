@@ -1,0 +1,27 @@
+{
+  "analyst_excel_present": false,
+  "bundle_keys_present": [
+    "analyst_excel",
+    "charts",
+    "email_body_html",
+    "excel",
+    "metrics",
+    "pdf"
+  ],
+  "email_panel_count": 0,
+  "excel_tab_names_sorted": [],
+  "metric_ids_present": [
+    "accepted_recast",
+    "aged_vulns_assets",
+    "mttr_by_severity",
+    "new_vs_remediated",
+    "patch_compliance_rate",
+    "scan_coverage_sla",
+    "total_vulns_by_severity"
+  ],
+  "pdf_page_count": -1,
+  "pdf_rag_cell_count": 0,
+  "pdf_section_count": 7,
+  "schema_version": 1,
+  "source_path": "bespoke"
+}
