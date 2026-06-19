@@ -1,0 +1,207 @@
+{
+  "_meta": {
+    "description": "Bucketed bespoke-path golden values for the frozen synthetic fixture. D-04-05 reconciliation: this is a FROZEN-SYNTHETIC-INPUT parity lock, NOT a live-value lock. D-04-05 governs live-drifting values; this is a deterministic regression check. The gate is PER-METRIC (NOT blanket zero-drift) \u2014 only EXACT-MATCH metrics are asserted by Plan 04. Bucket assignments derived from 18-RESEARCH.md Seven Module Definitions + module docstrings (NOT assumed).",
+    "fixture_dir": "D:\\Projects\\vuln-reporting\\tests\\fixtures\\management_summary_parity",
+    "report_date": "2026-06-01T12:00:00+00:00",
+    "captured_by": "bespoke compute_all_metrics path"
+  },
+  "metrics": {
+    "M1_total_vulns_by_severity": {
+      "metric_id": "total_vulns_by_severity",
+      "bucket": "exact_match",
+      "bucket_source": "18-RESEARCH.md + total_vulns_by_severity_module.py docstring: semantics identical (per-severity open counts)",
+      "bespoke_values": {
+        "critical": 21,
+        "high": 15,
+        "medium": 25,
+        "low": 10,
+        "total": 71
+      },
+      "comparison_policy": "EXACT",
+      "comparison_note": "Integer counts must match exactly; open+reopened states."
+    },
+    "M2_scan_coverage_sla": {
+      "metric_id": "scan_coverage_sla",
+      "bucket": "exact_match",
+      "bucket_source": "18-RESEARCH.md + scan_coverage_sla_module.py: semantics identical (% licensed assets scanned in last 30d)",
+      "bespoke_values": {
+        "coverage_pct": 100.0,
+        "scanned": 30,
+        "not_scanned": 0,
+        "total_licensed": 30
+      },
+      "comparison_policy": "TOLERANCE",
+      "tolerance": 1e-06,
+      "tolerance_note": "Float ratio; abs(actual - bespoke) <= 1e-6 for coverage_pct."
+    },
+    "M3_mttr_trend": {
+      "metric_id": "mttr_trend",
+      "bucket": "exact_match",
+      "bucket_source": "18-RESEARCH.md + mttr_trend_module.py: D-18-06 preserves rolling-30 window; current-window value semantics preserved",
+      "bespoke_values": {
+        "mttr": {
+          "critical": 23.5,
+          "high": 27.0,
+          "medium": 50.0,
+          "low": 80.0
+        },
+        "total_fixed": 29
+      },
+      "comparison_policy": "TOLERANCE",
+      "tolerance": 0.5,
+      "tolerance_note": "Float, days. abs(actual - bespoke) <= 0.5 per severity. Note: bespoke uses time_taken_to_fix preference + date-diff fallback; module uses D-16-02 clock (last_fixed - COALESCE(resurfaced_date, first_found)). The REOPENED row will differ; tolerance accommodates this intentional clock change."
+    },
+    "M4_patch_compliance_rate": {
+      "metric_id": "patch_compliance_rate",
+      "bucket": "exact_match",
+      "bucket_source": "18-RESEARCH.md + patch_compliance_rate_module.py: semantics identical (% open findings within SLA)",
+      "bespoke_values": {
+        "overall_rate": 56.3,
+        "within_sla": 40,
+        "total_open": 71
+      },
+      "comparison_policy": "TOLERANCE",
+      "tolerance": 1e-06,
+      "tolerance_note": "Float ratio; abs(actual - bespoke) <= 1e-6 for overall_rate."
+    },
+    "M5_aged_vulns_assets": {
+      "metric_id": "aged_vulns_assets",
+      "bucket": "documented_difference",
+      "bucket_source": "18-RESEARCH.md + aged_vulns_assets_module.py docstring: bespoke is age-bucket histogram of vulns; module is % of on-time-scanned ASSETS with a >90d Med/High/Crit finding \u2014 different unit+denominator",
+      "bespoke_values": {
+        "age_buckets": [
+          {
+            "label": "0\u201330 days",
+            "min_days": 0,
+            "max_days": 30,
+            "count": 40,
+            "pct": 56.3,
+            "color": "#388e3c"
+          },
+          {
+            "label": "31\u201360 days",
+            "min_days": 31,
+            "max_days": 60,
+            "count": 25,
+            "pct": 35.2,
+            "color": "#7cb342"
+          },
+          {
+            "label": "61\u201390 days",
+            "min_days": 61,
+            "max_days": 90,
+            "count": 5,
+            "pct": 7.0,
+            "color": "#fbc02d"
+          },
+          {
+            "label": "91\u2013180 days",
+            "min_days": 91,
+            "max_days": 180,
+            "count": 0,
+            "pct": 0.0,
+            "color": "#f57c00"
+          },
+          {
+            "label": "181\u2013365 days",
+            "min_days": 181,
+            "max_days": 365,
+            "count": 1,
+            "pct": 1.4,
+            "color": "#e64a19"
+          },
+          {
+            "label": "365+ days",
+            "min_days": 366,
+            "max_days": 99999,
+            "count": 0,
+            "pct": 0.0,
+            "color": "#d32f2f"
+          }
+        ]
+      },
+      "difference_rationale": "M5 bespoke: age-bucket histogram of OPEN VULNS (six buckets: 0-30, 31-60, 61-90, 91-180, 181-365, 365+ days; count + pct of total open). M5 module (aged_vulns_assets): % of ON-TIME-SCANNED ASSETS with >= 1 Medium/High/Critical finding open > 90 days. Different unit (vulns vs assets), different denominator (total open vulns vs on-time-scanned licensed assets), different threshold (age bucket boundaries vs single 90-day cutoff). Exact parity is impossible and meaningless.",
+      "shared_invariant": "none",
+      "shared_invariant_note": "No common quantity Plan 04 can assert. Relies on the module's own tests + visual UAT."
+    },
+    "M6_accepted_recast": {
+      "metric_id": "accepted_recast",
+      "bucket": "exact_match",
+      "bucket_source": "18-RESEARCH.md + accepted_recast_module.py: current-period ACCEPTED/RECASTED counts and exception rate semantics preserved",
+      "bespoke_values": {
+        "open_exceptions": 10,
+        "total_open": 71,
+        "exception_rate": 14.08
+      },
+      "comparison_policy": "MIXED",
+      "comparison_note": "open_exceptions, total_open: EXACT (integer counts). exception_rate: TOLERANCE abs_delta <= 1e-6 (float, %). MoM delta is trend-sourced and NOT part of this frozen-fixture exact assert."
+    },
+    "M7_new_vs_remediated": {
+      "metric_id": "new_vs_remediated",
+      "bucket": "documented_difference",
+      "bucket_source": "18-RESEARCH.md + new_vs_remediated_module.py docstring: bespoke is simple MoM total-open delta; module is richer inflow/outflow trend with snapshot-sourced outflow",
+      "bespoke_values": {
+        "snapshots": [
+          {
+            "month": "2026-03",
+            "tag_filter": "all_assets",
+            "critical": 15,
+            "high": 22,
+            "medium": 30,
+            "low": 12,
+            "generated_at": "2026-03-01T10:00:00Z",
+            "fixed_findings_count": 18,
+            "accepted_count": 3,
+            "recast_count": 2,
+            "asset_count": 30,
+            "mttr_critical": 12.0,
+            "mttr_high": 25.0,
+            "mttr_medium": 45.0,
+            "mttr_low": 80.0
+          },
+          {
+            "month": "2026-04",
+            "tag_filter": "all_assets",
+            "critical": 13,
+            "high": 20,
+            "medium": 28,
+            "low": 11,
+            "generated_at": "2026-04-01T10:00:00Z",
+            "fixed_findings_count": 20,
+            "accepted_count": 4,
+            "recast_count": 2,
+            "asset_count": 30,
+            "mttr_critical": 11.0,
+            "mttr_high": 22.0,
+            "mttr_medium": 42.0,
+            "mttr_low": 75.0
+          },
+          {
+            "month": "2026-05",
+            "tag_filter": "all_assets",
+            "critical": 12,
+            "high": 18,
+            "medium": 26,
+            "low": 10,
+            "generated_at": "2026-05-01T10:00:00Z",
+            "fixed_findings_count": 22,
+            "accepted_count": 5,
+            "recast_count": 3,
+            "asset_count": 30,
+            "mttr_critical": 10.5,
+            "mttr_high": 21.0,
+            "mttr_medium": 40.0,
+            "mttr_low": 72.0
+          }
+        ],
+        "delta_critical_high": -3,
+        "delta_medium_low": -3,
+        "has_trend": 1,
+        "first_run_notice": 0
+      },
+      "difference_rationale": "M7 bespoke: simple MoM delta of TOTAL OPEN findings (curr.critical+high - prev.critical+high, curr.medium+low - prev.medium+low). M7 module (new_vs_remediated): richer inflow (net-new via first_found + resurfaced via resurfaced_date) / outflow (snapshot fixed_findings_count) trend with net-delta per month. Outflow is SNAPSHOT-SOURCED, not derivable from fixed_vulns_df directly. Different metric entirely.",
+      "shared_invariant": "none",
+      "shared_invariant_note": "No common quantity Plan 04 can assert. Relies on the module's own tests + visual UAT."
+    }
+  }
+}

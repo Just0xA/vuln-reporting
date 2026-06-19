@@ -1,0 +1,56 @@
+{
+  "snapshots": [
+    {
+      "month": "2026-03",
+      "tag_filter": "all_assets",
+      "critical": 15,
+      "high": 22,
+      "medium": 30,
+      "low": 12,
+      "generated_at": "2026-03-01T10:00:00Z",
+      "fixed_findings_count": 18,
+      "accepted_count": 3,
+      "recast_count": 2,
+      "asset_count": 30,
+      "mttr_critical": 12.0,
+      "mttr_high": 25.0,
+      "mttr_medium": 45.0,
+      "mttr_low": 80.0
+    },
+    {
+      "month": "2026-04",
+      "tag_filter": "all_assets",
+      "critical": 13,
+      "high": 20,
+      "medium": 28,
+      "low": 11,
+      "generated_at": "2026-04-01T10:00:00Z",
+      "fixed_findings_count": 20,
+      "accepted_count": 4,
+      "recast_count": 2,
+      "asset_count": 30,
+      "mttr_critical": 11.0,
+      "mttr_high": 22.0,
+      "mttr_medium": 42.0,
+      "mttr_low": 75.0
+    },
+    {
+      "month": "2026-05",
+      "tag_filter": "all_assets",
+      "critical": 12,
+      "high": 18,
+      "medium": 26,
+      "low": 10,
+      "generated_at": "2026-05-01T10:00:00Z",
+      "fixed_findings_count": 22,
+      "accepted_count": 5,
+      "recast_count": 3,
+      "asset_count": 30,
+      "mttr_critical": 10.5,
+      "mttr_high": 21.0,
+      "mttr_medium": 40.0,
+      "mttr_low": 72.0
+    }
+  ],
+  "insufficient_data": false
+}

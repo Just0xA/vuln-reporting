@@ -64,6 +64,8 @@ htmlcov/
 *.coveragerc
 # Local test scratch/debug artifacts — keep test code tracked, ignore binaries/dumps
 tests/**/*.parquet
+# Exception: committed parity fixture parquets for Phase 18 synthetic golden (QUAL-05)
+!tests/fixtures/management_summary_parity/*.parquet
 tests/**/debug_*.json
 tests/**/debug_*.txt
 # Local-only diagnostic/analysis scratch scripts (run by hand, not part of the pytest suite)
