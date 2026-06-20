@@ -90,9 +90,16 @@ _VALID_REPORTS: frozenset[str] = frozenset({
 
 # Slugs whose run_report() opts in to the Phase 6 chrome utility.
 # Per RESEARCH.md Q2 and D-05: an allowlist beats inspect.signature for
-# a one-consumer rollout. CHROME-COMPAT-01 — management_summary and
-# ops_remediation MUST NOT receive privacy_label / scope_subtitle.
-_CHROME_AWARE_SLUGS: frozenset[str] = frozenset({"board_summary", "composed_report"})
+# a one-consumer rollout.
+# Phase 18 GEN-01: management_summary added after atomic cutover onto
+# ReportComposer — its run_report() now accepts privacy_label /
+# scope_subtitle / report_title (Pitfall 3 / T-18-13).
+# CHROME-COMPAT-01: ops_remediation still MUST NOT receive chrome kwargs.
+_CHROME_AWARE_SLUGS: frozenset[str] = frozenset({
+    "board_summary",
+    "composed_report",
+    "management_summary",
+})
 
 _VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "monthly", "on_demand"})
 

@@ -118,12 +118,23 @@ def test_composed_report_receives_chrome_kwargs():
     assert kw["report_title"] == "Custom Composed Report"
 
 
-def test_management_summary_does_not_receive_chrome_kwargs():
-    """CHROME-COMPAT-01 — legacy renderer signature is unchanged."""
+def test_management_summary_receives_chrome_kwargs():
+    """Phase 18 GEN-01 — management_summary is now chrome-aware.
+
+    After the atomic cutover onto ReportComposer (Plan 04 Task 2), the
+    run_report() signature accepts privacy_label / scope_subtitle /
+    report_title and management_summary is added to _CHROME_AWARE_SLUGS.
+    This test replaces the old CHROME-COMPAT-01 compat-safety guard which
+    asserted the opposite (legacy renderer signature unchanged).
+
+    The load-bearing assertion is now that management_summary DOES receive
+    the chrome kwargs — mirroring the board_summary and composed_report
+    tests above.
+    """
     kw = _run_group_with_slug("management_summary")
-    assert "privacy_label"  not in kw
-    assert "scope_subtitle" not in kw
-    assert "report_title"   not in kw
+    assert "privacy_label"  in kw
+    assert "scope_subtitle" in kw
+    assert "report_title"   in kw
 
 
 def test_ops_remediation_does_not_receive_chrome_kwargs():
