@@ -25,11 +25,21 @@ from run_all import _CHROME_AWARE_SLUGS  # noqa: E402
 
 def test_chrome_aware_slugs_includes_both_modular_consumers():
     """CHROME-COMPAT-01 — the allowlist is the single source of truth for
-    which slugs may receive chrome kwargs. board_summary and the
-    YAML-driven composed_report slug both opt into the chrome design
-    system; legacy renderers (management_summary, ops_remediation) stay
-    out so their run_report() signatures remain untouched."""
-    assert _CHROME_AWARE_SLUGS == frozenset({"board_summary", "composed_report"})
+    which slugs may receive chrome kwargs. board_summary, composed_report,
+    and management_summary (migrated in Phase 18 GEN-01) opt into the chrome
+    design system; ops_remediation stays out so its run_report() signature
+    remains untouched.
+
+    Phase 18 Plan 04 co-edit (project_frozenset_gate_test_coupling):
+    management_summary is added to _CHROME_AWARE_SLUGS in the same atomic
+    commit that migrates run_report() onto ReportComposer and adds the chrome
+    kwargs to its signature (Pitfall 3 / T-18-13). This test is updated in
+    the same Plan 04 Task 1 commit so it does not block the GREEN run."""
+    assert _CHROME_AWARE_SLUGS == frozenset({
+        "board_summary",
+        "composed_report",
+        "management_summary",
+    })
 
 
 def _run_group_with_slug(slug: str, group_overrides: dict | None = None) -> dict:
