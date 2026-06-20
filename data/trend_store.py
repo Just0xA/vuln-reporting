@@ -34,6 +34,7 @@ Windows atomic-write safety (Gemini MEDIUM review):
 
 from __future__ import annotations
 
+import calendar
 import json
 import logging
 import os
@@ -41,7 +42,7 @@ import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import pandas as pd
 
@@ -63,6 +64,58 @@ logger = logging.getLogger(__name__)
 # ROOT_DIR: two levels up from this file (data/trend_store.py → data/ → repo root)
 ROOT_DIR: Path = Path(__file__).resolve().parent.parent
 TREND_DIR: Path = ROOT_DIR / "data" / "trend"
+
+
+# ---------------------------------------------------------------------------
+# Public boundary helper (review MEDIUM change #8 — D-18-08/D-18-09)
+# ---------------------------------------------------------------------------
+
+
+def month_end_utc(month: Union[str, "datetime", "date"]) -> datetime:  # type: ignore[name-defined]
+    """
+    Return the last second of *month* as a tz-aware UTC datetime.
+
+    Boundary semantics (pinned — MEDIUM change #8):
+      - Inclusive upper bound: the returned value is ``YYYY-MM-DD 23:59:59 UTC``
+        where DD is the last calendar day of the month.
+      - A finding with ``last_fixed == month_end_utc(M)`` is considered fixed AT M
+        (``open_findings_at`` uses ``lf <= D`` for the fixed clause, so it is NOT
+        open-at-M).
+      - A finding with ``last_fixed`` at 00:00:00 UTC on the first day of M+1 is
+        AFTER the boundary and is therefore counted as open-at-M.
+
+    Parameters
+    ----------
+    month : str | datetime.date | datetime.datetime
+        Either a ``"YYYY-MM"`` string or any date/datetime whose year and month
+        are used (day/time components are ignored).
+
+    Returns
+    -------
+    datetime
+        Timezone-aware UTC datetime at ``YYYY-MM-DD 23:59:59+00:00``.
+
+    Notes
+    -----
+    Month key convention (CLAUDE.md timezone policy): the month key stored in
+    snapshot JSON uses SERVER-LOCAL time (``date.strftime("%Y-%m")``).  This
+    helper operates in UTC for boundary comparison purposes; the caller is
+    responsible for reconciling local-vs-UTC month attribution if needed.
+    """
+    import datetime as _dt
+
+    if isinstance(month, str):
+        # Parse "YYYY-MM" — allow optional "-DD" suffix for flexibility
+        parts = month.split("-")
+        year, mon = int(parts[0]), int(parts[1])
+    elif hasattr(month, "year"):
+        # datetime.date or datetime.datetime
+        year, mon = month.year, month.month
+    else:
+        raise TypeError(f"month_end_utc: unsupported type {type(month)!r}")
+
+    last_day = calendar.monthrange(year, mon)[1]
+    return datetime(year, mon, last_day, 23, 59, 59, tzinfo=timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -404,8 +457,28 @@ def capture_snapshot(
     tag_suffix = tag_filter  # Phase 12 passes "all_assets" directly; Phase 13 sanitises upstream
     file_path = trend_dir / f"trend_{dimension}_{tag_suffix}.json"
 
-    # Load existing snapshots, apply (month, tag_filter) idempotent-overwrite.
+    # Load existing snapshots.
     snapshots = _load_trend_json(file_path)
+
+    # Reconstructed-month immutability (review MEDIUM change #7 — D-18-03):
+    # If a snapshot for this (month, tag_filter) already exists with
+    # source='reconstructed', skip the write entirely.  Reconstructed months
+    # — including the current month — are NEVER overwritten by a forward
+    # capture_snapshot() call.  This preserves the audit-honest provenance
+    # written by the one-time backfill script.
+    for snap in snapshots:
+        if snap.get("month") == month_str and snap.get("tag_filter") == tag_filter:
+            if snap.get("source") == "reconstructed":
+                logger.info(
+                    "Trend snapshot SKIPPED (reconstructed-month immutability): "
+                    "dimension=%s filter=%s month=%s — "
+                    "reconstructed entry is immutable (D-18-03, change #7)",
+                    dimension, tag_filter, month_str,
+                )
+                return file_path
+            break  # found a non-reconstructed entry; fall through to overwrite
+
+    # Apply (month, tag_filter) idempotent-overwrite for captured/other sources.
     updated = False
     for idx, snap in enumerate(snapshots):
         if snap.get("month") == month_str and snap.get("tag_filter") == tag_filter:
