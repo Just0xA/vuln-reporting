@@ -21,7 +21,7 @@ import logging
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -39,7 +39,7 @@ from tenacity import (
     before_sleep_log,
 )
 
-from config import CACHE_DIR, SEVERITY_LEVEL_MAP, vpr_to_severity
+from config import CACHE_DIR, FIXED_LOOKBACK_DAYS, SEVERITY_LEVEL_MAP, vpr_to_severity
 
 
 # ---------------------------------------------------------------------------
@@ -376,13 +376,35 @@ def fetch_all_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
 
 
 @retry(**_retry_policy)
-def fetch_fixed_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
+def fetch_fixed_vulnerabilities(
+    tio,
+    cache_dir: Path,
+    lookback_days: int = FIXED_LOOKBACK_DAYS,
+) -> pd.DataFrame:
     """
-    Fetch ALL fixed/remediated vulnerability findings from Tenable.
+    Fetch fixed/remediated vulnerability findings from Tenable.
 
-    Used by ``reports/management_summary.py`` to compute MTTR metrics.
-    The ``time_taken_to_fix`` field (seconds) is the primary MTTR source;
-    ``(last_fixed - first_found)`` is the fallback.
+    Used by ``reports/management_summary.py`` to compute MTTR metrics and
+    by the module infrastructure (board_summary, composed_report) to deliver
+    fixed_vulns_df to CriticalRemediationSLAModule and MTTRTrendModule.
+
+    D-18-05: A bounded ``last_fixed`` time filter is applied so the fetch
+    returns findings fixed within the last ``lookback_days`` days (default
+    ``config.FIXED_LOOKBACK_DAYS`` = 365).  Before this change, Tenable's
+    API default (no time filter) returned only ~30 days of fixed findings
+    — not a platform retention limit, just an API default.  The filter
+    shape (plain integer Unix epoch seconds) was proven against the live
+    API by the Task 0 probe (scripts/probe_last_fixed_filter.py).
+
+    Each result-consuming module applies its OWN explicit date window at
+    compute() time (D-18-06 consumer-audit gate, plan 18-02 Task 1-2):
+    - CriticalRemediationSLAModule: last_fixed >= report_date − 30d
+    - MTTRTrendModule: last_fixed >= report_date − window_days (default 30)
+    Widening the fetch therefore causes NO silent metric drift.
+
+    The ``time_taken_to_fix`` field (seconds) is available for MTTR; the
+    reopened-aware fallback ``(last_fixed - COALESCE(resurfaced_date,
+    first_found))`` is applied by the consuming module (D-16-02).
 
     Caches to ``<cache_dir>/vulns_fixed.parquet``.  Informational findings
     are excluded (no SLA; MTTR is meaningless for them).
@@ -393,6 +415,12 @@ def fetch_fixed_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
         Authenticated Tenable client.
     cache_dir : Path
         Run-scoped directory for parquet cache files.
+    lookback_days : int, optional
+        Number of days to look back for fixed findings.  Defaults to
+        ``config.FIXED_LOOKBACK_DAYS`` (365).  Pass a smaller value to
+        narrow the window for testing or bandwidth-limited runs.
+        The resulting cutoff is ``now - lookback_days`` expressed as a
+        Unix epoch integer (the proven Tenable filter shape).
 
     Returns
     -------
@@ -405,11 +433,23 @@ def fetch_fixed_vulnerabilities(tio, cache_dir: Path) -> pd.DataFrame:
     if cached is not None:
         return cached
 
-    logger.info("[API FETCH] Fetching fixed vulnerabilities from Tenable API")
+    # D-18-05: compute bounded lookback cutoff as a Unix epoch integer.
+    # Filter shape proven by Task 0 live probe: last_fixed=<int epoch seconds>.
+    # A smaller epoch value = earlier cutoff = wider window (more rows returned).
+    _cutoff_epoch: int = int(
+        (datetime.now(tz=timezone.utc) - timedelta(days=lookback_days)).timestamp()
+    )
+
+    logger.info(
+        "[API FETCH] Fetching fixed vulnerabilities from Tenable API "
+        "(last_fixed >= %d days ago; epoch cutoff %d)",
+        lookback_days, _cutoff_epoch,
+    )
 
     export_filters: dict = {
-        "state":    ["fixed"],
-        "severity": ["critical", "high", "medium", "low"],
+        "state":      ["fixed"],
+        "severity":   ["critical", "high", "medium", "low"],
+        "last_fixed": _cutoff_epoch,   # D-18-05: bounded lookback (proven int-epoch shape)
     }
     rows: list[dict] = []
 

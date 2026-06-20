@@ -41,6 +41,22 @@ SLA_DAYS: dict[str, int] = {
 ON_TIME_SCAN_WINDOW_DAYS: int = 30
 
 # =============================================================================
+# Fixed-vulnerability fetch lookback — D-18-05
+#
+# Bounds the last_fixed time filter passed to fetch_fixed_vulnerabilities().
+# A finding is included when last_fixed >= (now - FIXED_LOOKBACK_DAYS).
+#
+# Background: the Tenable API default (no time filter) returns only ~30 days
+# of fixed findings. Real retention is ~15–16 months. We widen the fetch to
+# this bounded window so reconstruction (Plan 03) and trend modules have a
+# meaningful historical population without an unbounded 2-year pull.
+#
+# Consumed by: data/fetchers.py::fetch_fixed_vulnerabilities
+# Filter shape (proven by Task 0 live probe): last_fixed=<int epoch seconds>
+# =============================================================================
+FIXED_LOOKBACK_DAYS: int = 365
+
+# =============================================================================
 # Severity ordering — used for consistent sorting and display
 # =============================================================================
 SEVERITY_ORDER: list[str] = ["critical", "high", "medium", "low", "info"]
