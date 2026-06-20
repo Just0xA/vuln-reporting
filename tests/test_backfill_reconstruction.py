@@ -830,3 +830,76 @@ class TestMonthEndUtcBoundaries:
         boundary = month_end_utc("2024-02")
         assert boundary.day == 29
         assert boundary.month == 2
+
+
+# ---------------------------------------------------------------------------
+# Test 11: Live-fetch branch passes cache_dir to both fetchers (regression)
+# ---------------------------------------------------------------------------
+
+class TestLoadDataframesPassesCacheDir:
+    """
+    Regression guard: _load_dataframes() live-fetch branch must pass cache_dir
+    as the second positional argument to both fetch_all_vulnerabilities and
+    fetch_fixed_vulnerabilities.
+
+    Stubs are defined with the real required signature (tio, cache_dir, ...) so
+    that a missing-arg call raises TypeError immediately — no live API needed.
+    """
+
+    def test_live_fetch_passes_cache_dir_to_both_fetchers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pathlib import Path as _Path
+
+        received: dict[str, list] = {"open": [], "fixed": []}
+
+        def stub_fetch_all_vulnerabilities(tio, cache_dir: _Path) -> pd.DataFrame:
+            """Stub with the real required signature — missing cache_dir raises TypeError."""
+            received["open"].append(cache_dir)
+            return _make_vuln_df([])
+
+        def stub_fetch_fixed_vulnerabilities(
+            tio, cache_dir: _Path, lookback_days: int = 365
+        ) -> pd.DataFrame:
+            """Stub with the real required signature — missing cache_dir raises TypeError."""
+            received["fixed"].append(cache_dir)
+            return _make_vuln_df([])
+
+        # Patch the fetchers at the location _load_dataframes imports them from
+        monkeypatch.setattr(
+            "data.fetchers.fetch_all_vulnerabilities",
+            stub_fetch_all_vulnerabilities,
+        )
+        monkeypatch.setattr(
+            "data.fetchers.fetch_fixed_vulnerabilities",
+            stub_fetch_fixed_vulnerabilities,
+        )
+
+        # Patch get_client to avoid a real Tenable connection
+        monkeypatch.setattr(
+            "tenable_client.get_client",
+            lambda: object(),
+        )
+
+        # Patch config.CACHE_DIR to a tmp dir so mkdir succeeds without touching the repo
+        import config as _config
+        monkeypatch.setattr(_config, "CACHE_DIR", tmp_path)
+
+        from scripts.backfill_trend_reconstruction import _load_dataframes
+
+        # Call without cache_dir → triggers live-fetch branch
+        open_df, fixed_df = _load_dataframes(cache_dir=None)
+
+        # Both fetchers must have been called with a Path (cache_dir was passed)
+        assert len(received["open"]) == 1, (
+            "fetch_all_vulnerabilities must be called exactly once"
+        )
+        assert isinstance(received["open"][0], _Path), (
+            "fetch_all_vulnerabilities must receive a Path as cache_dir"
+        )
+        assert len(received["fixed"]) == 1, (
+            "fetch_fixed_vulnerabilities must be called exactly once"
+        )
+        assert isinstance(received["fixed"][0], _Path), (
+            "fetch_fixed_vulnerabilities must receive a Path as cache_dir"
+        )

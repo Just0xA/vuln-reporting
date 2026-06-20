@@ -521,16 +521,21 @@ def _load_dataframes(cache_dir: Optional[str]) -> tuple[pd.DataFrame, pd.DataFra
     from data.fetchers import fetch_all_vulnerabilities, fetch_fixed_vulnerabilities  # noqa: E402
     import config  # noqa: E402
 
-    logger.info("Fetching open/reopened findings from Tenable API...")
+    # Mirror the cache-dir convention from run_all.py and warm_cache.py:
+    # CACHE_DIR / <local-date-string>
+    live_cache_dir = config.CACHE_DIR / datetime.now().strftime("%Y-%m-%d")
+    live_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info("Fetching open/reopened findings from Tenable API (cache: %s)...", live_cache_dir)
     tio = get_client()
-    current_open_df = fetch_all_vulnerabilities(tio)
+    current_open_df = fetch_all_vulnerabilities(tio, live_cache_dir)
     # Filter to open + reopened states only (drop fixed rows from the open export)
     if not current_open_df.empty and "state" in current_open_df.columns:
         state_upper = current_open_df["state"].astype(str).str.upper()
         current_open_df = current_open_df[state_upper.isin(["OPEN", "REOPENED"])].copy()
 
-    logger.info("Fetching fixed findings from Tenable API (bounded lookback)...")
-    fixed_df = fetch_fixed_vulnerabilities(tio)
+    logger.info("Fetching fixed findings from Tenable API (bounded lookback, cache: %s)...", live_cache_dir)
+    fixed_df = fetch_fixed_vulnerabilities(tio, live_cache_dir)
     return current_open_df, fixed_df
 
 
