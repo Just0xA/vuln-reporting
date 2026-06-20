@@ -25,7 +25,7 @@ The June-2026 management/exec trend-cut report batch built as thin four-channel 
 
 ### management_summary Migration (GEN)
 
-- [ ] **GEN-01**: `management_summary` is migrated from its bespoke render path onto the four-channel module contract (becoming chrome-aware via `_CHROME_AWARE_SLUGS`), composing the existing + new modules, with no regression to existing recipient-group delivery.
+- [x] **GEN-01**: `management_summary` is migrated from its bespoke render path onto the four-channel module contract (becoming chrome-aware via `_CHROME_AWARE_SLUGS`), composing the existing + new modules, with no regression to existing recipient-group delivery.
 
 ### Quality & Correctness Bars (QUAL)
 
@@ -104,7 +104,7 @@ Final phase assignments (roadmap created 2026-06-11).
 | QUAL-05 | Phase 15 (first verified; enforced Phases 16–18) | Complete |
 | RPT-05 | Phase 16 | Complete |
 | RPT-07 | Phase 17 | Complete |
-| GEN-01 | Phase 18 | Pending |
+| GEN-01 | Phase 18 | Complete |
 | QUAL-04 | Phase 18 | Complete |
 | DOC-02 | Phase 18 | Pending |
 
