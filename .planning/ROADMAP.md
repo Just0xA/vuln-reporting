@@ -208,7 +208,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 15. Independent New Modules | v1.4 | 6/6 | Complete    | 2026-06-11 |
 | 16. MTTR Rework | v1.4 | 7/7 | Complete    | 2026-06-12 |
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
-| 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete   | 2026-06-21 |
+| 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
 
 ## Backlog
 
