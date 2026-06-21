@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Management Summary Reporting Improvement
 status: executing
-stopped_at: Phase 18 context gathered
-last_updated: "2026-06-20T11:13:25.783Z"
-last_activity: 2026-06-20
+stopped_at: 18-04 complete — GEN-01 atomic cutover APPROVED; Plan 05 ready
+last_updated: "2026-06-21T14:33:26.211Z"
+last_activity: 2026-06-21
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 24
-  completed_plans: 22
+  completed_plans: 23
   percent: 80
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 18 (management-summary-migration-docs) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
-Last activity: 2026-06-20
+Last activity: 2026-06-21
 
 ```
 v1.4 progress: [..............] 0% (0/5 phases)
@@ -56,6 +56,7 @@ Phase 14 [ ] Phase 15 [ ] Phase 16 [ ] Phase 17 [ ] Phase 18 [ ]
 | Phase 18-management-summary-migration-docs P01 | 600 | 3 tasks | 10 files |
 | Phase 18-management-summary-migration-docs P02 | 2700 | 4 tasks | 4 files |
 | 18-management-summary-migration-docs | 03 | 2700 | 3 | 4 |
+| 18-management-summary-migration-docs | 04 | multi-session | 4 | 7 |
 
 ## Accumulated Context
 
@@ -78,6 +79,8 @@ Decisions logged in PROJECT.md "Key Decisions" table. Prior milestone decision l
 - [Phase 18-03]: D-18-03/change-7 LOCKED — reconstructed months (incl. current month) are immutable; capture_snapshot() skips any month already present with source='reconstructed'
 - [Phase 18-03]: Overlap gate outcome (weaker-confidence path, by design) — live_open=210267 == reconstructed_total=210267, abs_diff=0, rel_diff=0.0% PASS; no prior captured months existed so primary captured-month gate ran as live-today fallback; synthetic-integration primary gate verified via unit tests
 - [Phase 18-03]: 2026-06 pre-existing snapshot left intact (source=unknown; immutability respected regardless of source field)
+- [Phase 18-04]: GEN-01 COMPLETE — management_summary atomically migrated from ~2,200-line bespoke path to ReportComposer pipeline composing 7 modules; chrome-aware PDF; modular email; 12mo all-assets trend wired via read_trend(); bespoke path removed in single commit (QUAL-04, D-18-10 gate 4 GREEN); per-metric parity gate passes (5 exact-match zero drift, M5/M7 documented-difference confirmed by operator visual UAT APPROVED); legacy JSON archived to data/trend/legacy_archive/
+- [Phase 18-04]: Bucketed parity gate (USER-APPROVED) — comparison_policy per metric read from golden JSON; exact-match asserts zero drift; documented-difference metrics (M5 aged_vulns_assets, M7 new_vs_remediated) excluded from exact assert; M5 fixture gap (missing 'owner' column in synthetic fixture) is a known fixture limitation, not a production bug — real-data render confirmed correct by operator UAT
 
 ### v1.4 Plan-Time Open Decisions (lock per phase)
 
@@ -171,7 +174,7 @@ Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 whic
 
 ## Session Continuity
 
-Last session: 2026-06-20T11:13:25.775Z
+Last session: 2026-06-21T14:33:26.206Z
 Stopped at: Phase 18 context gathered
 Resume file: None
 Next command: `/gsd-execute-phase 16` (phase complete — ready for verification)
