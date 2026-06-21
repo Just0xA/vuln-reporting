@@ -88,19 +88,20 @@ QUAL-05 / D-04-08:
     RFC-6761 hostnames (.invalid / .example.*). No real hostnames, IPs,
     plugin names, or asset UUIDs in any committed artifact.
 
-Usage:
-    python scripts/capture_management_summary_parity_golden.py --rebuild-fixture --emit-golden
-    python scripts/capture_management_summary_parity_golden.py --emit-golden   # re-emit only
+RETIRED — SUPERSEDED BY THE MODULAR PIPELINE (Phase 18 Plan 04 cutover):
+    This was a ONE-TIME capture script.  The bespoke ``compute_all_metrics``
+    path it ran against was ATOMICALLY REMOVED at the Plan 04 cutover (proven
+    by ``test_bespoke_functions_removed`` in tests/test_management_summary.py),
+    so ``--emit-golden`` can no longer regenerate the golden.
 
-    Both flags must be passed on the FIRST run.  After that, --emit-golden
-    alone re-reads the committed fixture parquets and re-emits the golden
-    (deterministic — value-stable).
+    The golden it produced — ``tests/baselines/management_summary_value_golden.json``
+    — is now FROZEN and is consumed by ``test_value_golden_parity``.  Do not
+    attempt to regenerate it; the modular pipeline is the source of truth and
+    the frozen golden locks parity against the captured bespoke values.
 
-CRITICAL SEQUENCING:
-    This script MUST run while the bespoke compute path still exists.
-    The bespoke ``compute_all_metrics`` is ATOMICALLY REMOVED at the Plan 04
-    cutover — there is no second chance to capture the bespoke golden values
-    (RESEARCH Pitfall 6 / D-18-10 gate sequencing).
+    ``--emit-golden`` is intentionally guarded to exit with a clear message
+    rather than crashing with an ImportError on the deleted bespoke import.
+    ``--rebuild-fixture`` (synthetic fixture parquets) still works.
 """
 from __future__ import annotations
 
@@ -935,6 +936,20 @@ def main() -> int:
         rebuild_fixture()
 
     if args.emit_golden:
+        # The bespoke compute_all_metrics path was atomically removed at the
+        # Phase 18 Plan 04 cutover, so this one-time capture is RETIRED. Guard
+        # here so the operator gets a clear message instead of an ImportError.
+        import reports.management_summary as _ms  # noqa: PLC0415
+        if not hasattr(_ms, "compute_all_metrics"):
+            print(
+                "[capture] RETIRED: the bespoke compute_all_metrics path was "
+                "removed at the Phase 18 Plan 04 cutover. This one-time golden "
+                "capture script is retired; the golden "
+                "(tests/baselines/management_summary_value_golden.json) is frozen "
+                "and the modular pipeline is now the source of truth. Nothing to emit."
+            )
+            return 1
+
         print("[capture] Loading fixture set ...")
         vulns_df, assets_df, fixed_df, trend_d = load_fixture()
         print(f"[capture] vulns_df: {len(vulns_df)} rows, assets_df: {len(assets_df)} rows, "
