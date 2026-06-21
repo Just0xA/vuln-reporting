@@ -246,14 +246,27 @@ def run_report(
     if tag_category and tag_value:
         tag_filter_label = f"{tag_category}_{tag_value}"
 
-        # Filter assets by tag using set membership on asset UUIDs
+        # Filter assets by tag using set membership on asset UUIDs.
+        # Resolve the tag server-side against the live Tenable export — the
+        # authoritative scoping rule used everywhere else in the suite — by
+        # passing the real client (CR-01).
         from utils.tag_helper import get_assets_by_tag  # noqa: PLC0415
         try:
             filtered_asset_uuids = set(
-                get_assets_by_tag(None, tag_category, tag_value)
+                get_assets_by_tag(tio, tag_category, tag_value)
             )
         except Exception:
-            # Fallback: filter from in-memory tags_str column
+            # Fallback: filter from the in-memory tags_str column. This is a
+            # weaker (substring) match and must never fail silently — log the
+            # primary-path failure so an operator can see the scope diverged
+            # (CLAUDE.md: no silent failures).
+            logger.warning(
+                "management_summary: server-side tag scoping via get_assets_by_tag "
+                "failed for '%s=%s'; falling back to in-memory tags_str substring "
+                "match (scope may differ from the rest of the suite).",
+                tag_category, tag_value,
+                exc_info=True,
+            )
             mask = assets_df["tags_str"].str.contains(
                 f"{tag_category}: {tag_value}", na=False
             )

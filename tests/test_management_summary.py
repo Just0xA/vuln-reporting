@@ -746,3 +746,129 @@ def test_read_trend_ignores_legacy_archive_integration(tmp_path: Path) -> None:
     assert months_returned == {"2026-04", "2026-05"}, (
         f"Unexpected snapshot months: {months_returned}"
     )
+
+
+# ===========================================================================
+# Test 8: Tag-scoped run passes the real tio to get_assets_by_tag (CR-01)
+# ===========================================================================
+
+class _StubTio:
+    """Sentinel Tenable client — its identity is what the test checks."""
+
+
+def _run_report_tag_scoped(
+    monkeypatch,
+    tmp_path: Path,
+    *,
+    get_assets_by_tag_impl,
+) -> tuple[dict, list]:
+    """
+    Drive the real run_report() through the tag-scoped branch with stubbed
+    fetchers (no live Tenable) and a monkeypatched get_assets_by_tag.
+
+    Returns (run_report_result, captured_tio_args) where captured_tio_args is
+    the list of first positional args get_assets_by_tag received.
+    """
+    import reports.management_summary as ms
+    import utils.tag_helper as tag_helper
+
+    vulns_df, assets_df, fixed_vulns_df, _ = _load_fixtures()
+    # tags_str column is required by the fallback branch; the fixtures don't
+    # carry it, so add a synthetic one (QUAL-05 — no real tag data).
+    assets_df = assets_df.assign(tags_str="Environment: Production")
+
+    monkeypatch.setattr(ms, "fetch_all_vulnerabilities", lambda tio, cache_dir: vulns_df)
+    monkeypatch.setattr(ms, "fetch_all_assets", lambda tio, cache_dir: assets_df)
+    monkeypatch.setattr(ms, "fetch_fixed_vulnerabilities", lambda tio, cache_dir: fixed_vulns_df)
+    # Keep the test off the trend store / file writes.
+    monkeypatch.setattr(ms, "read_trend", lambda *a, **k: {"snapshots": [], "insufficient_data": True})
+    monkeypatch.setattr(ms, "capture_snapshot", lambda *a, **k: None)
+
+    captured: list = []
+
+    def _spy(tio, tag_category, tag_value, *a, **k):
+        captured.append(tio)
+        return get_assets_by_tag_impl(tio, tag_category, tag_value)
+
+    # get_assets_by_tag is imported locally inside run_report — patch the source.
+    monkeypatch.setattr(tag_helper, "get_assets_by_tag", _spy)
+
+    stub_tio = _StubTio()
+    result = ms.run_report(
+        stub_tio,
+        "test-run",
+        tag_category="Environment",
+        tag_value="Production",
+        output_dir=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        generated_at=_REPORT_DATE,
+        analyst_detail=False,
+    )
+    return result, captured
+
+
+def test_tag_scoped_passes_real_tio_no_silent_fallback(monkeypatch, tmp_path, caplog):
+    """
+    CR-01: the tag-scoped primary path must call get_assets_by_tag with the
+    REAL tio (not None) and must NOT silently fall back when it succeeds.
+
+    Regression guard for the hardcoded ``get_assets_by_tag(None, ...)`` bug
+    that made the primary path unreachable dead code.
+    """
+    import logging
+
+    def _ok_impl(tio, tag_category, tag_value):
+        # Server-side resolution succeeds — return one asset_uuid from the fixture.
+        return ["uuid-crit-000"]
+
+    with caplog.at_level(logging.WARNING, logger="reports.management_summary"):
+        result, captured = _run_report_tag_scoped(
+            monkeypatch, tmp_path, get_assets_by_tag_impl=_ok_impl
+        )
+
+    # The primary path ran with the real tio (not None).
+    assert captured, "get_assets_by_tag was never called — primary path skipped"
+    assert all(tio is not None for tio in captured), (
+        "get_assets_by_tag was called with tio=None — CR-01 regression "
+        "(hardcoded None makes the primary path throw every time)"
+    )
+    assert all(isinstance(tio, _StubTio) for tio in captured), (
+        "get_assets_by_tag did not receive the run_report tio client"
+    )
+
+    # On success there must be NO fallback warning.
+    fallback_warnings = [
+        r for r in caplog.records
+        if "falling back to in-memory tags_str" in r.getMessage()
+    ]
+    assert not fallback_warnings, (
+        "Primary tag-scoping succeeded but the in-memory fallback warning was "
+        "logged — the primary path was not actually used."
+    )
+
+    assert result.get("email_body_html", "") != "" or "metrics" in result
+
+
+def test_tag_scoped_fallback_logs_warning(monkeypatch, tmp_path, caplog):
+    """
+    CR-01: when server-side tag scoping genuinely fails, the in-memory
+    fallback must log a WARNING (no silent failures — CLAUDE.md).
+    """
+    import logging
+
+    def _failing_impl(tio, tag_category, tag_value):
+        raise RuntimeError("simulated server-side tag resolution failure")
+
+    with caplog.at_level(logging.WARNING, logger="reports.management_summary"):
+        _run_report_tag_scoped(
+            monkeypatch, tmp_path, get_assets_by_tag_impl=_failing_impl
+        )
+
+    fallback_warnings = [
+        r for r in caplog.records
+        if "falling back to in-memory tags_str" in r.getMessage()
+    ]
+    assert fallback_warnings, (
+        "Server-side tag scoping failed but no fallback WARNING was logged — "
+        "the broad except must not swallow the failure silently."
+    )
