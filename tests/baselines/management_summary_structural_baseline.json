@@ -1,27 +1,33 @@
 {
-  "analyst_excel_present": false,
+  "analyst_excel_present": true,
   "bundle_keys_present": [
-    "analyst_excel",
-    "charts",
+    "analyst_workbook_path",
     "email_body_html",
-    "excel",
+    "email_inline_images",
+    "email_kpis",
+    "errors",
+    "excel_workbook",
     "metrics",
-    "pdf"
+    "pdf_html"
   ],
-  "email_panel_count": 0,
-  "excel_tab_names_sorted": [],
+  "email_panel_count": 2,
+  "excel_tab_names_sorted": [
+    "Accepted & Recast",
+    "Aged Vuln Assets",
+    "MTTR Trend",
+    "New vs Remediated",
+    "Patch Compliance",
+    "Scan Coverage Summary",
+    "Vuln Summary",
+    "_Metadata"
+  ],
   "metric_ids_present": [
-    "accepted_recast",
     "aged_vulns_assets",
-    "mttr_by_severity",
-    "new_vs_remediated",
-    "patch_compliance_rate",
-    "scan_coverage_sla",
-    "total_vulns_by_severity"
+    "scan_coverage_sla"
   ],
-  "pdf_page_count": -1,
-  "pdf_rag_cell_count": 0,
-  "pdf_section_count": 7,
+  "pdf_page_count": 9,
+  "pdf_rag_cell_count": 7,
+  "pdf_section_count": 8,
   "schema_version": 1,
-  "source_path": "bespoke"
+  "source_path": "_bundle"
 }

@@ -164,14 +164,10 @@ def _dispatch_management_summary(cache_dir: Path) -> dict:
     D-04-06; management_summary.run_report reads the parquet via
     data.fetchers, which honors cache-hits without touching tio.
 
-    Returns the full bespoke run_report() result dict.  The structural
-    snapshot adapter (extract_structural_snapshot) accepts this dict
-    directly (source_path="bespoke").
-
-    Post-cutover (Plan 04): this function switches to extracting
-    ``result["_bundle"]`` and passing it through the SAME adapter.
-    The adapter's source_path will then be "_bundle" and the baseline
-    must be re-initialized via --rebaseline after the cutover commit.
+    Plan 04 (post-cutover): returns result["_bundle"] — the ReportComposer
+    bundle — so the shared adapter (extract_structural_snapshot) receives the
+    composer dict (source_path="_bundle").  The baseline was re-initialized
+    via --rebaseline after the cutover commit (review change #5, D-04-05).
     """
     ms = importlib.import_module("reports.management_summary")
     result = ms.run_report(
@@ -181,7 +177,9 @@ def _dispatch_management_summary(cache_dir: Path) -> dict:
         tag_value=None,
         cache_dir=cache_dir,
     )
-    return result
+    # Plan 04 cutover: extract the composer bundle and pass it through
+    # the SAME shared adapter so keys are identical to the bespoke baseline.
+    return result["_bundle"]
 
 
 # ---------------------------------------------------------------------------
@@ -229,8 +227,10 @@ def main() -> int:
         print(traceback.format_exc(), file=sys.stderr)
         return 3
 
-    # Extract structural snapshot via the SHARED adapter
-    # (Plan 04 calls the SAME adapter on result["_bundle"] instead)
+    # Extract structural snapshot via the SHARED adapter.
+    # Plan 04 (post-cutover): _dispatch_management_summary now returns
+    # result["_bundle"] (the composer bundle) so source_path="_bundle"
+    # and the same adapter keys are used for an apples-to-apples diff.
     snapshot = extract_structural_snapshot(result)
 
     # First-run: write baseline and exit 0
