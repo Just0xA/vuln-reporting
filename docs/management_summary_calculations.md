@@ -1215,7 +1215,7 @@ delivery group in `delivery_config.yaml` is tag-scoped on `management_summary`
 For each month M to reconstruct, the script builds a combined DataFrame:
 
 ```
-boundary    = month_end_utc(M)   # first instant of month M+1 in UTC
+boundary    = month_end_utc(M)   # last instant of month M in UTC (YYYY-MM-DD 23:59:59 UTC, inclusive)
 
 # current-open rows: open/reopened findings at script run time
 # fixed-after-boundary rows: fixed findings where last_fixed > boundary
@@ -1228,8 +1228,11 @@ open_at_boundary = open_findings_at(combined, boundary)
 counts = open_at_boundary.groupby("severity").size()
 ```
 
-`month_end_utc(M)` returns the last instant of month M in UTC (midnight of the
-first day of M+1).
+`month_end_utc(M)` returns the last instant of month M in UTC: `YYYY-MM-DD
+23:59:59 UTC` on the last calendar day of M (inclusive upper bound). A finding
+with `last_fixed == month_end_utc(M)` is counted as fixed at M (not open-at-M);
+a finding fixed at `00:00:00 UTC` on the first day of M+1 is after the boundary
+and counts as open-at-M.
 
 **Provenance markers on reconstructed snapshots:**
 
