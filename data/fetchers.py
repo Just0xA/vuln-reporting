@@ -420,7 +420,8 @@ def fetch_fixed_vulnerabilities(
         ``config.FIXED_LOOKBACK_DAYS`` (365).  Pass a smaller value to
         narrow the window for testing or bandwidth-limited runs.
         The resulting cutoff is ``now - lookback_days`` expressed as a
-        Unix epoch integer (the proven Tenable filter shape).
+        Unix epoch integer (the bare-integer Tenable filter shape; the
+        date-range dict shape is rejected by the API).
 
     Returns
     -------
@@ -434,7 +435,10 @@ def fetch_fixed_vulnerabilities(
         return cached
 
     # D-18-05: compute bounded lookback cutoff as a Unix epoch integer.
-    # Filter shape proven by Task 0 live probe: last_fixed=<int epoch seconds>.
+    # Filter shape: last_fixed=<int epoch seconds>. The date-range dict shape
+    # ({"date": ..., "modifier": "date-range"}) was rejected by the API, which
+    # is why a bare integer epoch is required; the integer shape was validated
+    # by the successful 12-month trend reconstruction seed.
     # A smaller epoch value = earlier cutoff = wider window (more rows returned).
     _cutoff_epoch: int = int(
         (datetime.now(tz=timezone.utc) - timedelta(days=lookback_days)).timestamp()
@@ -449,7 +453,7 @@ def fetch_fixed_vulnerabilities(
     export_filters: dict = {
         "state":      ["fixed"],
         "severity":   ["critical", "high", "medium", "low"],
-        "last_fixed": _cutoff_epoch,   # D-18-05: bounded lookback (proven int-epoch shape)
+        "last_fixed": _cutoff_epoch,   # D-18-05: bounded lookback (bare int-epoch shape)
     }
     rows: list[dict] = []
 

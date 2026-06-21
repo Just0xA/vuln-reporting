@@ -3,12 +3,18 @@ scripts/probe_last_fixed_filter.py — Live-API spike probe for last_fixed filte
 
 PURPOSE
 -------
-Proves the assumed Tenable export filter shape for ``last_fixed`` (assumption A2)
-is actually accepted by the live API AND filters in the CORRECT direction, BEFORE
-the production fetch rework (Plan 18-02 Task 3) builds Python logic on it.
+Proves the production Tenable export filter shape for ``last_fixed`` is actually
+accepted by the live API AND filters in the CORRECT direction.
+
+The SHIPPED ``fetch_fixed_vulnerabilities`` (data/fetchers.py) uses a BARE INTEGER
+Unix-epoch value: ``{"last_fixed": <int epoch seconds>}``.  The earlier date-range
+dict shape (``{"date": "YYYY-MM-DD", "modifier": "date-range"}``) was REJECTED by
+the API, which is why production uses the integer-epoch shape.  This probe therefore
+exercises the integer-epoch shape so the committed artifact matches what production
+actually sends.
 
 Tenable export schemas are finicky and docs can lag strict API validation, so this
-de-risks A2 against the live tenant rather than the ref doc alone.
+de-risks the filter shape against the live tenant rather than the ref doc alone.
 
 THREE THINGS THIS PROBE VERIFIES
 ---------------------------------
@@ -65,12 +71,11 @@ logger = logging.getLogger(__name__)
 # Probe configuration
 # ---------------------------------------------------------------------------
 
-# Assumed filter shape (A2) — key path inside export_filters:
-#   {"last_fixed": {"date": "YYYY-MM-DD", "modifier": "date-range"}}
-# The modifier "date-range" instructs Tenable to return findings whose
-# last_fixed date is >= the supplied date.
-_FILTER_KEY      = "last_fixed"
-_FILTER_MODIFIER = "date-range"
+# Production filter shape — key path inside export_filters:
+#   {"last_fixed": <int Unix epoch seconds>}
+# Tenable returns findings whose last_fixed is >= the supplied epoch.
+# A SMALLER epoch (earlier cutoff) = WIDER window = MORE rows returned.
+_FILTER_KEY = "last_fixed"
 
 # Narrow window: ~7 days ago.  Should return FEWER fixed findings than the wide window.
 _NARROW_DAYS = 7
@@ -90,24 +95,25 @@ _SAMPLE_SIZE = 20
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _cutoff_str(days_ago: int) -> str:
-    """Return a YYYY-MM-DD cutoff date string N days before today (UTC)."""
+def _cutoff_epoch(days_ago: int) -> int:
+    """Return a Unix-epoch-seconds cutoff N days before now (UTC)."""
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days_ago)
-    return cutoff.strftime("%Y-%m-%d")
+    return int(cutoff.timestamp())
 
 
-def _build_export_filters(cutoff_date: str) -> dict:
+def _build_export_filters(cutoff_epoch: int) -> dict:
     """
-    Build the export_filters dict for tio.exports.vulns() using the assumed A2 shape.
+    Build the export_filters dict for tio.exports.vulns() using the SHIPPED shape.
 
-    The assumed shape is:
-        {"last_fixed": {"date": "YYYY-MM-DD", "modifier": "date-range"}}
+    The production shape (data/fetchers.fetch_fixed_vulnerabilities) is a bare
+    integer Unix-epoch value:
+        {"last_fixed": <int epoch seconds>}
     passed alongside the existing state and severity filters.
     """
     return {
         "state":       ["fixed"],
         "severity":    ["critical", "high", "medium", "low"],
-        _FILTER_KEY:   {"date": cutoff_date, "modifier": _FILTER_MODIFIER},
+        _FILTER_KEY:   cutoff_epoch,
     }
 
 
@@ -131,12 +137,14 @@ def _stream_count(tio, export_filters: dict, cap: int | None) -> tuple[int, list
     return count, samples
 
 
-def _check_field_values(samples: list[dict], cutoff_date: str) -> tuple[bool, list[str]]:
+def _check_field_values(samples: list[dict], cutoff_epoch: int) -> tuple[bool, list[str]]:
     """
-    Verify that sampled rows have last_fixed >= cutoff_date.
+    Verify that sampled rows have last_fixed >= cutoff_epoch.
 
     Returns (all_ok, violations) where violations is a list of last_fixed
-    values that were earlier than the cutoff.
+    values that were earlier than the cutoff.  ``last_fixed`` arrives as an
+    ISO-8601 string on export rows; it is parsed to epoch seconds for the
+    comparison against the integer-epoch cutoff.
     """
     violations: list[str] = []
 
@@ -146,9 +154,16 @@ def _check_field_values(samples: list[dict], cutoff_date: str) -> tuple[bool, li
             # Missing last_fixed on a fixed finding is unexpected but not a
             # filter-shape failure — skip.
             continue
-        # Compare as strings: ISO 8601 dates sort lexicographically.
-        if lf[:10] < cutoff_date:
-            violations.append(lf[:10])
+        try:
+            lf_epoch = int(
+                datetime.fromisoformat(str(lf).replace("Z", "+00:00")).timestamp()
+            )
+        except ValueError:
+            # Unparseable timestamp — record raw value as a violation.
+            violations.append(str(lf))
+            continue
+        if lf_epoch < cutoff_epoch:
+            violations.append(str(lf)[:10])
 
     all_ok = len(violations) == 0
     return all_ok, violations
@@ -179,16 +194,16 @@ def run_probe() -> None:
     print()
 
     # ------------------------------------------------------------------
-    # Cutoff dates
+    # Cutoff epochs (integer Unix seconds — the shipped filter shape)
     # ------------------------------------------------------------------
-    narrow_cutoff = _cutoff_str(_NARROW_DAYS)
-    wide_cutoff   = _cutoff_str(_WIDE_DAYS)
+    narrow_cutoff = _cutoff_epoch(_NARROW_DAYS)
+    wide_cutoff   = _cutoff_epoch(_WIDE_DAYS)
 
-    print(f"Narrow cutoff ({_NARROW_DAYS}d ago):  {narrow_cutoff}")
-    print(f"Wide   cutoff ({_WIDE_DAYS}d ago): {wide_cutoff}")
+    print(f"Narrow cutoff ({_NARROW_DAYS}d ago):  {narrow_cutoff} (epoch)")
+    print(f"Wide   cutoff ({_WIDE_DAYS}d ago): {wide_cutoff} (epoch)")
     print(f"Row cap per pull:         {_ROW_CAP} (stops early — direction only)")
     print(f"Filter key:               {_FILTER_KEY!r}")
-    print(f"Filter modifier:          {_FILTER_MODIFIER!r}")
+    print(f"Filter shape:             bare integer Unix epoch (production shape)")
     print()
 
     # ------------------------------------------------------------------
@@ -238,11 +253,11 @@ def run_probe() -> None:
         print(f"  VIOLATIONS (last_fixed < cutoff): {violations[:10]}")
         print()
         print("RESULT (b) FILTERS CORRECTLY:  FAIL — some rows violate the cutoff.")
-        print("  -> The filter may be a no-op.  Investigate the modifier value.")
+        print("  -> The filter may be a no-op.  Investigate the epoch cutoff value.")
     else:
         print()
         print("RESULT (a) ACCEPTED:           PASS")
-        print(f"  Accepted filter shape: {_FILTER_KEY!r}: {{\"date\": \"YYYY-MM-DD\", \"modifier\": {_FILTER_MODIFIER!r}}}")
+        print(f"  Accepted filter shape: {_FILTER_KEY!r}: <int epoch seconds>")
         print()
         if len(narrow_samples) > 0:
             print("RESULT (b) FILTERS CORRECTLY:  PASS — all sampled rows satisfy last_fixed >= cutoff.")
@@ -301,20 +316,19 @@ def run_probe() -> None:
     print("=" * 70)
     if narrow_accepted and fields_ok and direction_pass is True:
         print()
-        print("  A2 CONFIRMED. Use this filter shape in fetch_fixed_vulnerabilities:")
+        print("  CONFIRMED. This integer-epoch filter shape is what")
+        print("  fetch_fixed_vulnerabilities ships:")
         print()
-        print(f'    export_filters["{_FILTER_KEY}"] = {{')
-        print(f'        "date": lookback_date,     # computed: now - FIXED_LOOKBACK_DAYS')
-        print(f'        "modifier": "{_FILTER_MODIFIER}",')
-        print(f'    }}')
+        print(f'    # lookback_epoch = int((now - FIXED_LOOKBACK_DAYS).timestamp())')
+        print(f'    export_filters["{_FILTER_KEY}"] = lookback_epoch   # bare int')
         print()
-        print("  A wider last_fixed lookback returns MORE rows (correct direction).")
-        print("  Bound lookback to config.FIXED_LOOKBACK_DAYS (default 365) to")
-        print("  avoid the 1.29M-row unbounded pull (D-18-05 cache-bloat risk).")
+        print("  A wider last_fixed lookback (smaller epoch) returns MORE rows")
+        print("  (correct direction).  Bound lookback to config.FIXED_LOOKBACK_DAYS")
+        print("  (default 365) to avoid the 1.29M-row unbounded pull (D-18-05).")
     elif not narrow_accepted:
         print()
-        print("  A2 REJECTED. See the error detail above for the corrected shape.")
-        print("  Task 3 must use the corrected shape from the API error response.")
+        print("  REJECTED. See the error detail above for the corrected shape.")
+        print("  fetch_fixed_vulnerabilities must use the shape from the API error.")
     else:
         print()
         print("  Results are mixed or inconclusive — review individual PASS/FAIL lines.")
