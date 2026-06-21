@@ -37,7 +37,7 @@ The June-2026 management/exec trend-cut report batch built as thin four-channel 
 
 ### Documentation (DOC)
 
-- [ ] **DOC-02**: Auditor-facing calculation runbooks document each new v1.4 module (metric definition, data source, edge-case handling, disclosed MTTR window, external-scope rule).
+- [x] **DOC-02**: Auditor-facing calculation runbooks document each new v1.4 module (metric definition, data source, edge-case handling, disclosed MTTR window, external-scope rule).
 
 ## Future Requirements (deferred)
 
@@ -106,7 +106,7 @@ Final phase assignments (roadmap created 2026-06-11).
 | RPT-07 | Phase 17 | Complete |
 | GEN-01 | Phase 18 | Complete |
 | QUAL-04 | Phase 18 | Complete |
-| DOC-02 | Phase 18 | Pending |
+| DOC-02 | Phase 18 | Complete |
 
 **Coverage:**
 - v1.4 requirements: 17 total
