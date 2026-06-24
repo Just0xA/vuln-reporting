@@ -291,6 +291,60 @@ def overdue_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ===========================================================================
+# Aggregate rate helpers
+# ===========================================================================
+
+def compute_sla_rate_crit_high(
+    open_df: pd.DataFrame,
+    report_date: datetime,
+    sla_days: dict,
+) -> Optional[float]:
+    """
+    Return the percentage of open Critical+High findings that are within SLA.
+
+    NaT ``first_found`` rows are excluded from BOTH numerator and denominator
+    so they cannot bias the published rate downward (D-05 / 17-REVIEW WR-01).
+
+    Parameters
+    ----------
+    open_df : pd.DataFrame
+        Reopened-aware open findings (output of ``open_findings_at()``).
+        Must contain ``severity`` and ``first_found`` columns.
+    report_date : datetime
+        Reference date for age calculation (UTC or tz-naive treated as UTC).
+    sla_days : dict
+        Mapping of lowercase severity → SLA days, e.g. ``config.SLA_DAYS``.
+        Callers must pass this explicitly; day counts are never hardcoded here.
+
+    Returns
+    -------
+    float or None
+        Percentage 0–100 rounded to 1 decimal place.
+        Returns None when there are no SLA-classifiable Critical+High rows
+        (empty frame, all-NaT first_found, or no Crit+High rows at all).
+    """
+    ch_df = open_df[open_df["severity"].str.lower().isin({"critical", "high"})]
+    if ch_df.empty:
+        return None
+
+    snap_ts = (
+        pd.Timestamp(report_date).tz_convert("UTC")
+        if getattr(report_date, "tzinfo", None) is not None
+        else pd.Timestamp(report_date, tz="UTC")
+    )
+    ff_ts = pd.to_datetime(ch_df["first_found"], utc=True, errors="coerce")
+    valid_mask = ff_ts.notna()          # exclude NaT rows from denominator
+    ch_valid = ch_df[valid_mask]
+    if ch_valid.empty:
+        return None
+
+    days_open = (snap_ts - ff_ts[valid_mask]).dt.days.clip(lower=0)
+    sla_days_col = ch_valid["severity"].str.lower().map(sla_days)
+    within = days_open.notna() & sla_days_col.notna() & (days_open <= sla_days_col)
+    return round(float(within.sum()) / len(ch_valid) * 100, 1)
+
+
+# ===========================================================================
 # Utility
 # ===========================================================================
 
