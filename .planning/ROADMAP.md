@@ -185,6 +185,24 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 - [x] 18-04-PLAN.md — Atomic migration cutover: ReportComposer + 7 modules + chrome-aware + trend wiring + bespoke removal + legacy archive (GEN-01/QUAL-04, gate 4)
 - [x] 18-05-PLAN.md — DOC-02 auditor runbooks for the seven modules + reconstruction/MTTR/external-scope disclosures (DOC-02, gate 5)
 
+### Phase 19: v1.4 Closure: INT-WARN-1/2/3 fixes, Phase 17 human verification, Phase 16 UAT, CodeRabbit findings
+
+**Goal:** Close out the v1.4 milestone (off `tech_debt`): fix INT-WARN-1/2/3, all deferred 18/17/15-REVIEW findings, and the 39 net-new CodeRabbit findings; then run the Phase 16 UAT + Phase 17 human verifications against the fixed build and refresh the milestone audit.
+**Requirements**: none (closure/tech-debt phase — no REQ-IDs; covers CONTEXT decisions D-01..D-07 + enumerated finding IDs)
+**Depends on:** Phase 18
+**Plans:** 9 plans
+
+Plans:
+- [ ] 19-01-PLAN.md — Security / fail-closed (CR-C1/S1/S2/S3/S4) + commit untracked .claude/hooks/
+- [ ] 19-02-PLAN.md — D-05 shared SLA-rate helper (3 sites) + 17-REVIEW WR-01..05
+- [ ] 19-03-PLAN.md — INT-WARN-1/2/3 + CR-F3 + CR-T5 (management_summary path)
+- [ ] 19-04-PLAN.md — Trend/backfill correctness CR-B1..B7 + WR-06/07 + CR-T3/T4
+- [ ] 19-05-PLAN.md — Fail-soft/render + copy CR-F1/F2/F4 + CR-D1/D2
+- [ ] 19-06-PLAN.md — Test rigor CR-T1/T2/T6/T7 + CR-B5 cache key + CR-U1/U2 deploy
+- [ ] 19-07-PLAN.md — Cleanup wave: WR-08/IN-01..05 + 15-REVIEW IN-01..04 + CR-G doc/comment
+- [ ] 19-08-PLAN.md — Human verification (autonomous:false): Phase 16 UAT 1,2,3,5 + Phase 17 checks 1,2,3
+- [ ] 19-09-PLAN.md — Closeout: flip 16-UAT/17-VERIFICATION + refresh milestone audit off tech_debt + CR-G6/G7
+
 ---
 
 ## Progress
@@ -209,6 +227,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 | 16. MTTR Rework | v1.4 | 7/7 | Complete    | 2026-06-12 |
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
 | 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
+| 19. v1.4 Closure | v1.4 | 0/9 | Planned    | — |
 
 ## Backlog
 
