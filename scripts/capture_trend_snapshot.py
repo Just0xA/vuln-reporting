@@ -389,28 +389,17 @@ def main(argv: list[str] | None = None) -> int:
     # Fail-soft: a computation failure sets the field None and must not abort the snapshot (T-17-02).
     sla_rate_crit_high: Optional[float] = None
     try:
-        import pandas as pd  # noqa: PLC0415 — imported inside the block for clarity
         from config import SLA_DAYS  # noqa: PLC0415
         from utils.open_count import open_findings_at  # noqa: PLC0415
+        from utils.sla_calculator import compute_sla_rate_crit_high  # noqa: PLC0415
 
         open_df = open_findings_at(df, snapshot_date)
-        ch_df = open_df[open_df["severity"].str.lower().isin({"critical", "high"})]
-
-        if not ch_df.empty:
-            # T-17-03: wrap snapshot_date as tz-aware Timestamp (Pitfall 7 — match MTTR block)
-            snap_ts = pd.Timestamp(snapshot_date, tz="UTC")
-            ff_ts = pd.to_datetime(ch_df["first_found"], utc=True, errors="coerce")
-            # CoW-safe: assign to a local variable, never ch_df["days_open"] = ... (Pitfall 3)
-            days_open = (snap_ts - ff_ts).dt.days.clip(lower=0)
-            sla_days_col = ch_df["severity"].str.lower().map(SLA_DAYS)
-            within = days_open.notna() & sla_days_col.notna() & (days_open <= sla_days_col)
-            # A3: result is a float percentage 0–100, NOT a fraction
-            sla_rate_crit_high = round(float(within.sum()) / len(ch_df) * 100, 1)
+        # D-05 / WR-01: shared helper excludes NaT first_found from both numerator and denominator
+        sla_rate_crit_high = compute_sla_rate_crit_high(open_df, snapshot_date, SLA_DAYS)
 
         logger.info(
-            "SLA-posture aggregate — sla_rate_crit_high=%s (crit_high_open=%d)",
+            "SLA-posture aggregate — sla_rate_crit_high=%s",
             f"{sla_rate_crit_high:.1f}" if sla_rate_crit_high is not None else "None",
-            len(ch_df) if "ch_df" in dir() else 0,
         )
     except Exception as exc:  # noqa: BLE001
         # Fail-soft: SLA-posture aggregate failure must not abort the severity snapshot (T-17-02)

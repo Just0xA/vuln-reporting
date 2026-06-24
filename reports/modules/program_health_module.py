@@ -74,6 +74,7 @@ from openpyxl.utils import get_column_letter
 
 from config import SLA_DAYS
 from reports.modules.base import BaseModule, ModuleConfig, ModuleData
+from utils.sla_calculator import compute_sla_rate_crit_high
 from reports.modules.board_report_utils import extract_owner
 from reports.modules.format_utils import safe_format, safe_int, safe_pct
 from reports.modules.rag_utils import (
@@ -252,25 +253,9 @@ class ProgramHealthModule(BaseModule):
                         (open_df["severity"].str.lower() == "critical").sum()
                     )
                     # SLA posture: Crit+High within SLA
-                    ch_df = open_df[
-                        open_df["severity"].str.lower().isin(["critical", "high"])
-                    ]
-                    if not ch_df.empty and "first_found" in ch_df.columns:
-                        # Coerce report_date to UTC-aware Timestamp (handles tz-naive + tz-aware)
-                        snap_ts = (
-                            pd.Timestamp(report_date).tz_convert("UTC")
-                            if getattr(report_date, "tzinfo", None) is not None
-                            else pd.Timestamp(report_date, tz="UTC")
-                        )
-                        days_open = (
-                            snap_ts - pd.to_datetime(ch_df["first_found"], utc=True, errors="coerce")
-                        ).dt.days
-                        # Vectorized within-SLA test using config.SLA_DAYS
-                        sla_map = ch_df["severity"].str.lower().map(SLA_DAYS)
-                        within = days_open <= sla_map
-                        curr_sla_rate = round(
-                            float(within.sum()) / len(ch_df) * 100, 1
-                        )
+                    # D-05 / WR-01: shared helper excludes NaT first_found from both sides
+                    if "first_found" in open_df.columns:
+                        curr_sla_rate = compute_sla_rate_crit_high(open_df, report_date, SLA_DAYS)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "%s cold-start current-value computation failed: %s",
@@ -518,23 +503,8 @@ class ProgramHealthModule(BaseModule):
             try:
                 open_df_live = open_findings_at(vulns_df, report_date)
                 if not open_df_live.empty and "severity" in open_df_live.columns:
-                    ch_live = open_df_live[
-                        open_df_live["severity"].str.lower().isin(["critical", "high"])
-                    ]
-                    if not ch_live.empty and "first_found" in ch_live.columns:
-                        snap_ts = (
-                            pd.Timestamp(report_date).tz_convert("UTC")
-                            if getattr(report_date, "tzinfo", None) is not None
-                            else pd.Timestamp(report_date, tz="UTC")
-                        )
-                        days_open_live = (
-                            snap_ts - pd.to_datetime(ch_live["first_found"], utc=True, errors="coerce")
-                        ).dt.days
-                        sla_map_live = ch_live["severity"].str.lower().map(SLA_DAYS)
-                        within_live = days_open_live <= sla_map_live
-                        curr_sla_tile = round(
-                            float(within_live.sum()) / len(ch_live) * 100, 1
-                        )
+                    # D-05 / WR-01: shared helper excludes NaT first_found from both sides
+                    curr_sla_tile = compute_sla_rate_crit_high(open_df_live, report_date, SLA_DAYS)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "%s SLA tile computation failed: %s", self._log_prefix(), exc
