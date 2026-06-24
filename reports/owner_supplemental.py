@@ -244,6 +244,17 @@ def write_owner_supplemental(
         Both paths point to files inside ``output_dir``.
     """
     output_dir = Path(output_dir)
+    # CR-S4: fail-fast guard — refuse an output_dir that resolves inside
+    # data/trend/ to prevent PII row-level data from landing in the no-PII
+    # trend store (project_pii_rule_is_ai_not_email policy).
+    _resolved = output_dir.resolve()
+    _trend_resolved = (Path(__file__).resolve().parent.parent / "data" / "trend").resolve()
+    if _resolved == _trend_resolved or _trend_resolved in _resolved.parents:
+        raise ValueError(
+            f"owner_supplemental: output_dir {str(output_dir)!r} resolves inside "
+            "data/trend/ — PII output-path policy violation "
+            "(project_pii_rule_is_ai_not_email)."
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     df = _build_owner_app_df(assets_df, vulns_df, report_date=report_date)

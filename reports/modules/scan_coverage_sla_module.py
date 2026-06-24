@@ -551,9 +551,13 @@ class ScanCoverageSLAModule(BaseModule):
         Returns an error callout div if ``data.error`` is set.
         """
         if data.error:
+            # CR-S3: html-escape both the module display name and the error
+            # string before interpolating into email HTML (T-03-02-01 pattern).
+            _name_esc  = html.escape(str(self.DISPLAY_NAME), quote=True)
+            _error_esc = html.escape(str(data.error), quote=True)
             return (
                 f'<div class="error-box">'
-                f"<strong>{self.DISPLAY_NAME}</strong>: {data.error}"
+                f"<strong>{_name_esc}</strong>: {_error_esc}"
                 f"</div>"
             )
 

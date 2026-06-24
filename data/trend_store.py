@@ -454,7 +454,10 @@ def capture_snapshot(
     }
 
     # Build substrate file path — trend_ prefix distinguishes from management_summary_*.json
-    tag_suffix = tag_filter  # Phase 12 passes "all_assets" directly; Phase 13 sanitises upstream
+    # CR-S2: sanitize the filesystem suffix so a tag_filter containing '/../'
+    # or other special characters cannot escape trend_dir.  The stored
+    # tag_filter field inside the JSON entry retains the raw value.
+    tag_suffix = re.sub(r"[^A-Za-z0-9_]", "_", tag_filter).strip("_") or "all_assets"
     file_path = trend_dir / f"trend_{dimension}_{tag_suffix}.json"
 
     # Load existing snapshots.
