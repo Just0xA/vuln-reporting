@@ -990,3 +990,233 @@ def test_run_report_never_raises_on_fetch_failure(monkeypatch, tmp_path):
         assert key in result, (
             f"run_report return dict missing '{key}' key on fetch failure (CR-F3)"
         )
+
+
+# ===========================================================================
+# Tests 11-13: INT-WARN-1 — full field-set forward-write + D-03b guard
+# ===========================================================================
+
+# The FULL set of optional aggregate kwargs capture_snapshot accepts
+# (minus the always-positional df/assets_df/date/dimension/tag_filter
+# and the trend-internal trend_dir/enriched_assets).
+_FULL_AGGREGATE_KWARGS: frozenset[str] = frozenset({
+    "on_time_asset_count",
+    "reopened_count",
+    "accepted_count",
+    "recast_count",
+    "mttr_overall_days",
+    "mttr_by_severity",
+    "mttr_by_owner",
+    "sla_rate_crit_high",
+    "fixed_vulns_df",
+})
+
+
+def _run_report_capture_snapshot_kwargs(monkeypatch, tmp_path) -> dict:
+    """
+    Run run_report() with all fetchers stubbed and monkeypatch capture_snapshot
+    to capture the kwargs it receives.  Returns the captured kwargs dict.
+    """
+    import reports.management_summary as ms
+    import data.fetchers as fetchers
+
+    vulns_df, assets_df, fixed_vulns_df, _ = _load_fixtures()
+    monkeypatch.setattr(ms, "fetch_all_vulnerabilities",
+                        lambda tio, cache_dir: vulns_df)
+    monkeypatch.setattr(ms, "fetch_all_assets",
+                        lambda tio, cache_dir: assets_df)
+    monkeypatch.setattr(ms, "fetch_fixed_vulnerabilities",
+                        lambda tio, cache_dir: fixed_vulns_df)
+    monkeypatch.setattr(ms, "read_trend",
+                        lambda *a, **k: {"snapshots": [], "insufficient_data": True})
+    # Stub recast fetch (no network)
+    monkeypatch.setattr(fetchers, "fetch_recast_rules",
+                        lambda tio, cache_dir: pd.DataFrame())
+
+    captured: dict = {}
+
+    def _spy_capture_snapshot(*args, **kwargs):
+        captured.update(kwargs)
+        # Also capture positional args by name
+        pos_names = ["df", "assets_df", "date", "dimension", "tag_filter"]
+        for i, val in enumerate(args):
+            if i < len(pos_names):
+                captured[pos_names[i]] = val
+
+    monkeypatch.setattr(ms, "capture_snapshot", _spy_capture_snapshot)
+
+    ms.run_report(
+        object(),
+        "test-run-iw1",
+        output_dir=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        generated_at=_REPORT_DATE,
+        analyst_detail=False,
+    )
+    return captured
+
+
+def test_management_summary_forwards_full_field_set(monkeypatch, tmp_path):
+    """
+    INT-WARN-1 / D-03: capture_snapshot must receive the full aggregate kwarg
+    set — every optional field the cron writer emits.
+
+    Validates that management_summary is a COMPLETE trend writer, not a
+    partial writer that discards the aggregate metrics.
+    """
+    captured = _run_report_capture_snapshot_kwargs(monkeypatch, tmp_path)
+
+    missing = _FULL_AGGREGATE_KWARGS - set(captured.keys())
+    assert not missing, (
+        f"capture_snapshot was not given these aggregate kwargs: {sorted(missing)}. "
+        "INT-WARN-1 / D-03: management_summary must be a complete trend writer."
+    )
+
+
+def test_partial_write_regression_guard(monkeypatch, tmp_path):
+    """
+    D-03b regression guard: the kwarg set forwarded to capture_snapshot must be
+    EXACTLY _FULL_AGGREGATE_KWARGS (no extra, no missing).
+
+    A future edit that drops one kwarg will fail this test, surfacing the
+    partial-write regression before it reaches production.
+    """
+    captured = _run_report_capture_snapshot_kwargs(monkeypatch, tmp_path)
+
+    # Restrict to the optional aggregate keys only (ignore positional df/assets_df/etc.)
+    forwarded_aggregate = set(captured.keys()) & (
+        _FULL_AGGREGATE_KWARGS | {"df", "assets_df", "date", "dimension", "tag_filter",
+                                   "trend_dir", "enriched_assets"}
+    )
+    forwarded_optional = forwarded_aggregate - {
+        "df", "assets_df", "date", "dimension", "tag_filter",
+        "trend_dir", "enriched_assets",
+    }
+
+    missing = _FULL_AGGREGATE_KWARGS - forwarded_optional
+    assert not missing, (
+        f"D-03b partial-write regression: capture_snapshot missing {sorted(missing)}. "
+        "Add the missing kwarg(s) to the capture_snapshot() call in run_report()."
+    )
+
+
+def test_missing_module_result_forwards_none(monkeypatch, tmp_path):
+    """
+    INT-WARN-1: when a contributing module's result has error != None,
+    the corresponding aggregate value must be forwarded as None (safe default),
+    not raised or omitted.
+
+    Simulates a failed mttr_trend module and asserts mttr_overall_days=None
+    is forwarded rather than causing a KeyError or raising.
+    """
+    import reports.management_summary as ms
+    import data.fetchers as fetchers
+    from reports.modules import ReportComposer
+    from reports.modules.base import ModuleData
+
+    vulns_df, assets_df, fixed_vulns_df, _ = _load_fixtures()
+    monkeypatch.setattr(ms, "fetch_all_vulnerabilities",
+                        lambda tio, cache_dir: vulns_df)
+    monkeypatch.setattr(ms, "fetch_all_assets",
+                        lambda tio, cache_dir: assets_df)
+    monkeypatch.setattr(ms, "fetch_fixed_vulnerabilities",
+                        lambda tio, cache_dir: fixed_vulns_df)
+    monkeypatch.setattr(ms, "read_trend",
+                        lambda *a, **k: {"snapshots": [], "insufficient_data": True})
+    monkeypatch.setattr(fetchers, "fetch_recast_rules",
+                        lambda tio, cache_dir: pd.DataFrame())
+
+    # Make run_all() return a result list where mttr_trend has error set
+    _real_run_all = ReportComposer.run_all
+
+    def _patched_run_all(self):
+        results = _real_run_all(self)
+        patched = []
+        for r in results:
+            if r.module_id == "mttr_trend":
+                patched.append(ModuleData(
+                    module_id    = r.module_id,
+                    display_name = r.display_name,
+                    metrics      = {},
+                    error        = "synthetic mttr_trend failure",
+                ))
+            else:
+                patched.append(r)
+        return patched
+
+    monkeypatch.setattr(ReportComposer, "run_all", _patched_run_all)
+
+    captured: dict = {}
+
+    def _spy_capture_snapshot(*args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(ms, "capture_snapshot", _spy_capture_snapshot)
+
+    # run_report must not raise even with a failed module result
+    result = ms.run_report(
+        object(),
+        "test-run-iw1-none",
+        output_dir=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        generated_at=_REPORT_DATE,
+        analyst_detail=False,
+    )
+
+    assert isinstance(result, dict), "run_report raised when a module result had error set"
+    # mttr_overall_days must be None (safe default), not a KeyError or missing
+    assert "mttr_overall_days" in captured, (
+        "mttr_overall_days not forwarded to capture_snapshot when mttr_trend errored"
+    )
+    assert captured["mttr_overall_days"] is None, (
+        f"mttr_overall_days should be None when mttr_trend errored; "
+        f"got {captured['mttr_overall_days']!r}"
+    )
+
+
+# ===========================================================================
+# CR-T5: _check_float_tolerance / _check_mixed treat 0/0.0 as PRESENT
+# ===========================================================================
+
+def test_check_float_tolerance_zero_not_treated_as_missing():
+    """
+    CR-T5: _check_float_tolerance must not treat a legitimate 0.0 value as
+    missing.  The 'or' idiom (val or default) evaluates 0.0 as falsy and
+    triggers a false 'missing' failure.
+    """
+    from tests.test_management_summary import _check_float_tolerance  # noqa: PLC0415
+
+    failures: list[str] = []
+    # Both bespoke and actual have zero scan_coverage_pct — should be equal (drift = 0.0)
+    bespoke = {"coverage_pct": 0.0}
+    actual  = {"scan_coverage_pct": 0.0}
+
+    _check_float_tolerance(
+        "M2", "scan_coverage_sla", bespoke, actual, tol=0.001, failures=failures
+    )
+
+    assert not failures, (
+        f"CR-T5: _check_float_tolerance treated 0.0 as missing — "
+        f"'or' idiom not replaced with key-existence check. Failures: {failures}"
+    )
+
+
+def test_check_mixed_zero_not_treated_as_missing():
+    """
+    CR-T5: _check_mixed must not treat a legitimate 0 count as missing.
+    """
+    from tests.test_management_summary import _check_mixed  # noqa: PLC0415
+
+    failures: list[str] = []
+    # Both bespoke and actual have zero exceptions — should be equal
+    bespoke = {"open_exceptions": 0, "total_open": 100, "exception_rate": 0.0}
+    actual  = {"total_exceptions": 0, "total_open": 100, "exception_rate": 0.0}
+
+    _check_mixed(
+        "M6", "accepted_recast", bespoke, actual, tol=0.001, failures=failures
+    )
+
+    assert not failures, (
+        f"CR-T5: _check_mixed treated 0 as missing — "
+        f"'or' idiom not replaced with key-existence check. Failures: {failures}"
+    )
