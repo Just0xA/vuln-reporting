@@ -406,7 +406,9 @@ def fetch_fixed_vulnerabilities(
     reopened-aware fallback ``(last_fixed - COALESCE(resurfaced_date,
     first_found))`` is applied by the consuming module (D-16-02).
 
-    Caches to ``<cache_dir>/vulns_fixed.parquet``.  Informational findings
+    Caches to ``<cache_dir>/vulns_fixed_{lookback_days}d.parquet`` so that
+    calls with different ``lookback_days`` values write distinct parquet files
+    and do not reuse each other's cached data (CR-B5).  Informational findings
     are excluded (no SLA; MTTR is meaningless for them).
 
     Parameters
@@ -429,7 +431,10 @@ def fetch_fixed_vulnerabilities(
         Same column schema as ``fetch_all_vulnerabilities()`` but containing
         only state=fixed findings.
     """
-    cache = _cache_path(cache_dir, "vulns_fixed")
+    # CR-B5: include lookback_days in the dataset name so different windows
+    # (e.g. 30d vs 365d) write to distinct parquet files and never reuse
+    # each other's cached rows.
+    cache = _cache_path(cache_dir, f"vulns_fixed_{lookback_days}d")
     cached = _load_cache(cache)
     if cached is not None:
         return cached
