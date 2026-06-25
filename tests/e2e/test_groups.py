@@ -37,6 +37,17 @@ def _load_groups() -> list[dict]:
 _GROUPS = _load_groups()
 _GROUP_IDS = [g["name"] for g in _GROUPS]
 
+# CR-T1: guard the module-level _GROUPS[0] access — when _load_groups() returns
+# empty, pytest.skip at collection time so an empty-groups env does not break
+# collection with an IndexError.
+if not _GROUPS:
+    pytest.skip(
+        "No delivery groups configured — skipping e2e group tests",
+        allow_module_level=True,
+    )
+
+_FIRST_GROUP = _GROUPS[0]
+
 
 @pytest.mark.parametrize("group", _GROUPS, ids=_GROUP_IDS)
 def test_group_runs_fail_soft_and_artifacts_valid(
@@ -100,7 +111,7 @@ def test_failure_mode_scenarios_run_fail_soft(
     vulns, assets = _SCENARIOS[scenario_name]()
     cache = _cache_from(tmp_path / "scenario-cache", vulns, assets)
     result = run_group(
-        _GROUPS[0],
+        _FIRST_GROUP,
         tio=dummy_tio,
         cache_dir=cache,
         base_output_dir=temp_output_dir,
@@ -115,8 +126,6 @@ def test_failure_mode_scenarios_run_fail_soft(
 from tests.validators import (  # noqa: E402
     assert_email_cids_resolve, assert_well_formed_html,
 )
-
-_FIRST_GROUP = _GROUPS[0]
 
 
 def _attachment_filenames(msg) -> list:

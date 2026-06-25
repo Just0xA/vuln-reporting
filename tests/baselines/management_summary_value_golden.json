@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Bucketed bespoke-path golden values for the frozen synthetic fixture. D-04-05 reconciliation: this is a FROZEN-SYNTHETIC-INPUT parity lock, NOT a live-value lock. D-04-05 governs live-drifting values; this is a deterministic regression check. The gate is PER-METRIC (NOT blanket zero-drift) \u2014 only EXACT-MATCH metrics are asserted by Plan 04. Bucket assignments derived from 18-RESEARCH.md Seven Module Definitions + module docstrings (NOT assumed).",
-    "fixture_dir": "D:\\Projects\\vuln-reporting\\tests\\fixtures\\management_summary_parity",
+    "fixture_dir": "tests/fixtures/management_summary_parity",
     "report_date": "2026-06-01T12:00:00+00:00",
     "captured_by": "bespoke compute_all_metrics path"
   },

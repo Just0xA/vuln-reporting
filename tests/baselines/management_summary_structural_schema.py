@@ -78,28 +78,40 @@ _BESPOKE_METRIC_IDS_SORTED = sorted(_BESPOKE_METRIC_LABELS)
 # PDF page count (via WeasyPrint byte stream when available)
 # ---------------------------------------------------------------------------
 
-def _pdf_page_count_from_html(pdf_html: str) -> int:
+def _pdf_page_count_from_html(pdf_html: str) -> tuple[int, bool]:
     """Count rendered PDF pages.
 
     Uses WeasyPrint byte stream (authoritative) when importable; falls back
     to HTML page-break heuristic + 1 for the cover page.
+
+    Returns
+    -------
+    tuple[int, bool]
+        ``(count, is_heuristic)`` where ``is_heuristic`` is ``True`` when the
+        count was derived from the HTML page-break heuristic (WeasyPrint
+        unavailable or rendering failed) rather than from a real PDF byte stream.
+
+    CR-T6: callers that compare page counts must not treat a heuristic-derived
+    count as authoritative drift — skip or soft-assert when ``is_heuristic``
+    is ``True``.
     """
     if not pdf_html:
-        return 0
+        return 0, False
     try:
         from weasyprint import HTML  # noqa: PLC0415
     except Exception:
-        return pdf_html.count('class="page-break"') + 1
+        # WeasyPrint not installed — heuristic fallback
+        return pdf_html.count('class="page-break"') + 1, True
     try:
         pdf_bytes = HTML(string=pdf_html).write_pdf(uncompressed_pdf=True)
     except TypeError:
         try:
             pdf_bytes = HTML(string=pdf_html).write_pdf()
         except Exception:
-            return pdf_html.count('class="page-break"') + 1
+            return pdf_html.count('class="page-break"') + 1, True
     except Exception:
-        return pdf_html.count('class="page-break"') + 1
-    return len(re.findall(rb"/Type\s*/Page\b", pdf_bytes))
+        return pdf_html.count('class="page-break"') + 1, True
+    return len(re.findall(rb"/Type\s*/Page\b", pdf_bytes)), False
 
 
 # ---------------------------------------------------------------------------
@@ -146,10 +158,12 @@ def extract_structural_snapshot(source: dict) -> dict:
     pdf_section_count = 0
     pdf_rag_cell_count = 0
 
+    pdf_page_count_is_heuristic: bool = False
+
     if is_bundle:
         # Composer bundle carries pdf_html in-memory
         pdf_html = source.get("pdf_html") or ""
-        pdf_page_count = _pdf_page_count_from_html(pdf_html)
+        pdf_page_count, pdf_page_count_is_heuristic = _pdf_page_count_from_html(pdf_html)
         pdf_section_count = len(_H2_PATTERN.findall(pdf_html))
         pdf_rag_cell_count = pdf_html.count(_RAG_CELL_CLASS)
     else:
@@ -231,6 +245,10 @@ def extract_structural_snapshot(source: dict) -> dict:
         "schema_version": 1,
         "source_path": source_path,
         "pdf_page_count": pdf_page_count,
+        # CR-T6: True when pdf_page_count was derived from the HTML page-break
+        # heuristic (WeasyPrint unavailable).  Callers must not treat heuristic
+        # counts as authoritative — skip or soft-assert when this is True.
+        "pdf_page_count_is_heuristic": pdf_page_count_is_heuristic,
         "pdf_section_count": pdf_section_count,
         "metric_ids_present": metric_ids_present,
         "pdf_rag_cell_count": pdf_rag_cell_count,

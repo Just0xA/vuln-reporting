@@ -549,9 +549,14 @@ COVERED_FIXED_CONSUMERS: frozenset[str] = frozenset({
 # Pure pass-through callers — they call fetch_fixed_vulnerabilities and hand the
 # result to an already-covered consumer (fan-out) without aggregating it themselves.
 # Excluded from the discovery gate so the gate is not brittle on harmless callers.
+#
+# CR-T2: Use module-qualified "file::function" identifiers so the exemption only
+# matches the specific run_report functions in named files, not any run_report
+# anywhere in the codebase.
 _PASS_THROUGH_CALLERS: frozenset[str] = frozenset({
-    "run_report",    # management_summary.run_report, composed_report.run_report,
-                     # board_summary.run_report — all hand fixed_vulns_df to composer
+    "reports/management_summary.py::run_report",
+    "reports/board_summary.py::run_report",
+    "reports/composed_report.py::run_report",
 })
 
 # Known scripts excluded from the result-consuming sweep.
@@ -723,9 +728,15 @@ class TestAllFixedConsumersDiscovered:
             if not call_sites:
                 continue
 
+            # CR-T2: build the repo-relative file path for qualified matching.
+            rel_path = py_file.relative_to(project_root).as_posix()
+
             for scope in call_sites:
-                # Exclude pass-through callers by scope name
-                if scope in _PASS_THROUGH_CALLERS:
+                # CR-T2: Exclude pass-through callers by module-qualified
+                # "file::function" identifier so a bare "run_report" function
+                # in an unrelated file is not silently exempted.
+                qualified = f"{rel_path}::{scope}"
+                if qualified in _PASS_THROUGH_CALLERS:
                     continue
                 # Exclude module-level calls (scope == "<module>") — these are
                 # typically documentation examples or ad-hoc scripts
