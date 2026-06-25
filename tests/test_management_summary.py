@@ -872,3 +872,121 @@ def test_tag_scoped_fallback_logs_warning(monkeypatch, tmp_path, caplog):
         "Server-side tag scoping failed but no fallback WARNING was logged — "
         "the broad except must not swallow the failure silently."
     )
+
+
+# ===========================================================================
+# Test 9: INT-WARN-2 — recast_rules_df fetched and forwarded (D-04)
+# ===========================================================================
+
+def _make_standard_monkeypatches(monkeypatch, tmp_path, ms):
+    """Apply the standard no-live-network monkeypatches to a ms module."""
+    vulns_df, assets_df, fixed_vulns_df, trend_snapshots = _load_fixtures()
+    monkeypatch.setattr(ms, "fetch_all_vulnerabilities",
+                        lambda tio, cache_dir: vulns_df)
+    monkeypatch.setattr(ms, "fetch_all_assets",
+                        lambda tio, cache_dir: assets_df)
+    monkeypatch.setattr(ms, "fetch_fixed_vulnerabilities",
+                        lambda tio, cache_dir: fixed_vulns_df)
+    monkeypatch.setattr(ms, "read_trend",
+                        lambda *a, **k: {"snapshots": [], "insufficient_data": True})
+    monkeypatch.setattr(ms, "capture_snapshot", lambda *a, **k: None)
+    return vulns_df, assets_df, fixed_vulns_df, trend_snapshots
+
+
+def test_recast_rules_fetched_and_forwarded_to_composer(monkeypatch, tmp_path):
+    """
+    INT-WARN-2 / D-04: management_summary must call fetch_recast_rules and
+    forward recast_rules_df= to ReportComposer so the accepted_recast expiry
+    cross-check runs (pending_reeval no longer always 0).
+    """
+    import reports.management_summary as ms
+    import data.fetchers as fetchers
+    from reports.modules import ReportComposer
+
+    _make_standard_monkeypatches(monkeypatch, tmp_path, ms)
+
+    # Sentinel recast DataFrame — its identity is what we check.
+    sentinel_df = pd.DataFrame({"rule_uuid": ["test-uuid-001"], "plugin_id": [12345]})
+    fetch_calls: list = []
+
+    def _fake_fetch_recast(tio, cache_dir):
+        fetch_calls.append(True)
+        return sentinel_df
+
+    monkeypatch.setattr(fetchers, "fetch_recast_rules", _fake_fetch_recast)
+
+    # Capture the ReportComposer kwargs to verify recast_rules_df was forwarded.
+    composer_kwargs_captured: list[dict] = []
+    _real_composer_init = ReportComposer.__init__
+
+    def _spy_composer_init(self, **kwargs):
+        composer_kwargs_captured.append(dict(kwargs))
+        _real_composer_init(self, **kwargs)
+
+    monkeypatch.setattr(ReportComposer, "__init__", _spy_composer_init)
+
+    ms.run_report(
+        object(),       # tio sentinel — fetchers are stubbed
+        "test-run-iw2",
+        output_dir=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        generated_at=_REPORT_DATE,
+        analyst_detail=False,
+    )
+
+    assert fetch_calls, (
+        "fetch_recast_rules was never called — INT-WARN-2 not satisfied "
+        "(recast expiry cross-check in accepted_recast will always see no rules)"
+    )
+    assert composer_kwargs_captured, "ReportComposer.__init__ was never called"
+    kwargs = composer_kwargs_captured[0]
+    assert "recast_rules_df" in kwargs, (
+        "recast_rules_df kwarg not forwarded to ReportComposer "
+        "(INT-WARN-2 / D-04 — accepted_recast expiry cross-check will be skipped)"
+    )
+    forwarded = kwargs["recast_rules_df"]
+    assert forwarded is sentinel_df, (
+        "ReportComposer received a different DataFrame than fetch_recast_rules returned"
+    )
+
+
+# ===========================================================================
+# Test 10: CR-F3 — run_report never raises on fetch/compose failure
+# ===========================================================================
+
+def test_run_report_never_raises_on_fetch_failure(monkeypatch, tmp_path):
+    """
+    CR-F3: a fetch/compose failure must be reflected in the return dict, not
+    propagated as an exception.  The docstring contract says 'Never raises'.
+    """
+    import reports.management_summary as ms
+
+    # Make the very first fetch explode to simulate a catastrophic fetch failure.
+    def _boom(tio, cache_dir):
+        raise RuntimeError("synthetic fetch failure (CR-F3 test)")
+
+    monkeypatch.setattr(ms, "fetch_all_vulnerabilities", _boom)
+    # Other fetchers don't matter — the first one raises before they're called.
+    monkeypatch.setattr(ms, "read_trend",
+                        lambda *a, **k: {"snapshots": [], "insufficient_data": True})
+    monkeypatch.setattr(ms, "capture_snapshot", lambda *a, **k: None)
+
+    # run_report must NOT raise — it must return a dict.
+    result = ms.run_report(
+        object(),       # tio sentinel — fetchers are stubbed
+        "test-run-crf3",
+        output_dir=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        generated_at=_REPORT_DATE,
+        analyst_detail=False,
+    )
+
+    assert isinstance(result, dict), (
+        "run_report raised or did not return a dict when fetch failed — "
+        "CR-F3 'never raises' contract violated"
+    )
+    # Standard keys must be present even on failure.
+    for key in ("pdf", "excel", "charts", "metrics"):
+        assert key in result, (
+            f"run_report return dict missing '{key}' key on fetch failure (CR-F3)"
+        )

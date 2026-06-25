@@ -223,162 +223,204 @@ def run_report(
     )
 
     # ------------------------------------------------------------------
-    # Fetch data (parquet cache shared with other reports in the same run)
+    # CR-F3: initialise safe defaults so the return dict is always valid
+    # even when the fetch/compose block raises (never-raises contract).
     # ------------------------------------------------------------------
-    logger.info("management_summary: fetching open vulnerabilities …")
-    vulns_df = fetch_all_vulnerabilities(tio, cache_dir)
+    bundle:          dict           = {"errors": [], "email_kpis": [], "pdf_html": "",
+                                       "excel_workbook": None, "email_body_html": "",
+                                       "email_inline_images": [], "analyst_workbook_path": None}
+    errors:          list           = []
+    kpis:            list           = []
+    results:         list           = []
+    vulns_df        = None          # assigned inside try; used by capture_snapshot
+    assets_df       = None
+    fixed_vulns_df  = None
+    tag_filter_label: str           = "all_assets"
 
-    logger.info("management_summary: fetching assets …")
-    assets_df = fetch_all_assets(tio, cache_dir)
+    try:
+        # ------------------------------------------------------------------
+        # Fetch data (parquet cache shared with other reports in the same run)
+        # ------------------------------------------------------------------
+        logger.info("management_summary: fetching open vulnerabilities …")
+        vulns_df = fetch_all_vulnerabilities(tio, cache_dir)
 
-    logger.info("management_summary: fetching fixed vulnerabilities …")
-    fixed_vulns_df = fetch_fixed_vulnerabilities(tio, cache_dir)
+        logger.info("management_summary: fetching assets …")
+        assets_df = fetch_all_assets(tio, cache_dir)
 
-    logger.info(
-        "management_summary: data loaded — vulns=%d, assets=%d, fixed=%d",
-        len(vulns_df), len(assets_df), len(fixed_vulns_df),
-    )
+        logger.info("management_summary: fetching fixed vulnerabilities …")
+        fixed_vulns_df = fetch_fixed_vulnerabilities(tio, cache_dir)
 
-    # ------------------------------------------------------------------
-    # Tag filter (exact token match on the tags string column)
-    # ------------------------------------------------------------------
-    tag_filter_label: str
-    if tag_category and tag_value:
-        tag_filter_label = f"{tag_category}_{tag_value}"
-
-        # Filter assets by tag using set membership on asset UUIDs.
-        # Resolve the tag server-side against the live Tenable export — the
-        # authoritative scoping rule used everywhere else in the suite — by
-        # passing the real client (CR-01).
-        from utils.tag_helper import get_assets_by_tag  # noqa: PLC0415
-        try:
-            filtered_asset_uuids = set(
-                get_assets_by_tag(tio, tag_category, tag_value)
-            )
-        except Exception:
-            # Fallback: filter from the in-memory tags_str column. This is a
-            # weaker (substring) match and must never fail silently — log the
-            # primary-path failure so an operator can see the scope diverged
-            # (CLAUDE.md: no silent failures).
-            logger.warning(
-                "management_summary: server-side tag scoping via get_assets_by_tag "
-                "failed for '%s=%s'; falling back to in-memory tags_str substring "
-                "match (scope may differ from the rest of the suite).",
-                tag_category, tag_value,
-                exc_info=True,
-            )
-            mask = assets_df["tags_str"].str.contains(
-                f"{tag_category}: {tag_value}", na=False
-            )
-            filtered_asset_uuids = set(assets_df.loc[mask, "asset_uuid"].dropna())
-
-        scoped_uuids = filtered_asset_uuids
-
-        assets_df = (
-            assets_df[assets_df["asset_uuid"].isin(scoped_uuids)]
-            .copy()
-            .reset_index(drop=True)
+        logger.info(
+            "management_summary: data loaded — vulns=%d, assets=%d, fixed=%d",
+            len(vulns_df), len(assets_df), len(fixed_vulns_df),
         )
-        vulns_df = (
-            vulns_df[vulns_df["asset_uuid"].isin(scoped_uuids)]
-            .copy()
-            .reset_index(drop=True)
-        )
-        fixed_vulns_df = (
-            fixed_vulns_df[fixed_vulns_df["asset_uuid"].isin(scoped_uuids)]
-            .copy()
-            .reset_index(drop=True)
+
+        # ------------------------------------------------------------------
+        # Tag filter (exact token match on the tags string column)
+        # ------------------------------------------------------------------
+        if tag_category and tag_value:
+            tag_filter_label = f"{tag_category}_{tag_value}"
+
+            # Filter assets by tag using set membership on asset UUIDs.
+            # Resolve the tag server-side against the live Tenable export — the
+            # authoritative scoping rule used everywhere else in the suite — by
+            # passing the real client (CR-01).
+            from utils.tag_helper import get_assets_by_tag  # noqa: PLC0415
+            try:
+                filtered_asset_uuids = set(
+                    get_assets_by_tag(tio, tag_category, tag_value)
+                )
+            except Exception:
+                # Fallback: filter from the in-memory tags_str column. This is a
+                # weaker (substring) match and must never fail silently — log the
+                # primary-path failure so an operator can see the scope diverged
+                # (CLAUDE.md: no silent failures).
+                logger.warning(
+                    "management_summary: server-side tag scoping via get_assets_by_tag "
+                    "failed for '%s=%s'; falling back to in-memory tags_str substring "
+                    "match (scope may differ from the rest of the suite).",
+                    tag_category, tag_value,
+                    exc_info=True,
+                )
+                mask = assets_df["tags_str"].str.contains(
+                    f"{tag_category}: {tag_value}", na=False
+                )
+                filtered_asset_uuids = set(assets_df.loc[mask, "asset_uuid"].dropna())
+
+            scoped_uuids = filtered_asset_uuids
+
+            assets_df = (
+                assets_df[assets_df["asset_uuid"].isin(scoped_uuids)]
+                .copy()
+                .reset_index(drop=True)
+            )
+            vulns_df = (
+                vulns_df[vulns_df["asset_uuid"].isin(scoped_uuids)]
+                .copy()
+                .reset_index(drop=True)
+            )
+            fixed_vulns_df = (
+                fixed_vulns_df[fixed_vulns_df["asset_uuid"].isin(scoped_uuids)]
+                .copy()
+                .reset_index(drop=True)
+            )
+            logger.info(
+                "management_summary: tag filter '%s=%s' — %d assets, %d vulns in scope.",
+                tag_category, tag_value, len(assets_df), len(vulns_df),
+            )
+        else:
+            tag_filter_label = "all_assets"
+
+        # ------------------------------------------------------------------
+        # Trend read (read_trend feeds all seven modules; all_assets seeded by
+        # Plan 03; tag-scoped groups cold-start MoM — pre-existing, not a
+        # regression — D-18-10 scope note)
+        # ------------------------------------------------------------------
+        trend_snapshots = read_trend(
+            "severity",
+            tag_filter_label,
+            months=13,
         )
         logger.info(
-            "management_summary: tag filter '%s=%s' — %d assets, %d vulns in scope.",
-            tag_category, tag_value, len(assets_df), len(vulns_df),
+            "management_summary: trend read (filter=%s) — %d snapshots, insufficient=%s",
+            tag_filter_label,
+            len(trend_snapshots.get("snapshots", [])),
+            trend_snapshots.get("insufficient_data", True),
         )
-    else:
-        tag_filter_label = "all_assets"
 
-    # ------------------------------------------------------------------
-    # Trend read (read_trend feeds all seven modules; all_assets seeded by
-    # Plan 03; tag-scoped groups cold-start MoM — pre-existing, not a
-    # regression — D-18-10 scope note)
-    # ------------------------------------------------------------------
-    trend_snapshots = read_trend(
-        "severity",
-        tag_filter_label,
-        months=13,
-    )
-    logger.info(
-        "management_summary: trend read (filter=%s) — %d snapshots, insufficient=%s",
-        tag_filter_label,
-        len(trend_snapshots.get("snapshots", [])),
-        trend_snapshots.get("insufficient_data", True),
-    )
+        # ------------------------------------------------------------------
+        # INT-WARN-2 (D-04): fail-soft recast rules fetch.
+        # accepted_recast is always in _MGMT_MODULE_CONFIGS, so fetch
+        # unconditionally — but still fail-soft (mirrors composed_report.py
+        # L245-259 gated recast fetch pattern).
+        # ------------------------------------------------------------------
+        recast_rules_df = None
+        try:
+            from data.fetchers import fetch_recast_rules  # noqa: PLC0415
+            logger.info("management_summary: fetching recast rules …")
+            recast_rules_df = fetch_recast_rules(tio, cache_dir)
+        except Exception as _recast_exc:
+            logger.error(
+                "management_summary: recast rules fetch failed (non-fatal): %s",
+                _recast_exc, exc_info=True,
+            )
+            recast_rules_df = None
 
-    # ------------------------------------------------------------------
-    # Subtitle / scope label resolution (D-02)
-    # ------------------------------------------------------------------
-    resolved_subtitle = (
-        scope_subtitle
-        if scope_subtitle is not None
-        else _format_scope_subtitle(tag_category, tag_value)
-    )
-    scope_label = (
-        f"{tag_category} = {tag_value}"
-        if tag_category and tag_value
-        else "All Assets"
-    )
+        # ------------------------------------------------------------------
+        # Subtitle / scope label resolution (D-02)
+        # ------------------------------------------------------------------
+        resolved_subtitle = (
+            scope_subtitle
+            if scope_subtitle is not None
+            else _format_scope_subtitle(tag_category, tag_value)
+        )
+        scope_label = (
+            f"{tag_category} = {tag_value}"
+            if tag_category and tag_value
+            else "All Assets"
+        )
 
-    # ------------------------------------------------------------------
-    # Chrome config (CHROME-INT-02, Phase 18 GEN-01)
-    # ------------------------------------------------------------------
-    effective_title = report_title or _REPORT_TITLE
+        # ------------------------------------------------------------------
+        # Chrome config (CHROME-INT-02, Phase 18 GEN-01)
+        # ------------------------------------------------------------------
+        effective_title = report_title or _REPORT_TITLE
 
-    pdf_chrome_cfg = PdfChromeConfig(
-        title         = effective_title,
-        subtitle      = resolved_subtitle,
-        generated_at  = generated_at,
-        header_bg     = HEADER_BG_COLOR,
-        logo_path     = LOGO_PATH,
-        privacy_label = privacy_label,
-    )
+        pdf_chrome_cfg = PdfChromeConfig(
+            title         = effective_title,
+            subtitle      = resolved_subtitle,
+            generated_at  = generated_at,
+            header_bg     = HEADER_BG_COLOR,
+            logo_path     = LOGO_PATH,
+            privacy_label = privacy_label,
+        )
 
-    # ------------------------------------------------------------------
-    # Compose via ReportComposer (mirrors board_summary wiring exactly)
-    #
-    # trend_snapshots forwarded via **kwargs fans out to every module's
-    # compute() — mttr_trend, new_vs_remediated, accepted_recast consume
-    # it; others ignore it silently (Pitfall 4 guard, D-14 kwargs gate).
-    # fixed_vulns_df forwarded similarly — mttr_trend + other modules
-    # that need it consume it; non-consumers ignore via **kwargs.
-    # ------------------------------------------------------------------
-    composer = ReportComposer(
-        vulns_df        = vulns_df,
-        assets_df       = assets_df,
-        report_date     = generated_at,
-        module_configs  = _MGMT_MODULE_CONFIGS,
-        fixed_vulns_df  = fixed_vulns_df,
-        pdf_chrome      = pdf_chrome_cfg,
-        trend_snapshots = trend_snapshots,   # D-14 kwargs fan-out
-    )
+        # ------------------------------------------------------------------
+        # Compose via ReportComposer (mirrors board_summary wiring exactly)
+        #
+        # trend_snapshots forwarded via **kwargs fans out to every module's
+        # compute() — mttr_trend, new_vs_remediated, accepted_recast consume
+        # it; others ignore it silently (Pitfall 4 guard, D-14 kwargs gate).
+        # fixed_vulns_df forwarded similarly — mttr_trend + other modules
+        # that need it consume it; non-consumers ignore via **kwargs.
+        # recast_rules_df forwarded so accepted_recast expiry cross-check
+        # runs (INT-WARN-2/D-04).
+        # ------------------------------------------------------------------
+        composer = ReportComposer(
+            vulns_df        = vulns_df,
+            assets_df       = assets_df,
+            report_date     = generated_at,
+            module_configs  = _MGMT_MODULE_CONFIGS,
+            fixed_vulns_df  = fixed_vulns_df,
+            pdf_chrome      = pdf_chrome_cfg,
+            trend_snapshots = trend_snapshots,    # D-14 kwargs fan-out
+            recast_rules_df = recast_rules_df,    # D-04 / INT-WARN-2
+        )
 
-    results = composer.run_all()
+        results = composer.run_all()
 
-    bundle = composer.run_full_pipeline(
-        results,
-        output_dir,
-        slug             = REPORT_SLUG,
-        report_date      = generated_at,
-        generate_analyst = analyst_detail,
-        pdf_title        = effective_title,
-        pdf_subtitle     = resolved_subtitle,
-        scope_label      = scope_label,
-    )
+        bundle = composer.run_full_pipeline(
+            results,
+            output_dir,
+            slug             = REPORT_SLUG,
+            report_date      = generated_at,
+            generate_analyst = analyst_detail,
+            pdf_title        = effective_title,
+            pdf_subtitle     = resolved_subtitle,
+            scope_label      = scope_label,
+        )
 
-    errors = bundle["errors"]
-    kpis   = bundle["email_kpis"]
+        errors = bundle["errors"]
+        kpis   = bundle["email_kpis"]
 
-    if errors:
-        logger.warning(
-            "management_summary: %d module error(s) — %s", len(errors), errors
+        if errors:
+            logger.warning(
+                "management_summary: %d module error(s) — %s", len(errors), errors
+            )
+
+    except Exception as _compose_exc:
+        logger.error(
+            "management_summary: fetch/compose failed (non-fatal): %s",
+            _compose_exc, exc_info=True,
         )
 
     # ------------------------------------------------------------------
@@ -415,23 +457,29 @@ def run_report(
     # Replaces the bespoke _save_trend_snapshot.  capture_snapshot() is
     # idempotent and skips reconstructed months (immutability preserved).
     # Fail-soft: a snapshot write failure must not abort the batch.
+    # Guard: skip when fetch failed (vulns_df is None — CR-F3 path).
     # ------------------------------------------------------------------
-    try:
-        capture_snapshot(
-            df             = vulns_df,
-            assets_df      = assets_df,
-            date           = generated_at,
-            dimension      = "severity",
-            tag_filter     = tag_filter_label,
-            fixed_vulns_df = fixed_vulns_df,
-        )
-        logger.info(
-            "management_summary: trend snapshot captured (filter=%s)", tag_filter_label
-        )
-    except Exception as exc:
-        logger.error(
-            "management_summary: trend snapshot write failed (non-fatal): %s",
-            exc, exc_info=True,
+    if vulns_df is not None and assets_df is not None:
+        try:
+            capture_snapshot(
+                df             = vulns_df,
+                assets_df      = assets_df,
+                date           = generated_at,
+                dimension      = "severity",
+                tag_filter     = tag_filter_label,
+                fixed_vulns_df = fixed_vulns_df,
+            )
+            logger.info(
+                "management_summary: trend snapshot captured (filter=%s)", tag_filter_label
+            )
+        except Exception as exc:
+            logger.error(
+                "management_summary: trend snapshot write failed (non-fatal): %s",
+                exc, exc_info=True,
+            )
+    else:
+        logger.warning(
+            "management_summary: skipping trend snapshot — data fetch failed (CR-F3 path)."
         )
 
     result_dict: dict = {
