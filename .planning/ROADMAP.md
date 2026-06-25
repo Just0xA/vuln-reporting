@@ -220,7 +220,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 **Goal:** Close out the v1.4 milestone (off `tech_debt`): fix INT-WARN-1/2/3, all deferred 18/17/15-REVIEW findings, and the 39 net-new CodeRabbit findings; then run the Phase 16 UAT + Phase 17 human verifications against the fixed build and refresh the milestone audit.
 **Requirements**: none (closure/tech-debt phase — no REQ-IDs; covers CONTEXT decisions D-01..D-07 + enumerated finding IDs)
 **Depends on:** Phase 18
-**Plans:** 3/9 plans executed
+**Plans:** 4/9 plans executed
 
 Plans:
 **Wave 1**
@@ -228,7 +228,7 @@ Plans:
 - [x] 19-01-PLAN.md — Security / fail-closed (CR-C1/S1/S2/S3/S4) + commit untracked .claude/hooks/
 - [x] 19-02-PLAN.md — D-05 shared SLA-rate helper (3 sites) + 17-REVIEW WR-01..05
 - [x] 19-05-PLAN.md — Fail-soft/render + copy CR-F1/F2/F4 + CR-D1/D2
-- [ ] 19-06-PLAN.md — Test rigor CR-T1/T2/T6/T7 + CR-B5 cache key + CR-U1/U2 deploy
+- [x] 19-06-PLAN.md — Test rigor CR-T1/T2/T6/T7 + CR-B5 cache key + CR-U1/U2 deploy
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -271,7 +271,7 @@ Plans:
 | 16. MTTR Rework | v1.4 | 7/7 | Complete    | 2026-06-12 |
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
 | 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
-| 19. v1.4 Closure | v1.4 | 3/9 | In Progress|  |
+| 19. v1.4 Closure | v1.4 | 4/9 | In Progress|  |
 
 ## Backlog
 
