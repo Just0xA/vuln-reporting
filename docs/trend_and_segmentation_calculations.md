@@ -179,16 +179,20 @@ no historical data. `read_trend` returns `insufficient_data=True` and modules di
 accumulates from the first captured snapshot forward; there is no mechanism to backfill prior
 months.
 
-### No backfill
+### Backfill
 
-Do not attempt to backfill historical snapshots from current data. The retention constraint
-means any synthetic backfill would undercount open findings for months beyond the ~29-day
-window, producing a misleading downward trend in historical data. If a month's snapshot was
-missed, it is simply absent — the next captured snapshot becomes the new earliest data point.
+**Sanctioned path — `scripts/backfill_trend_reconstruction.py`:** A one-time idempotent
+reconstruction script seeds historical all-assets MoM severity history (~12 months) from
+Tenable's fixed+open exports.  Use this script for the initial seed after a fresh install.
+It applies an overlap-test gate before writing and marks reconstructed months with
+`source: "reconstructed"` so they are distinguishable from live captures.  See the script's
+module docstring for full usage, exit codes, and constraints.
 
-Manual backfill (adding a JSON entry by hand with known counts from another source) is
-technically possible, but is outside normal operations. If done, verify that counts were
-derived from a run that occurred within the ~29-day window of the relevant month.
+**Unsupported ad-hoc backfill:** Do not attempt to add JSON entries by hand or write a
+custom backfill outside the sanctioned script.  Manual entries bypass the overlap-test gate
+and immutability checks, risking misleading trend data.  If a month's snapshot was missed
+and the reconstruction window has passed, that month is simply absent — the next captured
+snapshot becomes the new earliest data point.
 
 ### Same-month idempotency
 

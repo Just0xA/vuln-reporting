@@ -1,5 +1,13 @@
 # Management Executive Summary — Calculations Runbook
 
+> **HISTORICAL NOTE (18-REVIEW IN-03):** Sections 1–18 below describe the
+> pre-v1.4 bespoke render path (`compute_all_metrics()` / `_compute_metric_1`…`_7`),
+> which was **atomically removed in Phase 18 (GEN-01, Plan 18-04)**.
+> The current authoritative runbook for the v1.4 `ReportComposer`-based pipeline
+> is the **[v1.4 Module Metrics](#v14-module-metrics-post-cutover--gen-01-plan-18-04)**
+> section at the bottom of this file.  The sections below are retained as
+> historical context only.
+
 **File:** `reports/management_summary.py`
 **Audience:** Senior Management — Directors and Vice Presidents
 **Outputs:** PDF (5 pages) + HTML email body (no Excel)
@@ -144,8 +152,9 @@ is used as a fallback.
 | Low | 0.1 – 3.9 | 180 days |
 
 A finding is **overdue** when `today − first_found_date > SLA_days` and the
-finding is still open.  "Today" is the UTC report timestamp passed into
-`compute_all_metrics()`.
+finding is still open.  "Today" is the UTC report timestamp used by the
+report composer (pre-v1.4: passed into `compute_all_metrics()`; v1.4+: the
+`report_date` passed to each module's `compute()` method).
 
 ---
 

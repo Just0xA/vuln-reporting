@@ -1,15 +1,17 @@
 """
-scripts/smoke_management_summary_cutover.py — Phase 18 management_summary cutover smoke.
+scripts/smoke_management_summary_cutover.py — management_summary structural smoke.
 
-Captures a STRUCTURAL-ONLY snapshot of the current bespoke management_summary
-render path and compares it against a committed baseline JSON.  No live Tenable
-API calls are made — the script runs against today's parquet cache only, enforced
-via the ``_NoLiveTenable`` sentinel (D-04-06 equivalent for Phase 18).
+Captures a STRUCTURAL-ONLY snapshot of the v1.4 ``management_summary`` render
+path (``ReportComposer`` composing 7 modules, GEN-01 complete) and compares it
+against a committed baseline JSON.  No live Tenable API calls are made — the
+script runs against today's parquet cache only, enforced via the
+``_NoLiveTenable`` sentinel (D-04-06 equivalent for Phase 18).
 
-QUAL-04 constraint:
-    This script and the baseline JSON it writes MUST be committed BEFORE any
-    migration code is written.  A baseline captured after migration code exists
-    is worthless as a regression guard (RESEARCH Pitfall 6, D-18-10 gate 3).
+Current operation (post-cutover, GEN-01 / Plan 18-04):
+    Calls ``reports.management_summary.run_report()`` and extracts
+    ``result["_bundle"]`` (the ``ReportComposer`` bundle returned by the
+    v1.4 modular path).  The bespoke ``compute_all_metrics()`` path no longer
+    exists.
 
 QUAL-05 / D-04-08:
     The snapshot contains ONLY aggregate structural counts, sorted identifier
@@ -18,13 +20,10 @@ QUAL-05 / D-04-08:
     ``management_summary_structural_schema.extract_structural_snapshot`` adapter
     enforces this invariant.
 
-Shared adapter (review change #5):
-    Both this pre-cutover capture (Plan 01) and the post-cutover capture
-    (Plan 04) use the SAME shared adapter:
-        ``tests.baselines.management_summary_structural_schema.extract_structural_snapshot``
-    Plan 04 switches the SOURCE to ``result["_bundle"]`` (the composer bundle)
-    but passes it through the SAME adapter, so the snapshot keys are IDENTICAL
-    and the diff is apples-to-apples.
+Shared adapter:
+    ``tests.baselines.management_summary_structural_schema.extract_structural_snapshot``
+    is the sole extraction path so the baseline key schema is stable across
+    re-baselines.
 
 Workflow:
     1. Warm the parquet cache (once per dev session):
@@ -38,7 +37,7 @@ Workflow:
        and exits 0 with "BASELINE INITIALIZED".  Inspect the JSON, commit it.
 
     4. Subsequent runs diff against the committed baseline:
-       - Exit 0: no structural drift — the migration is safe to proceed
+       - Exit 0: no structural drift
        - Exit 1: structural drift detected — investigate before proceeding
        - Exit 2: no parquet cache found for today — warm the cache first
        - Exit 3: internal error — investigate the traceback
@@ -47,13 +46,6 @@ Workflow:
        Overwrites the committed baseline with the current snapshot.  Use ONLY
        when an intentional structural change has been reviewed and approved.
        This is a code-review event — document the reason in the commit message.
-
-Plan 04 cutover note:
-    After the atomic bespoke-path removal, Plan 04 adapts this script to call
-    ``reports.management_summary.run_report()`` and extract
-    ``result["_bundle"]`` instead of the bespoke result dict, then passes it
-    through the SAME shared adapter.  The baseline JSON is re-initialized once
-    post-cutover (--rebaseline) and checked in to mark the new structural norm.
 """
 from __future__ import annotations
 
@@ -153,7 +145,7 @@ def _compare_snapshots(actual: dict, baseline: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Dispatch: call bespoke run_report in-process against cached parquet
+# Dispatch: call run_report in-process against cached parquet
 # ---------------------------------------------------------------------------
 
 def _dispatch_management_summary(cache_dir: Path) -> dict:
@@ -177,8 +169,8 @@ def _dispatch_management_summary(cache_dir: Path) -> dict:
         tag_value=None,
         cache_dir=cache_dir,
     )
-    # Plan 04 cutover: extract the composer bundle and pass it through
-    # the SAME shared adapter so keys are identical to the bespoke baseline.
+    # Post-cutover (GEN-01): extract the composer bundle and pass it through
+    # the shared adapter so snapshot keys are stable across re-baselines.
     return result["_bundle"]
 
 
@@ -214,7 +206,7 @@ def main() -> int:
     if not cache_dir.exists() or not any(cache_dir.glob("*.parquet")):
         return _abort_no_cache(cache_dir)
 
-    # Run bespoke management_summary against cached parquet
+    # Run management_summary (v1.4 ReportComposer path) against cached parquet
     print(f"\n=== management_summary smoke ===")
     print(f"[smoke] cache: {cache_dir}")
     try:

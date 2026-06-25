@@ -44,6 +44,7 @@ import tempfile
 from datetime import datetime, timezone
 from email import encoders
 from email.mime.base import MIMEBase
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -224,7 +225,7 @@ def _build_synthetic_outputs(*, stub_panels: bool) -> tuple[str, Path]:
     pdf_path = Path(tempfile.gettempdir()) / "phase2_smoke.pdf"
     weasyprint.HTML(string=pdf_html).write_pdf(pdf_path)
 
-    return panels_html, pdf_path
+    return panels_html, pdf_path, email_inline_images
 
 
 def _build_html_body(panels_html: str, pdf_path: Path, recipient: str) -> str:
@@ -272,7 +273,12 @@ def _attach_pdf(msg: MIMEMultipart, pdf_path: Path) -> None:
     msg.attach(part)
 
 
-def _smtp_send(html_body: str, pdf_path: Path, recipient: str) -> None:
+def _smtp_send(
+    html_body: str,
+    pdf_path: Path,
+    recipient: str,
+    email_inline_images: list[dict] | None = None,
+) -> None:
     host = os.getenv("SMTP_HOST")
     port = int(os.getenv("SMTP_PORT", "587"))
     user = os.getenv("SMTP_USERNAME")
@@ -299,6 +305,22 @@ def _smtp_send(html_body: str, pdf_path: Path, recipient: str) -> None:
     msg["Subject"] = "Phase 2 Smoke — RAG-strip cover + per-module panels"
     msg["Reply-To"] = from_addr
     msg.attach(MIMEText(html_body, "html"))
+
+    # CR-G4: attach the inline CID gauge images so <img src="cid:..."> refs
+    # in the panel HTML resolve in the recipient's email client.
+    # Mirrors delivery/email_sender.py's email_inline_images attach pattern.
+    import base64  # noqa: PLC0415
+    for entry in (email_inline_images or []):
+        cid = entry.get("cid", "")
+        b64_png = entry.get("b64_png", "")
+        if not cid or not b64_png:
+            continue
+        img_data = base64.b64decode(b64_png)
+        img_part = MIMEImage(img_data, _subtype="png")
+        img_part.add_header("Content-ID", f"<{cid}>")
+        img_part.add_header("Content-Disposition", "inline")
+        msg.attach(img_part)
+
     _attach_pdf(msg, pdf_path)
 
     logger.info("Connecting to %s:%d (use_ssl=%s)", host, port, use_ssl)
@@ -331,8 +353,9 @@ def main() -> int:
     parser.add_argument(
         "--no-stub-panels",
         action="store_true",
-        help="Skip the synthetic Phase 3-style panels and let the legacy "
-             "KPI-tile fallback render (use to confirm the {%% else %%} path).",
+        help="Disables the empty-panels stub fallback only — the real "
+             "render_email_panel() output is always attempted first. "
+             "Has no effect on the legacy KPI-tile path.",
     )
     parser.add_argument(
         "--dry-run",
@@ -341,7 +364,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    panels_html, pdf_path = _build_synthetic_outputs(
+    panels_html, pdf_path, email_inline_images = _build_synthetic_outputs(
         stub_panels=not args.no_stub_panels,
     )
     logger.info("Rendered panels-only fragment (%d chars)", len(panels_html))
@@ -358,7 +381,7 @@ def main() -> int:
         logger.info("--dry-run set; skipping SMTP send.")
         return 0
 
-    _smtp_send(html_body, pdf_path, args.recipient)
+    _smtp_send(html_body, pdf_path, args.recipient, email_inline_images)
     return 0
 
 

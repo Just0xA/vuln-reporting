@@ -62,7 +62,7 @@ Owner-dimension trend capture (`dimension="owner"` + `_count_by_owner`) proven e
 
 **`data/trend_store.py`** — extended with owner-dimension support:
 
-1. **`_count_by_owner(open_df, enriched_assets)`**: builds a `uuid→owner` map from `enriched_assets["asset_uuid"]` / `["owner"]`; uses `open_df["asset_uuid"].map(uuid_to_owner).fillna("Unassigned").value_counts().to_dict()` coerced to `{str: int}`. Empty `open_df` guard returns `{}`. Empty/missing `enriched_assets` guard produces all-Unassigned.
+1. **`_count_by_owner(open_df, enriched_assets)`**: builds a `uuid→owner` map from `enriched_assets["asset_uuid"]` / `["owner"]`; uses `open_df["asset_uuid"].map(uuid_to_owner).fillna("Unassigned").value_counts().to_dict()` coerced to `{str: int}`. Empty `open_df` guard returns `{}`. Empty `enriched_assets` DataFrame (zero rows, not None) produces all-Unassigned counts. Note: a `None` `enriched_assets` is rejected upstream by `capture_snapshot` with a `ValueError` before reaching this helper (T-13-12).
 
 2. **`capture_snapshot` dispatch**: new `enriched_assets: Optional[pd.DataFrame] = None` param (severity callers unaffected). Dimension dispatch: `"severity"` → `_count_by_severity` (fixed keys, Phase 12 unchanged); `"owner"` → `ValueError` on `enriched_assets=None`, else `_count_by_owner` (arbitrary owner keys); unknown → `ValueError`. Entry built via `**count_entry` unpacking into `new_entry` dict. `read_trend` requires no changes.
 

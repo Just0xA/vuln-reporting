@@ -85,7 +85,7 @@ All six new keys stored in `new_entry` after `asset_count` and before `generated
 Before the severity `capture_snapshot()` call:
 1. `count_on_time_assets(assets_df, snapshot_date)` provides `on_time_asset_count`
 2. `df["state"].str.upper() == "REOPENED"` count provides `reopened_count`
-3. `df["severity_modification_type"].str.upper().isin({"ACCEPTED"/"RECASTED"})` counts
+3. `df["severity_modification_type"].str.upper().isin({"ACCEPTED", "RECASTED"})` counts
 4. `fetch_fixed_vulnerabilities()` called fail-soft (warning + `None` on failure)
 
 All four counts plus `fixed_vulns_df` passed as keyword args into the severity call only. Owner-dimension call is unchanged. INFO log emits scalar counts only — no row-level data (QUAL-05).
