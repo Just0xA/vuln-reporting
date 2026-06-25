@@ -672,6 +672,16 @@ class ReportComposer:
                     f'</div>'
                 )
 
+            # CR-F1: validate return type before calling .strip() — a module
+            # returning None or any non-string must not crash assembly.
+            if not isinstance(html_section, str):
+                logger.warning(
+                    "ReportComposer.assemble_pdf [%s]: render_pdf_section() "
+                    "returned %r (not str) — converting to safe fallback.",
+                    data.module_id, type(html_section).__name__,
+                )
+                html_section = ""
+
             if not html_section or not html_section.strip():
                 continue  # Module doesn't support PDF output
 
@@ -1155,15 +1165,24 @@ class ReportComposer:
                     continue
                 collected.append((unique, df))
 
-        # D-20: all-empty workbook → no file written
+        # D-20: all-empty workbook → no file written (when no failures either)
         if not collected:
-            logger.info(
-                "ReportComposer.assemble_analyst_workbook: every module "
-                "returned [] or empty DataFrames — skipping analyst "
-                "workbook (failures=%d).",
+            if not failures:
+                logger.info(
+                    "ReportComposer.assemble_analyst_workbook: every module "
+                    "returned [] or empty DataFrames — skipping analyst "
+                    "workbook.",
+                )
+                return None
+            # CR-F2: all modules failed (failures non-empty, collected empty).
+            # Still emit a workbook containing only the _Metadata tab so the
+            # failure audit is surfaced rather than silently dropped.
+            logger.warning(
+                "ReportComposer.assemble_analyst_workbook: all %d module(s) "
+                "failed; writing _Metadata-only workbook with failure audit.",
                 len(failures),
             )
-            return None
+            # fall through to workbook creation below with empty collected
 
         # ── Open workbook, write tabs, append _Metadata, save ────────────
         wb = openpyxl.Workbook()
