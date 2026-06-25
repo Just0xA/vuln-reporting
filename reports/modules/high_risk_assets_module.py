@@ -115,8 +115,8 @@ class HighRiskAssetsModule(BaseModule):
     Percentage of on-time-scanned assets with >= 10 Critical/High vulns open > 30 days.
 
     Lower is better.  The per-owner breakdown table shows worst performers first
-    (highest percentage of high-risk assets at the top) so the PDF and Excel
-    surfaces the owners with the most acute remediation backlog.
+    (highest risk score at the top) so the PDF and Excel surfaces the owners
+    with the most acute remediation backlog.
 
     Supported options
     -----------------
@@ -943,11 +943,10 @@ class HighRiskAssetsModule(BaseModule):
                 ),
                 "BU_breakdown": (
                     "compute_per_bu_breakdown(higher_is_better=False) on on-time assets "
-                    "enriched with Application tag. "
-                    "Numerator = high-risk assets per BU; denominator = all on-time assets per BU. "
+                    "enriched with Owner tag via extract_owner(). "
+                    "Numerator = high-risk assets per Owner; denominator = all on-time assets per Owner. "
                     "affected = numerator (raw high-risk count). "
-                    "Primary sort: affected DESC (largest absolute problem first). "
-                    "Secondary sort: percentage DESC (worst % among ties)."
+                    "Primary sort: risk_score DESC (highest risk score at the top)."
                 ),
                 # WR-06 — explicit audit-info entry documenting the
                 # intentional broadening of compute_bu_risk_scores(): the

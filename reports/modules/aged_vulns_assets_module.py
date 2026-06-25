@@ -112,7 +112,7 @@ class AgedVulnsAssetsModule(BaseModule):
     """
     Percentage of on-time-scanned assets with >= 1 Med/High/Crit vuln open > 90 days.
 
-    Lower is better.  Per-owner breakdown sorted worst-first (highest percentage
+    Lower is better.  Per-owner breakdown sorted worst-first (highest risk score
     at the top) to surface owners with the deepest aging backlog.
 
     Supported options
@@ -942,8 +942,7 @@ class AgedVulnsAssetsModule(BaseModule):
                     "Numerator = assets with aged finding(s) per owner; "
                     "denominator = all on-time assets per owner. "
                     "affected = numerator (raw aged-asset count). "
-                    "Primary sort: affected DESC (largest absolute problem first). "
-                    "Secondary sort: percentage DESC (worst % among ties)."
+                    "Primary sort: risk_score DESC (highest risk score at the top)."
                 ),
                 # WR-06 — explicit audit-info entry documenting the
                 # intentional broadening of compute_bu_risk_scores(): the
