@@ -8,6 +8,7 @@ the entire suite.
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -94,9 +95,9 @@ SEVERITY_NAME_TO_LEVEL: dict[str, int] = {v: k for k, v in SEVERITY_LEVEL_MAP.it
 # =============================================================================
 VPR_SEVERITY_MAP: list[tuple[float, float, str]] = [
     (9.0, 10.0, "critical"),
-    (7.0, 8.9, "high"),
-    (4.0, 6.9, "medium"),
-    (0.1, 3.9, "low"),
+    (7.0,  8.99, "high"),    # WR-08: was 8.9; upper bound raised to close the 8.91–8.99 gap
+    (4.0,  6.99, "medium"),  # WR-08: was 6.9; upper bound raised to close the 6.91–6.99 gap
+    (0.1,  3.99, "low"),     # WR-08: was 3.9; upper bound raised to close the 3.91–3.99 gap
 ]
 
 
@@ -143,8 +144,6 @@ def vpr_to_severity(score: float | None, fallback: str = "info") -> str:
         score = float(score)
     except (TypeError, ValueError):
         return fallback
-
-    import math
 
     if math.isnan(score):
         return fallback
