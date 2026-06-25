@@ -34,9 +34,12 @@ import pytest
 # Enforce pandas CoW strict mode — catches ChainedAssignmentError / FutureWarning
 pd.options.mode.copy_on_write = True
 
+import math
+
 from reports.modules.base import ModuleConfig, ModuleData
 from reports.modules.program_health_module import (
     ProgramHealthModule,
+    _OWNER_SNAPSHOT_METADATA_KEYS,
     _composite_rag_od5,
     _signal_direction,
 )
@@ -1234,3 +1237,178 @@ class TestValidateConfigContract:
         )
         assert len(errors) == 1
         assert "owner_outlier_pct" in errors[0]
+
+
+# ===========================================================================
+# WR-03 / WR-04 / WR-05 robustness tests (19-02 Task 3)
+# ===========================================================================
+
+class TestSignalDirectionNaNGuard:
+    """WR-03: _signal_direction must return 'missing' for NaN, not silently 'red'."""
+
+    def test_nan_curr_returns_missing(self):
+        """float('nan') curr → 'missing', not 'red'."""
+        result = _signal_direction(float("nan"), 10.0, higher_is_better=True)
+        assert result == "missing", f"Expected 'missing', got {result!r}"
+
+    def test_nan_prev_returns_missing(self):
+        """float('nan') prev → 'missing'."""
+        result = _signal_direction(5.0, float("nan"), higher_is_better=False)
+        assert result == "missing", f"Expected 'missing', got {result!r}"
+
+    def test_nan_both_returns_missing(self):
+        """Both NaN → 'missing'."""
+        result = _signal_direction(float("nan"), float("nan"), higher_is_better=True)
+        assert result == "missing", f"Expected 'missing', got {result!r}"
+
+    def test_none_still_returns_missing(self):
+        """Existing None guard still works after broadening."""
+        assert _signal_direction(None, 10.0, higher_is_better=True) == "missing"
+        assert _signal_direction(5.0, None, higher_is_better=True) == "missing"
+
+    def test_valid_values_still_work(self):
+        """Valid floats still classify correctly after adding the NaN guard."""
+        # 8.0 → 10.0, higher_is_better=True → improved → green
+        assert _signal_direction(10.0, 8.0, higher_is_better=True) == "green"
+        # 10.0 → 8.0, higher_is_better=False (lower is better) → improved → green
+        assert _signal_direction(8.0, 10.0, higher_is_better=False) == "green"
+        # 8.0 → 10.0, higher_is_better=False → worsened → red
+        assert _signal_direction(10.0, 8.0, higher_is_better=False) == "red"
+
+
+class TestNetVelocitySparklineGap:
+    """WR-04: absent new_findings_count / fixed_findings_count → None gap, not 0."""
+
+    def _run_with_snapshots(self, snaps: list[dict]) -> list:
+        """Run compute with 2 snapshots from snaps, return net_velocity sparkline."""
+        vulns_df = _make_vulns([
+            {"severity": "critical", "first_found": REF - timedelta(days=5)},
+        ])
+        assets_df = _make_assets()
+        trend_data = {
+            "snapshots": snaps,
+            "insufficient_data": False,
+        }
+        config = ModuleConfig("program_health")
+        data = ProgramHealthModule().compute(
+            vulns_df=vulns_df,
+            assets_df=assets_df,
+            report_date=REF,
+            config=config,
+            trend_snapshots=trend_data,
+        )
+        return data.chart_data.get("net_velocity", [])
+
+    def test_absent_key_produces_none_gap(self):
+        """A snapshot missing new_findings_count entirely → None in series (gap)."""
+        snaps = [
+            # prev snap: has counts
+            {
+                "month": "2026-05",
+                "generated_at": "2026-05-01T00:00:00Z",
+                "critical": 10,
+                "sla_rate_crit_high": 80.0,
+                "mttr_overall_days": 20.0,
+                "new_findings_count": 5,
+                "fixed_findings_count": 3,
+            },
+            # curr snap: missing both count keys → should produce None, not 0
+            {
+                "month": "2026-06",
+                "generated_at": "2026-06-01T00:00:00Z",
+                "critical": 8,
+                "sla_rate_crit_high": 85.0,
+                "mttr_overall_days": 18.0,
+                # new_findings_count and fixed_findings_count intentionally absent
+            },
+        ]
+        series = self._run_with_snapshots(snaps)
+        # The last entry corresponds to the curr snap (missing keys) → must be None
+        assert series[-1] is None, (
+            f"Expected None for absent net-velocity keys, got {series[-1]!r}"
+        )
+
+    def test_present_counts_produce_float(self):
+        """Both keys present → net velocity is a float (new - fixed)."""
+        snaps = [
+            {
+                "month": "2026-05",
+                "generated_at": "2026-05-01T00:00:00Z",
+                "critical": 10,
+                "sla_rate_crit_high": 80.0,
+                "mttr_overall_days": 20.0,
+                "new_findings_count": 5,
+                "fixed_findings_count": 3,
+            },
+            {
+                "month": "2026-06",
+                "generated_at": "2026-06-01T00:00:00Z",
+                "critical": 8,
+                "sla_rate_crit_high": 85.0,
+                "mttr_overall_days": 18.0,
+                "new_findings_count": 4,
+                "fixed_findings_count": 6,
+            },
+        ]
+        series = self._run_with_snapshots(snaps)
+        # last entry: 4 - 6 = -2.0
+        assert series[-1] == -2.0, f"Expected -2.0, got {series[-1]!r}"
+
+
+class TestAnalystDfNaNAndIntCast:
+    """WR-05: analyst_df drops NaN rows and casts count columns to int."""
+
+    def test_analyst_counts_are_int_typed(self):
+        """Open Crit+High (curr) column values are Python int, not numpy int64."""
+        vulns_df = _make_vulns([
+            {"severity": "critical", "first_found": REF - timedelta(days=5)},
+            {"severity": "high",     "first_found": REF - timedelta(days=10)},
+        ])
+        assets_df = _make_assets([{"asset_uuid": "00000000-0000-0000-0000-000000000001",
+                                    "tags": [{"category": "Owner", "value": "Engineering"}]}])
+        snaps = [
+            {
+                "month": "2026-05",
+                "generated_at": "2026-05-01T00:00:00Z",
+                "critical": 3,
+                "sla_rate_crit_high": 80.0,
+                "mttr_overall_days": 20.0,
+                "new_findings_count": 5,
+                "fixed_findings_count": 3,
+                "Engineering": 3,
+            },
+            {
+                "month": "2026-06",
+                "generated_at": "2026-06-01T00:00:00Z",
+                "critical": 2,
+                "sla_rate_crit_high": 85.0,
+                "mttr_overall_days": 18.0,
+                "new_findings_count": 2,
+                "fixed_findings_count": 4,
+                "Engineering": 2,
+            },
+        ]
+        config = ModuleConfig("program_health")
+        data = ProgramHealthModule().compute(
+            vulns_df=vulns_df,
+            assets_df=assets_df,
+            report_date=REF,
+            config=config,
+            trend_snapshots={"snapshots": snaps, "insufficient_data": False},
+        )
+        # analyst_rows is list of (tab_name, DataFrame)
+        assert data.analyst_rows, "Expected non-empty analyst_rows"
+        _, analyst_df = data.analyst_rows[0]
+        if not analyst_df.empty:
+            curr_col = analyst_df["Open Crit+High (curr)"]
+            for val in curr_col:
+                assert isinstance(val, int), (
+                    f"Expected Python int, got {type(val).__name__}: {val!r}"
+                )
+
+    def test_owner_metadata_key_constant_is_frozenset(self):
+        """WR-05: _OWNER_SNAPSHOT_METADATA_KEYS is a frozenset (immutable, no drift)."""
+        assert isinstance(_OWNER_SNAPSHOT_METADATA_KEYS, frozenset)
+        # Spot-check key presence — these are written by capture_snapshot
+        for key in ("month", "generated_at", "sla_rate_crit_high", "asset_count"):
+            assert key in _OWNER_SNAPSHOT_METADATA_KEYS, f"Missing key: {key!r}"

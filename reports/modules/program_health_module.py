@@ -172,13 +172,37 @@ def _signal_direction(
         "green"   when direction improved.
         "red"     when direction worsened.
     """
-    if curr is None or prev is None:
+    if curr is None or prev is None or pd.isna(curr) or pd.isna(prev):
         return "missing"
     delta = curr - prev
     if abs(delta) <= flat_band:
         return "amber"
     improved = (delta > 0) if higher_is_better else (delta < 0)
     return "green" if improved else "red"
+
+
+# ---------------------------------------------------------------------------
+# WR-05: Metadata keys written by capture_snapshot() into owner-dimension
+# snapshots.  Kept as a module-level constant so the prev-snap reader and
+# any future writers reference the same set and cannot silently drift.
+# Any snapshot key NOT in this set and typed int is treated as an owner count.
+# ---------------------------------------------------------------------------
+_OWNER_SNAPSHOT_METADATA_KEYS: frozenset[str] = frozenset({
+    "month",
+    "tag_filter",
+    "asset_count",
+    "on_time_asset_count",
+    "reopened_count",
+    "accepted_count",
+    "recast_count",
+    "new_findings_count",
+    "fixed_findings_count",
+    "mttr_overall_days",
+    "mttr_by_severity",
+    "mttr_by_owner",
+    "sla_rate_crit_high",
+    "generated_at",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -529,7 +553,9 @@ class ProgramHealthModule(BaseModule):
             ]
             net_velocity_series = [
                 (
-                    (float(s.get("new_findings_count", 0)) - float(s.get("fixed_findings_count", 0)))
+                    # WR-04: use s.get(key) with explicit None check so a genuinely-absent
+                    # key produces a sparkline gap (None), not a misleading 0.
+                    (float(s.get("new_findings_count")) - float(s.get("fixed_findings_count")))
                     if s.get("new_findings_count") is not None and s.get("fixed_findings_count") is not None
                     else None
                 )
@@ -592,15 +618,11 @@ class ProgramHealthModule(BaseModule):
                     o_deduped = [o_by_month[m] for m in sorted(o_by_month)]
                     if len(o_deduped) >= 2:
                         prev_snap = o_deduped[-2]
-                        # Owner snapshot stores owner-keyed counts at top level
+                        # Owner snapshot stores owner-keyed counts at top level.
+                        # WR-05: use the module-level constant so reader and writers
+                        # cannot drift independently.
                         for key, val in prev_snap.items():
-                            if key not in ("month", "tag_filter", "asset_count",
-                                           "on_time_asset_count", "reopened_count",
-                                           "accepted_count", "recast_count",
-                                           "new_findings_count", "fixed_findings_count",
-                                           "mttr_overall_days", "mttr_by_severity",
-                                           "mttr_by_owner", "sla_rate_crit_high",
-                                           "generated_at") and isinstance(val, int):
+                            if key not in _OWNER_SNAPSHOT_METADATA_KEYS and isinstance(val, int):
                                 prev_owner_counts[key] = val
                         owner_mom_suppressed = False
                     else:
@@ -772,6 +794,15 @@ class ProgramHealthModule(BaseModule):
                 columns=["Owner", "Open Crit+High (curr)", "Open Crit+High (prev)",
                          "MoM Delta", "MoM Delta %", "Outlier"]
             )
+            # WR-05: drop rows where the current count is NaN (malformed snapshot data)
+            # and ensure count columns are Python int, not numpy int64, for clean JSON/Excel output.
+            if not analyst_df.empty:
+                analyst_df = analyst_df.dropna(subset=["Open Crit+High (curr)"])
+                analyst_df = analyst_df.assign(
+                    **{
+                        "Open Crit+High (curr)": analyst_df["Open Crit+High (curr)"].astype(int),
+                    }
+                )
             analyst_rows_list: list[tuple[str, pd.DataFrame]] = [
                 ("PH — Owner Detail", analyst_df),
             ]
