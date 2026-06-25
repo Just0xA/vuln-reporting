@@ -461,13 +461,81 @@ def run_report(
     # ------------------------------------------------------------------
     if vulns_df is not None and assets_df is not None:
         try:
+            # ------------------------------------------------------------------
+            # INT-WARN-1 (D-03): extract aggregate counts from the module
+            # results computed by composer.run_all() so capture_snapshot()
+            # receives the FULL field set (matching the cron writer in
+            # scripts/capture_trend_snapshot.py).  Use None as the safe
+            # default whenever a module result has error is not None (D-16-09).
+            # ------------------------------------------------------------------
+            _results_by_id: dict = {r.module_id: r for r in results}
+
+            def _safe_metric(module_id: str, key: str):
+                """Return metric value or None when module errored or key absent."""
+                r = _results_by_id.get(module_id)
+                if r is None or r.error is not None:
+                    return None
+                return r.metrics.get(key)
+
+            def _safe_metadata(module_id: str, key: str):
+                """Return metadata value or None when module errored or key absent."""
+                r = _results_by_id.get(module_id)
+                if r is None or r.error is not None:
+                    return None
+                return (r.metadata or {}).get(key)
+
+            # accepted_recast → accepted_count, recast_count
+            _snap_accepted_count = _safe_metric("accepted_recast", "accepted_count")
+            _snap_recast_count   = _safe_metric("accepted_recast", "recast_count")
+
+            # reopened_vulns → reopened_count
+            _snap_reopened_count = _safe_metric("reopened_vulns", "reopened_count")
+
+            # scan_coverage_sla → on_time_asset_count (stored as "scanned_on_time")
+            _snap_on_time_asset_count = _safe_metric("scan_coverage_sla", "scanned_on_time")
+
+            # mttr_trend → mttr_overall_days (stored as "overall_mttr")
+            _snap_mttr_overall = _safe_metric("mttr_trend", "overall_mttr")
+
+            # mttr_trend → mttr_by_severity dict (from per-sev _mttr metrics keys)
+            _mttr_r = _results_by_id.get("mttr_trend")
+            if _mttr_r is not None and _mttr_r.error is None and _mttr_r.metrics:
+                _snap_mttr_by_severity: dict | None = {
+                    sev: _mttr_r.metrics.get(f"{sev}_mttr")
+                    for sev in ("critical", "high", "medium", "low")
+                }
+            else:
+                _snap_mttr_by_severity = None
+
+            # mttr_trend → mttr_by_owner dict (from metadata["table_data_owner"])
+            _owner_rows = _safe_metadata("mttr_trend", "table_data_owner")
+            if _owner_rows:
+                _snap_mttr_by_owner: dict | None = {
+                    row["label"]: row["mttr_days"]
+                    for row in _owner_rows
+                    if row.get("label") is not None
+                }
+            else:
+                _snap_mttr_by_owner = None
+
+            # program_health → sla_rate_crit_high (stored as "sla_rate_current")
+            _snap_sla_rate_crit_high = _safe_metric("program_health", "sla_rate_current")
+
             capture_snapshot(
-                df             = vulns_df,
-                assets_df      = assets_df,
-                date           = generated_at,
-                dimension      = "severity",
-                tag_filter     = tag_filter_label,
-                fixed_vulns_df = fixed_vulns_df,
+                df                  = vulns_df,
+                assets_df           = assets_df,
+                date                = generated_at,
+                dimension           = "severity",
+                tag_filter          = tag_filter_label,
+                fixed_vulns_df      = fixed_vulns_df,
+                on_time_asset_count = _snap_on_time_asset_count,
+                reopened_count      = _snap_reopened_count,
+                accepted_count      = _snap_accepted_count,
+                recast_count        = _snap_recast_count,
+                mttr_overall_days   = _snap_mttr_overall,
+                mttr_by_severity    = _snap_mttr_by_severity,
+                mttr_by_owner       = _snap_mttr_by_owner,
+                sla_rate_crit_high  = _snap_sla_rate_crit_high,
             )
             logger.info(
                 "management_summary: trend snapshot captured (filter=%s)", tag_filter_label

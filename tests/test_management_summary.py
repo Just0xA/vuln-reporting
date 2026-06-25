@@ -547,7 +547,8 @@ def _check_float_tolerance(
         # Module key is scan_coverage_pct; bespoke golden key is coverage_pct.
         bv = bespoke.get("coverage_pct")
         # Accept either key name for forward-compatibility.
-        av = actual.get("scan_coverage_pct") or actual.get("coverage_pct")
+        # CR-T5: use explicit key-existence check so 0.0 is not treated as missing.
+        av = actual["scan_coverage_pct"] if "scan_coverage_pct" in actual else actual.get("coverage_pct")
         if bv is not None and av is not None:
             if abs(float(av) - float(bv)) > tol:
                 failures.append(
@@ -563,7 +564,8 @@ def _check_float_tolerance(
     elif mid == "mttr_trend":
         # Per-severity MTTR values (rolling-30 window)
         bespoke_mttr = bespoke.get("mttr", {})
-        actual_mttr  = actual.get("mttr_by_severity") or actual.get("mttr", {})
+        # CR-T5: explicit key-existence check so an empty dict {} is not treated as missing.
+        actual_mttr  = actual["mttr_by_severity"] if "mttr_by_severity" in actual else actual.get("mttr", {})
         for sev in ("critical", "high", "medium", "low"):
             bv = bespoke_mttr.get(sev)
             av = actual_mttr.get(sev)
@@ -580,7 +582,8 @@ def _check_float_tolerance(
 
     elif mid == "patch_compliance_rate":
         bv = bespoke.get("overall_rate")
-        av = actual.get("overall_rate") or actual.get("compliance_rate")
+        # CR-T5: explicit key-existence check so 0.0 is not treated as missing.
+        av = actual["overall_rate"] if "overall_rate" in actual else actual.get("compliance_rate")
         if bv is not None and av is not None:
             if abs(float(av) - float(bv)) > tol:
                 failures.append(
@@ -609,7 +612,8 @@ def _check_mixed(
     if mid == "accepted_recast":
         # Integer counts — bespoke "open_exceptions" maps to module "total_exceptions"
         bespoke_exc = bespoke.get("open_exceptions")
-        actual_exc  = actual.get("total_exceptions") or actual.get("open_exceptions")
+        # CR-T5: explicit key-existence check so 0 is not treated as missing.
+        actual_exc  = actual["total_exceptions"] if "total_exceptions" in actual else actual.get("open_exceptions")
         if bespoke_exc is not None:
             if actual_exc is None:
                 failures.append(
