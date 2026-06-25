@@ -44,7 +44,6 @@ pd.options.mode.copy_on_write = True
 from reports.modules.base import ModuleConfig, ModuleData
 from reports.modules.new_vs_remediated_module import (
     NewVsRemediatedModule,
-    _safe_mom_delta,
     _month_label,
 )
 
@@ -640,44 +639,7 @@ class TestReopenedAware:
 
 
 # ===========================================================================
-# 8. SAFE MOM DELTA HELPER (Pitfall 5)
-# ===========================================================================
-
-class TestSafeMomDelta:
-    def test_prev_zero_returns_na(self):
-        """prev=0 → 'N/A' not ZeroDivisionError."""
-        assert _safe_mom_delta(5, 0) == "N/A"
-
-    def test_prev_none_returns_na(self):
-        """prev=None → 'N/A'."""
-        assert _safe_mom_delta(5, None) == "N/A"
-
-    def test_curr_none_returns_na(self):
-        """curr=None → 'N/A'."""
-        assert _safe_mom_delta(None, 5) == "N/A"
-
-    def test_both_none_returns_na(self):
-        """Both None → 'N/A'."""
-        assert _safe_mom_delta(None, None) == "N/A"
-
-    def test_positive_delta(self):
-        """curr > prev → positive percentage string."""
-        result = _safe_mom_delta(12, 10)
-        assert result == "+20.0%"
-
-    def test_negative_delta(self):
-        """curr < prev → negative percentage string."""
-        result = _safe_mom_delta(8, 10)
-        assert result == "-20.0%"
-
-    def test_zero_delta(self):
-        """curr == prev → '+0.0%'."""
-        result = _safe_mom_delta(10, 10)
-        assert result == "+0.0%"
-
-
-# ===========================================================================
-# 9. EMPTY VULNS_DF / ZERO-DATA GUARD (QUAL-03)
+# 8. EMPTY VULNS_DF / ZERO-DATA GUARD (QUAL-03)
 # ===========================================================================
 
 class TestEmptyDataGuard:

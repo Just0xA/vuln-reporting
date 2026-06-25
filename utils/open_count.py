@@ -46,9 +46,8 @@ def open_findings_at(df: pd.DataFrame, date: datetime) -> pd.DataFrame:
     Notes
     -----
     State casing: the Tenable API returns lowercase values ("open",
-    "reopened", "fixed") matching ``management_summary._OPEN_STATES``.
-    This function normalises via ``.str.upper()`` so it is safe against
-    any future casing variation.
+    "reopened", "fixed").  This function normalises via ``.str.upper()``
+    so it is safe against any future casing variation.
 
     Columns used: first_found, last_fixed, resurfaced_date, state.
     The severity column is already VPR-classified upstream; this predicate
@@ -81,7 +80,7 @@ def open_findings_at(df: pd.DataFrame, date: datetime) -> pd.DataFrame:
         )
     born = df["first_found"].isna() | (df["first_found"] <= D)
 
-    # Normalise state to uppercase once (fetcher stores lowercase per _OPEN_STATES).
+    # Normalise state to uppercase once (fetcher stores lowercase: "open", "reopened", "fixed").
     # Coerce via .astype(str) first so a non-object state column (e.g. all-NaN
     # float or categorical inferred by pandas) does not raise AttributeError on
     # .str.upper() (WR-03).  .astype(str) keeps regular Python-str comparisons:

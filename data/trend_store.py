@@ -393,6 +393,14 @@ def capture_snapshot(
     only — never DataFrames, lists, or row-level data.  Existing snapshots that
     lack these keys are valid cold-starts for the new dimensions (D-15-06).
 
+    Owner-dimension scope (IN-05): when ``dimension="owner"`` the caller writes
+    per-owner severity counts but does NOT populate the aggregate fields
+    (``reopened_count``, ``accepted_count``, ``recast_count``,
+    ``fixed_findings_count``, ``on_time_asset_count``, ``mttr_overall_days``,
+    ``mttr_by_severity``, ``mttr_by_owner``, ``sla_rate_crit_high``).  Those
+    fields are severity-dimension fields populated by the all-assets caller; the
+    owner snapshot stores ``None`` for all of them.
+
     Capture-after-read ordering contract (WR-05): callers that read trend data
     via ``read_trend()`` before calling ``capture_snapshot()`` will see the
     current month flagged as ``partial=True`` in the read result when a prior

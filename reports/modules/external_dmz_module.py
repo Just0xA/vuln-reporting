@@ -44,11 +44,10 @@ from openpyxl.utils import get_column_letter
 
 from reports.modules.base import BaseModule, ModuleConfig, ModuleData
 from reports.modules.board_report_utils import extract_owner
-from reports.modules.format_utils import safe_format, safe_int, safe_pct
+from reports.modules.format_utils import safe_int, safe_pct
 from reports.modules.rag_utils import (
     NO_DATA_DRIVER,
     NO_DATA_HEADLINE,
-    STATUS_COLOR,
     STATUS_LABEL,
     build_rag_strip_entry,
     rag_status_from_value,
@@ -72,16 +71,6 @@ _FILL_GREEN  = PatternFill("solid", fgColor="C8E6C9")
 _FILL_AMBER  = PatternFill("solid", fgColor="FFF9C4")
 _FILL_RED    = PatternFill("solid", fgColor="FFCDD2")
 _FILL_GREY   = PatternFill("solid", fgColor="F5F5F5")
-
-
-def _rag_fill(status: str) -> PatternFill:
-    if status == "green":
-        return _FILL_GREEN
-    if status == "yellow":
-        return _FILL_AMBER
-    if status == "red":
-        return _FILL_RED
-    return _FILL_GREY
 
 
 # ===========================================================================

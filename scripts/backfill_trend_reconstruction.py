@@ -199,28 +199,6 @@ def _is_taper_month(month: str) -> bool:
     return month < _TAPER_MONTHS_BEFORE
 
 
-def _months_in_range(window_start: str) -> list[str]:
-    """
-    Return all ``"YYYY-MM"`` month strings from *window_start* through the
-    current month (inclusive), in ascending order.
-    """
-    from dateutil.relativedelta import relativedelta  # type: ignore[import]
-
-    start_year, start_mon = int(window_start[:4]), int(window_start[5:7])
-    now = datetime.now()
-    end_year, end_mon = now.year, now.month
-
-    months = []
-    cur_year, cur_mon = start_year, start_mon
-    while (cur_year, cur_mon) <= (end_year, end_mon):
-        months.append(f"{cur_year:04d}-{cur_mon:02d}")
-        cur_mon += 1
-        if cur_mon > 12:
-            cur_mon = 1
-            cur_year += 1
-    return months
-
-
 def _months_in_range_stdlib(window_start: str) -> list[str]:
     """
     Return all ``"YYYY-MM"`` month strings from *window_start* through the

@@ -43,9 +43,8 @@ from openpyxl.utils import get_column_letter
 
 from reports.modules.base import BaseModule, ModuleConfig, ModuleData
 from reports.modules.board_report_utils import extract_owner
-from reports.modules.format_utils import safe_format, safe_int, safe_pct
+from reports.modules.format_utils import safe_int, safe_pct
 from reports.modules.rag_utils import (
-    NO_DATA_DRIVER,
     NO_DATA_HEADLINE,
     STATUS_COLOR,
     STATUS_LABEL,
@@ -66,45 +65,9 @@ _FILL_RED    = PatternFill("solid", fgColor="FFCDD2")
 _FILL_GREY   = PatternFill("solid", fgColor="F5F5F5")
 
 
-def _rag_fill(status: str) -> PatternFill:
-    if status == "green":
-        return _FILL_GREEN
-    if status == "yellow":
-        return _FILL_AMBER
-    if status == "red":
-        return _FILL_RED
-    return _FILL_GREY
-
-
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
-
-def _safe_mom_delta(curr: Optional[int], prev: Optional[int]) -> str:
-    """
-    Return MoM net-delta as "N/A" when prior period is None or zero.
-
-    Never raises ZeroDivisionError; never computes % inline in render methods
-    (Pitfall 5).
-
-    Parameters
-    ----------
-    curr : int or None
-        Current-period value.
-    prev : int or None
-        Prior-period value.  None or 0 → "N/A".
-
-    Returns
-    -------
-    str
-        Formatted percentage string (e.g. "+12.5%", "-3.2%") or "N/A".
-    """
-    if curr is None or prev is None or prev == 0:
-        return "N/A"
-    pct = (curr - prev) / prev * 100.0
-    sign = "+" if pct >= 0 else ""
-    return f"{sign}{pct:.1f}%"
-
 
 def _month_label(month_str: str, current_period: pd.Period) -> str:
     """
