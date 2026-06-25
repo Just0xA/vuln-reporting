@@ -145,8 +145,21 @@ def reconstruct_month(
     else:
         combined = pd.concat([current_open_df, add_back_df], ignore_index=True)
 
+    # CR-B1: open_findings_at() treats state=fixed as terminal, so add-back rows
+    # (fixed AFTER the boundary, meaning they were still open AT the boundary) would
+    # be dropped.  Flip their state to "open" in a boundary-local copy only — do NOT
+    # mutate the original combined frame (pandas CoW rule, CONVENTIONS.md).
+    if not add_back_df.empty and "state" in combined.columns:
+        _df_boundary = combined.copy()
+        # Identify add-back rows in the combined frame: those whose last_fixed > boundary
+        _lf_combined = pd.to_datetime(_df_boundary["last_fixed"], utc=True, errors="coerce")
+        _add_back_in_combined = _lf_combined > boundary
+        _df_boundary.loc[_add_back_in_combined, "state"] = "open"
+    else:
+        _df_boundary = combined
+
     # Apply the reopened-aware two-interval predicate at the month boundary
-    open_at_boundary = open_findings_at(combined, boundary)
+    open_at_boundary = open_findings_at(_df_boundary, boundary)
 
     # Count by severity
     if open_at_boundary.empty:

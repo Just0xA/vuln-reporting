@@ -250,18 +250,65 @@ class TestOverlapSyntheticIntegrationPass:
         # Run the reconstruction
         reconstructed_counts = reconstruct_month(current_open_df, fixed_df, month)
 
-        # Assert within tolerance
+        # CR-T3: exact/zero-tolerance assertion — a dropped add-back row fails this.
+        # (Previously used a loose tolerance band; tightened to == per CR-T3 so that
+        # dropping rows 3 or 4 — the fixed-after-M add-backs — is immediately caught.)
         for sev, expected in captured_counts.items():
             got = reconstructed_counts.get(sev, 0)
-            abs_diff = abs(got - expected)
-            rel_diff = abs_diff / max(expected, 1)
-            assert abs_diff <= MAX_ABSOLUTE_ERROR or rel_diff <= MAX_RELATIVE_ERROR, (
-                f"Severity={sev}: expected={expected} got={got} "
-                f"abs_diff={abs_diff} rel_diff={rel_diff:.1%} — exceeds tolerance"
+            assert got == expected, (
+                f"open_findings_at add-back: severity={sev}: expected {expected} rows, "
+                f"got {got}. CR-B1: add-back rows (fixed after boundary) must not be "
+                f"dropped from the boundary open count."
             )
 
-        # Also test the within_tolerance helper
+        # Confirm within_tolerance still passes (it must, given exact match above)
         assert within_tolerance(captured_counts, reconstructed_counts)
+
+
+# ---------------------------------------------------------------------------
+# CR-T3 companion: add-back rows preserve original fixed metadata
+# ---------------------------------------------------------------------------
+
+class TestAddBackMetadataPreserved:
+    """
+    CR-B1 / CR-T3: The state flip that makes add-back rows visible to
+    open_findings_at is LOCAL to the boundary check only.  The original fixed
+    state and last_fixed metadata on the fixed_df rows must be unchanged after
+    reconstruct_month returns (no in-place mutation of the caller's DataFrames).
+    """
+
+    def test_addback_original_metadata_preserved(self) -> None:
+        from datetime import timedelta
+
+        from scripts.backfill_trend_reconstruction import reconstruct_month
+
+        month = "2025-10"
+        boundary = month_end_utc(month)
+
+        fixed_rows = [
+            {
+                "state": "fixed",
+                "severity": "critical",
+                "first_found": boundary - timedelta(days=60),
+                "last_fixed": boundary + timedelta(days=5),  # fixed AFTER boundary → add-back
+                "resurfaced_date": pd.NaT,
+            }
+        ]
+        fixed_df = _make_vuln_df(fixed_rows)
+        # Capture state before call
+        state_before = fixed_df["state"].iloc[0]
+        last_fixed_before = fixed_df["last_fixed"].iloc[0]
+
+        current_open_df = _make_vuln_df([])
+        reconstruct_month(current_open_df, fixed_df, month)
+
+        # Original fixed_df must be unchanged (no in-place mutation)
+        assert fixed_df["state"].iloc[0] == state_before, (
+            "CR-B1: reconstruct_month must not mutate fixed_df state column"
+        )
+        assert fixed_df["last_fixed"].iloc[0] == last_fixed_before, (
+            "CR-B1: reconstruct_month must not mutate fixed_df last_fixed column"
+        )
 
 
 # ---------------------------------------------------------------------------
