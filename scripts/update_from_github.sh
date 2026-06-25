@@ -305,6 +305,26 @@ usage_error() {
 }
 
 # ---------------------------------------------------------------------------
+# CR-U1: Symlink target resolver
+# ---------------------------------------------------------------------------
+# Resolve a symlink target to an absolute path anchored at INSTALL_ROOT.
+# An absolute target (starts with /) is returned unchanged.
+# A relative target is prepended with ${INSTALL_ROOT}/ so a target like
+# "releases/v1.2.0" becomes "${INSTALL_ROOT}/releases/v1.2.0" and cannot
+# produce a doubled-prefix path such as
+# "${INSTALL_ROOT}/releases/releases/v1.2.0".
+#
+# Usage: resolved="$(_resolve_target "$raw_target")"
+_resolve_target() {
+  local target="$1"
+  if [[ "$target" = /* ]]; then
+    echo "$target"
+  else
+    echo "${INSTALL_ROOT}/${target}"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Layout guard (UPDATE-10, T-10-01)
 # Runs before env sourcing on all commands except --help.
 # ---------------------------------------------------------------------------
@@ -320,15 +340,11 @@ assert_layout() {
   fi
 
   # Resolve the symlink target for prefix validation.
-  # readlink (without -f) returns the raw link value, which may be absolute
-  # (/opt/vuln-reporting/releases/vX/) or relative (releases/vX/).
-  # Tolerate both by prepending INSTALL_ROOT/ when the target is not absolute.
+  # CR-U1: use _resolve_target() so a relative target like "releases/vX/"
+  # is anchored to INSTALL_ROOT exactly once — prevents a doubled-prefix
+  # path such as "${INSTALL_ROOT}/releases/releases/vX/".
   local target
-  target="$(readlink "${INSTALL_ROOT}/current")"
-  if [[ "$target" != /* ]]; then
-    # Relative target — anchor it to INSTALL_ROOT.
-    target="${INSTALL_ROOT}/${target}"
-  fi
+  target="$(_resolve_target "$(readlink "${INSTALL_ROOT}/current")")"
 
   if [[ "$target" != "${INSTALL_ROOT}/releases/"* ]]; then
     log_completed "failed: ${INSTALL_ROOT}/current points outside releases/ — refuse-if-unknown-layout"
@@ -911,6 +927,21 @@ cmd_install() {
   # FORCE + existing dir: remove before extraction so --strip-components=1 does
   # not merge into a dirty tree.
   if [[ -d "$TARGET_DIR" && "${FORCE:-0}" == "1" ]]; then
+    # CR-U2: refuse --force re-extraction on the active release directory so
+    # the rollback symlink (.last → this dir) is not left pointing at a
+    # partially-rebuilt tree.  If the operator truly wants to rebuild the
+    # active release, they must first roll forward to a new version or
+    # roll back to the previous one.
+    local _active
+    _active="$(readlink -f "${INSTALL_ROOT}/current" 2>/dev/null || true)"
+    if [[ -n "$_active" && "$_active" == "$TARGET_DIR" ]]; then
+      printf 'error: --force refused: %s is the active release (current -> %s).\n' \
+        "$TARGET_DIR" "$_active" >&2
+      printf 'error: Re-extracting the active release would break rollback.\n' >&2
+      printf 'error: Install a new version with --version or roll back first.\n' >&2
+      log_completed "failed: --force refused on active release ${TARGET_DIR}"
+      exit 7
+    fi
     log_line "FORCE: removing existing ${TARGET_DIR} before re-extraction"
     rm -rf "$TARGET_DIR"
   fi
