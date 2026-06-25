@@ -485,20 +485,43 @@ def send_report_email(
     related.attach(MIMEText(html_body, "html", "utf-8"))
 
     # Attach pre-built base64 inline charts (e.g. from management_summary)
+    # CR-F4: apply the same size-budget guards as the email_inline_images path
+    # below — per-image cap (20% of MAX_ATTACHMENT_SIZE_MB) and cumulative cap
+    # (MAX_ATTACHMENT_SIZE_MB converted to bytes) to avoid oversized payloads.
     import base64 as _base64
+    _prebuilt_per_image_bytes = int(MAX_ATTACHMENT_SIZE_MB * 0.20 * 1024 * 1024)
+    _prebuilt_budget_bytes    = MAX_ATTACHMENT_SIZE_MB * 1024 * 1024
+    _prebuilt_total           = 0
     for cid_name, b64_str in prebuilt_charts.items():
         try:
             img_data = _base64.b64decode(b64_str)
-            img = MIMEImage(img_data, _subtype="png")
-            img.add_header("Content-ID", f"<{cid_name}>")
-            img.add_header("Content-Disposition", "inline", filename=f"{cid_name}.png")
-            related.attach(img)
-            logger.debug("[%s] Embedded pre-built inline chart: %s", group_name, cid_name)
         except Exception as exc:
             logger.warning(
-                "[%s] Failed to embed pre-built chart '%s': %s",
+                "[%s] Failed to decode pre-built chart '%s': %s",
                 group_name, cid_name, exc,
             )
+            continue
+        _candidate = len(img_data)
+        if _candidate > _prebuilt_per_image_bytes:
+            logger.warning(
+                "[%s] Skipping oversize pre-built chart '%s' "
+                "(%d bytes > per-image cap %d).",
+                group_name, cid_name, _candidate, _prebuilt_per_image_bytes,
+            )
+            continue
+        if _prebuilt_total + _candidate > _prebuilt_budget_bytes:
+            logger.warning(
+                "[%s] Pre-built chart cumulative size would exceed %d bytes — "
+                "dropping '%s' and remaining pre-built charts.",
+                group_name, _prebuilt_budget_bytes, cid_name,
+            )
+            break
+        _prebuilt_total += _candidate
+        img = MIMEImage(img_data, _subtype="png")
+        img.add_header("Content-ID", f"<{cid_name}>")
+        img.add_header("Content-Disposition", "inline", filename=f"{cid_name}.png")
+        related.attach(img)
+        logger.debug("[%s] Embedded pre-built inline chart: %s", group_name, cid_name)
 
     # D-04: CID inline gauge images from modular bundles. Each report's
     # ``email_inline_images`` is a list of ``{"cid": str, "b64_png": str}``.
