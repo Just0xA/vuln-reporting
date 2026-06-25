@@ -477,6 +477,16 @@ def _configure_logging(verbose: bool = False) -> None:
     root.addHandler(handler)
 
 
+def _month_arg(value: str) -> str:
+    """CR-B4: argparse type validator — accept only YYYY-MM, reject everything else."""
+    import re as _re
+    if not _re.fullmatch(r"\d{4}-\d{2}", value):
+        raise argparse.ArgumentTypeError(
+            f"--window-start must be YYYY-MM (e.g. 2025-06), got {value!r}"
+        )
+    return value
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="One-time all-assets trend reconstruction seeding script (D-18-08).",
@@ -491,6 +501,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--window-start",
         default=DEFAULT_WINDOW_START,
         metavar="YYYY-MM",
+        type=_month_arg,
         help=f"Earliest month to reconstruct (default: {DEFAULT_WINDOW_START}).",
     )
     parser.add_argument(
@@ -521,6 +532,14 @@ def _load_dataframes(cache_dir: Optional[str]) -> tuple[pd.DataFrame, pd.DataFra
             logger.info("Loading from cache: %s", cache_path)
             current_open_df = pd.read_parquet(open_path)
             fixed_df = pd.read_parquet(fixed_path)
+            # CR-B2: apply the same open/reopened filter the live fetcher applies.
+            # The cached parquet (vulns_all.parquet) may contain ALL states; the live
+            # fetch_all_vulnerabilities() filters to {open, reopened} before returning.
+            # Without this filter the cached path hands fixed rows into reconstruct_month,
+            # causing cached vs live runs to diverge on the open count.
+            if not current_open_df.empty and "state" in current_open_df.columns:
+                open_mask = current_open_df["state"].str.lower().isin({"open", "reopened"})
+                current_open_df = current_open_df[open_mask].reset_index(drop=True)
             return current_open_df, fixed_df
         else:
             logger.warning(

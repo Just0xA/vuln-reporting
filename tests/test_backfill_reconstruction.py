@@ -619,13 +619,23 @@ class TestPartialFlagOnTaperMonths:
 
         snaps = _load_snapshots(tmp_path)
         reconstructed = {s["month"]: s for s in snaps if s.get("source") == "reconstructed"}
+        produced_months = set(reconstructed.keys())
+
+        # CR-T4: assert the expected taper/non-taper month set EXISTS before checking flags.
+        # Without this pre-check the flag assertions silently pass when the months were
+        # never written (the `if month in reconstructed` guards would skip everything).
+        expected_taper_months = {"2025-06", "2025-07", "2025-08"}
+        assert produced_months >= expected_taper_months, (
+            f"CR-T4: expected taper months not produced: "
+            f"{expected_taper_months - produced_months}. "
+            f"Produced: {produced_months}"
+        )
 
         # Taper months: Jun, Jul, Aug 2025 → partial=True
         for taper_month in ("2025-06", "2025-07", "2025-08"):
-            if taper_month in reconstructed:
-                assert reconstructed[taper_month].get("partial") is True, (
-                    f"Month {taper_month} must carry partial=True (taper-edge D-18-02)"
-                )
+            assert reconstructed[taper_month].get("partial") is True, (
+                f"Month {taper_month} must carry partial=True (taper-edge D-18-02)"
+            )
 
         # Non-taper months: Sep 2025 onward → partial absent or False
         for non_taper in ("2025-09", "2025-10", "2025-11"):
