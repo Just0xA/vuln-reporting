@@ -174,20 +174,40 @@ def _load_trend_json(path: Path) -> list[dict]:
     try:
         with path.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
-        # Root must be {"snapshots": [...]}.  A non-dict root (e.g. a bare list)
-        # raises AttributeError on .get and is handled as a parse failure below.
-        return data.get("snapshots", [])
-    except Exception as exc:
+        # CR-B7 + WR-07: validate shape — root must be a dict.
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"_load_trend_json: root is {type(data).__name__}, expected dict"
+            )
+        snapshots = data.get("snapshots", [])
+        # CR-B7: snapshots value must be a list.
+        if not isinstance(snapshots, list):
+            raise ValueError(
+                f"_load_trend_json: 'snapshots' is {type(snapshots).__name__}, expected list"
+            )
+        # CR-B7: every entry must be a dict.
+        bad = [i for i, s in enumerate(snapshots) if not isinstance(s, dict)]
+        if bad:
+            raise ValueError(
+                f"_load_trend_json: non-dict snapshot entries at indices {bad}"
+            )
+        return snapshots
+    except (json.JSONDecodeError, ValueError, AttributeError) as exc:
         logger.error(
-            "Could not parse trend file %s: %s — preserving it as *.corrupt so "
-            "accumulated history is not overwritten on the next write",
+            "_load_trend_json: parse/validation failure for %s: %s — "
+            "renaming to *.corrupt so accumulated history is not overwritten",
             path, exc,
         )
+        corrupt_path = path.with_suffix(path.suffix + ".corrupt")
         try:
-            path.replace(path.with_suffix(path.suffix + ".corrupt"))
+            path.rename(corrupt_path)
+            logger.error(
+                "_load_trend_json: renamed corrupt file to %s", corrupt_path
+            )
         except OSError as rename_exc:
             logger.error(
-                "Could not preserve corrupt trend file %s: %s", path, rename_exc
+                "_load_trend_json: could not rename corrupt file %s: %s",
+                path, rename_exc,
             )
         return []
 
@@ -373,6 +393,15 @@ def capture_snapshot(
     only — never DataFrames, lists, or row-level data.  Existing snapshots that
     lack these keys are valid cold-starts for the new dimensions (D-15-06).
 
+    Capture-after-read ordering contract (WR-05): callers that read trend data
+    via ``read_trend()`` before calling ``capture_snapshot()`` will see the
+    current month flagged as ``partial=True`` in the read result when a prior
+    snapshot for that month already exists.  A future reorder that calls
+    ``capture_snapshot`` *before* ``read_trend`` would turn the just-written
+    current-month point into a "completed prior" month from the reader's
+    perspective — ``read_trend``'s partial-flag logic handles this correctly,
+    but the ordering must not silently change without a test update.
+
     Returns
     -------
     Path
@@ -387,7 +416,12 @@ def capture_snapshot(
     asset_count = int(len(assets_df))
 
     # Timezone policy: month key = local, generated_at = UTC.
-    month_str = date.strftime("%Y-%m")  # LOCAL — no tz conversion
+    # WR-06: if date is tz-aware (e.g. UTC-aware generated_at), convert to
+    # server-local time before deriving the month key so a UTC-aware input near
+    # a month boundary doesn't misattribute the snapshot to the wrong month on
+    # a non-UTC server.  Naive dates are already local — strftime directly.
+    _local_date = date.astimezone() if date.tzinfo is not None else date
+    month_str = _local_date.strftime("%Y-%m")  # LOCAL — CLAUDE.md timezone policy
     generated_at_str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Dimension dispatch — build count_entry dict with appropriate keys.
@@ -424,7 +458,12 @@ def capture_snapshot(
             ff = pd.to_datetime(df["first_found"], utc=True, errors="coerce")
             ff_month = ff.dt.tz_convert(local_tz).dt.strftime("%Y-%m")
             new_findings_count = int((ff_month == month_str).sum())
-        if not fixed_vulns_df.empty:
+        if fixed_vulns_df.empty:
+            # CR-B6: present-but-empty df → explicit 0, not None.
+            # Empty ≠ missing: a caller that passes an empty fixed_vulns_df is
+            # signalling "we looked, nothing was fixed this month", not "we didn't look".
+            fixed_findings_count = 0
+        else:
             lf = pd.to_datetime(fixed_vulns_df["last_fixed"], utc=True, errors="coerce")
             lf_month = lf.dt.tz_convert(local_tz).dt.strftime("%Y-%m")
             state_upper = fixed_vulns_df["state"].astype(str).str.upper()
@@ -527,6 +566,27 @@ def read_trend(
     dict
         ``{"snapshots": list[dict], "insufficient_data": bool}``
         ``insufficient_data`` is ``True`` when fewer than 2 snapshots exist.
+
+    Notes
+    -----
+    WR-05 partial-month flag: when management_summary (or any MoM consumer)
+    calls ``read_trend`` *after* ``capture_snapshot`` has written the current
+    month's snapshot, the newest entry in the returned list represents a
+    month-to-date (partial) count — not a completed month.  MoM delta math
+    (``latest − prior``) must exclude this point or it will compare an
+    incomplete current month against a completed prior month.
+
+    This function flags the newest snapshot as ``partial=True`` when its
+    ``month`` field equals the current server-local month, using the same
+    ``datetime.now().strftime("%Y-%m")`` convention that ``capture_snapshot``
+    uses to derive the month key (WR-06 / CLAUDE.md timezone policy).  A
+    reordering that calls ``read_trend`` *before* ``capture_snapshot`` would
+    still set the flag correctly if an earlier snapshot for the current month
+    already exists in the file.
+
+    Callers that need only fully-completed months should filter on
+    ``not snap.get("partial", False)`` or slice ``snapshots[:-1]`` when the
+    last entry is partial.
     """
     trend_dir = trend_dir or TREND_DIR
     file_path = trend_dir / f"trend_{dimension}_{tag_filter}.json"
@@ -540,7 +600,7 @@ def read_trend(
     # filename suffix and the stored tag_filter field have diverged (e.g. a
     # Phase-13 sanitised filename suffix vs. a raw stored value).  Without this
     # log line read_trend would silently report insufficient_data on a fully
-    # populated file (WR-05).
+    # populated file.
     relevant = [s for s in all_snaps if s.get("tag_filter") == tag_filter]
     if all_snaps and not relevant:
         logger.warning(
@@ -551,9 +611,22 @@ def read_trend(
     relevant.sort(key=lambda s: s.get("month", ""))
     recent = relevant[-months:]
 
+    # WR-05: flag the newest entry as partial when its month equals the current
+    # local month.  Uses datetime.now().strftime("%Y-%m") — the SAME local-time
+    # convention capture_snapshot uses (WR-06) — so the detection is consistent
+    # regardless of whether read_trend runs before or after capture_snapshot.
+    current_local_month = datetime.now().strftime("%Y-%m")
+    snaps_out = []
+    for i, snap in enumerate(recent):
+        entry = dict(snap)  # shallow copy — never mutate the raw loaded data
+        is_newest = (i == len(recent) - 1)
+        if is_newest and entry.get("month") == current_local_month:
+            entry["partial"] = True
+        snaps_out.append(entry)
+
     return {
-        "snapshots":        recent,
-        "insufficient_data": len(recent) < 2,
+        "snapshots":        snaps_out,
+        "insufficient_data": len(snaps_out) < 2,
     }
 
 

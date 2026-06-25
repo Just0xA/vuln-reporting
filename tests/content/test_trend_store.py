@@ -1086,3 +1086,194 @@ def test_sla_rate_backward_compat(tmp_path):
     assert snap.get("sla_rate_crit_high") is None, (
         "Old snapshot must cold-start sla_rate_crit_high to None (no KeyError)"
     )
+
+
+# ---------------------------------------------------------------------------
+# CR-B6: present-but-empty fixed_vulns_df writes fixed_findings_count == 0
+# ---------------------------------------------------------------------------
+
+
+def test_fixed_findings_count_explicit_zero_when_empty_df(tmp_path):
+    """
+    CR-B6: capture_snapshot with a present-but-empty fixed_vulns_df must write
+    fixed_findings_count == 0 (explicit int), not None.
+
+    Empty != missing: a caller that passes an empty DataFrame is signalling
+    "we looked, nothing was fixed this month".  Leaving the field as None
+    would conflate "empty" with "caller did not supply fixed data at all".
+    """
+    df = _open_df(n=3)
+    assets_df = _assets_df(n=2)
+    empty_fixed_df = pd.DataFrame(
+        columns=["last_fixed", "first_found", "state", "severity",
+                 "resurfaced_date"]
+    )
+
+    path = capture_snapshot(
+        df, assets_df,
+        datetime(2026, 6, 1, tzinfo=timezone.utc),
+        "severity", "all_assets",
+        fixed_vulns_df=empty_fixed_df,
+        trend_dir=tmp_path,
+    )
+    snap = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+
+    assert snap["fixed_findings_count"] == 0, (
+        "CR-B6: present-but-empty fixed_vulns_df must write fixed_findings_count=0, not None"
+    )
+    assert isinstance(snap["fixed_findings_count"], int), (
+        "CR-B6: fixed_findings_count must be int (0), not None"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CR-B7 + WR-07: _load_trend_json validates shape and renames corrupt files
+# ---------------------------------------------------------------------------
+
+
+def test_load_trend_json_bare_list_is_corrupt(tmp_path):
+    """
+    CR-B7/WR-07: a JSON file whose root is a bare list (not a dict) must be
+    renamed to *.corrupt and _load_trend_json must return [].
+    """
+    from data.trend_store import _load_trend_json
+
+    bad_file = tmp_path / "trend_severity_all_assets.json"
+    bad_file.write_text(json.dumps([{"month": "2026-01"}]), encoding="utf-8")
+
+    result = _load_trend_json(bad_file)
+
+    assert result == [], "CR-B7: bare-list root must return []"
+    assert not bad_file.exists(), "CR-B7: corrupt file must be renamed away"
+    corrupt = bad_file.with_suffix(bad_file.suffix + ".corrupt")
+    assert corrupt.exists(), "CR-B7: *.corrupt rename must exist"
+
+
+def test_load_trend_json_non_list_snapshots_is_corrupt(tmp_path):
+    """
+    CR-B7/WR-07: a JSON file with a dict root but non-list 'snapshots' value
+    must be renamed to *.corrupt and return [].
+    """
+    from data.trend_store import _load_trend_json
+
+    bad_file = tmp_path / "trend_severity_all_assets.json"
+    bad_file.write_text(
+        json.dumps({"snapshots": "not-a-list"}), encoding="utf-8"
+    )
+
+    result = _load_trend_json(bad_file)
+
+    assert result == [], "CR-B7: non-list snapshots must return []"
+    assert not bad_file.exists(), "CR-B7: corrupt file must be renamed away"
+
+
+def test_load_trend_json_non_dict_snapshot_entry_is_corrupt(tmp_path):
+    """
+    CR-B7/WR-07: a JSON file whose 'snapshots' list contains a non-dict entry
+    (e.g. a bare string or int) must be renamed to *.corrupt and return [].
+    """
+    from data.trend_store import _load_trend_json
+
+    bad_file = tmp_path / "trend_severity_all_assets.json"
+    bad_file.write_text(
+        json.dumps({"snapshots": [{"month": "2026-01"}, "oops", 42]}),
+        encoding="utf-8",
+    )
+
+    result = _load_trend_json(bad_file)
+
+    assert result == [], "CR-B7: non-dict entry in snapshots must return []"
+    assert not bad_file.exists(), "CR-B7: corrupt file must be renamed away"
+
+
+# ---------------------------------------------------------------------------
+# WR-06: month key uses local time (not UTC) even for UTC-aware input date
+# ---------------------------------------------------------------------------
+
+
+def test_capture_snapshot_month_key_uses_local_time(tmp_path):
+    """
+    WR-06: capture_snapshot must derive month_str from local time so a
+    UTC-aware datetime near a month boundary on a non-UTC server is attributed
+    to the correct local month.
+
+    We use 2026-05-31T23:30:00Z.  On a UTC+1 server this is 2026-06-01 00:30
+    local → month key "2026-06".  On UTC it stays "2026-05".  The test asserts
+    that the written month_str matches what date.astimezone().strftime('%Y-%m')
+    produces — i.e. the same local-time derivation capture_snapshot now uses.
+    """
+    import datetime as _dt
+
+    utc_date = _dt.datetime(2026, 5, 31, 23, 30, 0, tzinfo=_dt.timezone.utc)
+    expected_month = utc_date.astimezone().strftime("%Y-%m")
+
+    df = _open_df(n=2)
+    assets_df = _assets_df(n=1)
+
+    path = capture_snapshot(
+        df, assets_df, utc_date, "severity", "all_assets",
+        trend_dir=tmp_path,
+    )
+    snap = json.loads(path.read_text(encoding="utf-8"))["snapshots"][0]
+
+    assert snap["month"] == expected_month, (
+        f"WR-06: month key must be local-time {expected_month!r}, "
+        f"got {snap['month']!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# WR-05: read_trend flags the current-local-month newest entry as partial
+# ---------------------------------------------------------------------------
+
+
+def test_read_trend_flags_current_month_as_partial(tmp_path):
+    """
+    WR-05: when the newest snapshot's 'month' equals the current server-local
+    month, read_trend must set partial=True on that entry so MoM delta math
+    can exclude the partial month-to-date point instead of treating it as a
+    completed latest point.
+
+    The current-month detection uses datetime.now().strftime('%Y-%m') — the
+    same local-time convention capture_snapshot uses (WR-06 / CLAUDE.md).
+    """
+    current_month = datetime.now().strftime("%Y-%m")
+    prior_month = "2025-01"  # always in the past
+
+    snap_data = {
+        "snapshots": [
+            {
+                "month": prior_month,
+                "tag_filter": "all_assets",
+                "critical": 5, "high": 3, "medium": 2, "low": 1,
+                "asset_count": 10,
+                "generated_at": "2025-01-01T00:00:00Z",
+            },
+            {
+                "month": current_month,
+                "tag_filter": "all_assets",
+                "critical": 6, "high": 4, "medium": 2, "low": 1,
+                "asset_count": 10,
+                "generated_at": "2026-01-01T00:00:00Z",
+            },
+        ]
+    }
+    snap_file = tmp_path / "trend_severity_all_assets.json"
+    snap_file.write_text(json.dumps(snap_data), encoding="utf-8")
+
+    result = read_trend("severity", "all_assets", months=12, trend_dir=tmp_path)
+    snaps = result["snapshots"]
+
+    # Newest entry (current month) must be flagged partial
+    newest = snaps[-1]
+    assert newest["month"] == current_month, "Newest entry must be the current month"
+    assert newest.get("partial") is True, (
+        "WR-05: current-local-month newest entry must carry partial=True"
+    )
+
+    # Prior entry must NOT be flagged partial
+    prior = snaps[0]
+    assert prior["month"] == prior_month
+    assert not prior.get("partial"), (
+        "WR-05: prior completed month must not carry partial=True"
+    )
