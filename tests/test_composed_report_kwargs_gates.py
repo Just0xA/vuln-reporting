@@ -43,6 +43,7 @@ import reports.composed_report as _cr  # noqa: E402
 from reports.composed_report import (  # noqa: E402
     _MODULES_NEEDING_TREND_SNAPSHOTS,
     _MODULES_NEEDING_RECAST_RULES,
+    _MODULES_NEEDING_FIXED_VULNS,
     run_report,
 )
 from reports.modules.sc4_kwargs_stub_module import Sc4KwargsStubModule  # noqa: E402
@@ -103,6 +104,9 @@ def test_frozensets_membership():
     assert _MODULES_NEEDING_RECAST_RULES == frozenset(
         {"sc4_kwargs_stub", "accepted_recast"}
     ), "_MODULES_NEEDING_RECAST_RULES membership drifted (D-17 / Phase 15)"
+    assert _MODULES_NEEDING_FIXED_VULNS == frozenset(
+        {"critical_remediation_sla", "mttr_trend"}
+    ), "_MODULES_NEEDING_FIXED_VULNS membership drifted (INT-WARN-3 / Phase 19 / SUB-03)"
     # D-03 negative guard: current-snapshot modules never trigger a trend fetch.
     assert "reopened_vulns" not in _MODULES_NEEDING_TREND_SNAPSHOTS
     assert "external_dmz" not in _MODULES_NEEDING_TREND_SNAPSHOTS
