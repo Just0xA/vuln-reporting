@@ -91,11 +91,14 @@ _SCENARIOS = {
 
 def _cache_from(cache_dir: Path, vulns: pd.DataFrame, assets: pd.DataFrame) -> Path:
     """Write a scenario's dfs into a cache dir (fastparquet, all 4 datasets)."""
+    import config as _config  # noqa: PLC0415
     cache_dir.mkdir(parents=True, exist_ok=True)
+    # CR-B5: fixed-vuln cache file is keyed by lookback window; seed the default.
+    fixed_key = f"vulns_fixed_{_config.FIXED_LOOKBACK_DAYS}d"
     datasets = {
         "vulns_all": vulns,
         "assets_all": assets,
-        "vulns_fixed": vulns.iloc[0:0].copy(),
+        fixed_key: vulns.iloc[0:0].copy(),
         "recast_rules": pd.DataFrame({"_": pd.Series([], dtype="object")}),
     }
     for name, df in datasets.items():

@@ -68,10 +68,15 @@ def seeded_cache(tmp_path) -> Path:
     cache = tmp_path / "cache"
     cache.mkdir()
     vulns, assets, _ = make_scenario(seed=7)
+    # CR-B5: fixed-vuln cache file is now keyed by lookback window.
+    # Seed the default-window file (config.FIXED_LOOKBACK_DAYS = 365) so
+    # fetch_fixed_vulnerabilities hits the cache and never calls DummyTio.
+    import config as _config  # noqa: PLC0415
+    fixed_key = f"vulns_fixed_{_config.FIXED_LOOKBACK_DAYS}d"
     datasets = {
         "vulns_all": vulns,
         "assets_all": assets,
-        "vulns_fixed": vulns.iloc[0:0].copy(),     # no fixed vulns in fixture
+        fixed_key: vulns.iloc[0:0].copy(),     # no fixed vulns in fixture
         "recast_rules": pd.DataFrame({"_": pd.Series([], dtype="object")}),  # fastparquet requires >=1 column
     }
     for name, df in datasets.items():
