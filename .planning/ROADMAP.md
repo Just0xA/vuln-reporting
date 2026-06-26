@@ -220,7 +220,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 **Goal:** Close out the v1.4 milestone (off `tech_debt`): fix INT-WARN-1/2/3, all deferred 18/17/15-REVIEW findings, and the 39 net-new CodeRabbit findings; then run the Phase 16 UAT + Phase 17 human verifications against the fixed build and refresh the milestone audit.
 **Requirements**: none (closure/tech-debt phase — no REQ-IDs; covers CONTEXT decisions D-01..D-07 + enumerated finding IDs)
 **Depends on:** Phase 18
-**Plans:** 11/11 plans executed (complete)
+**Plans:** 11/11 plans complete
 
 Plans:
 **Wave 1**
