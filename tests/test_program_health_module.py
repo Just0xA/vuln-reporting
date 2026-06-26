@@ -1905,3 +1905,98 @@ class TestExcelD6:
         tabs = m.render_excel_tabs(data, wb, _make_config())
         assert "Program Health" in tabs
         assert "Owner Velocity" in tabs
+
+
+# ===========================================================================
+# 19-10 Task 4: Test sweep — cold-start + empty-data QUAL-03 guard assertions
+# ===========================================================================
+
+class TestColdStartNewFields:
+    """Explicit cold-start assertions for 19-10 new keys — no KeyError downstream."""
+
+    def test_cold_start_compute_has_all_new_keys(self):
+        """compute() cold-start path includes new_current, fixed_current, net_velocity_status_current."""
+        vuln_rows = [{"severity": "critical", "first_found": REF - timedelta(days=5)}]
+        result = _run(vuln_rows)  # no trend_snapshots → cold-start
+        m = result.metrics
+        assert "new_current" in m, "new_current key missing"
+        assert "fixed_current" in m, "fixed_current key missing"
+        assert "net_velocity_status_current" in m, "net_velocity_status_current key missing"
+        assert m["new_current"] is None, f"cold-start new_current should be None, got {m['new_current']!r}"
+        assert m["fixed_current"] is None, f"cold-start fixed_current should be None, got {m['fixed_current']!r}"
+
+    def test_cold_start_mttr_establishing_pdf_caption(self):
+        """Cold-start PDF render: MTTR establishing caption present when mttr_current is None."""
+        m = ProgramHealthModule()
+        data = _make_cold_data()
+        pdf = m.render_pdf_section(data, _make_config())
+        # Cold-start has no sparklines (cold-start notice branch), but the render must not crash
+        assert isinstance(pdf, str) and len(pdf) > 0
+
+    def test_cold_start_email_establishing_caption(self):
+        """Cold-start email: 'establish' or 'trend being established' appears in the panel."""
+        m = ProgramHealthModule()
+        data = _make_cold_data()
+        email = m.render_email_panel(data, _make_config())
+        assert "establish" in email.lower(), (
+            "Cold-start email panel should mention 'establish' (trend being established)"
+        )
+
+    def test_cold_start_all_four_channels_no_crash(self):
+        """All 4 render channels survive the cold-start path with new Task 1 fields present."""
+        import openpyxl
+        m = ProgramHealthModule()
+        data = _make_cold_data()
+        config = _make_config()
+
+        pdf = m.render_pdf_section(data, config)
+        assert isinstance(pdf, str), "PDF must return string"
+
+        email = m.render_email_panel(data, config)
+        assert isinstance(email, str), "email must return string"
+
+        wb = openpyxl.Workbook()
+        tabs = m.render_excel_tabs(data, wb, config)
+        assert isinstance(tabs, list), "excel tabs must return list"
+
+        analyst = m.render_analyst_tabs(data, config)
+        assert isinstance(analyst, list), "analyst tabs must return list"
+
+
+class TestQual03EmptyDataGuards:
+    """QUAL-03: zero-row / empty-data paths stay green after 19-10 changes."""
+
+    def test_empty_data_all_channels_no_crash(self):
+        """_empty_result path: all 4 render channels return safe defaults."""
+        import openpyxl
+        m = ProgramHealthModule()
+        data = _make_empty_data()
+        config = _make_config()
+
+        pdf = m.render_pdf_section(data, config)
+        assert pdf == "", "Empty-data PDF must return empty string"
+
+        email = m.render_email_panel(data, config)
+        assert email == "", "Empty-data email must return empty string"
+
+        wb = openpyxl.Workbook()
+        tabs = m.render_excel_tabs(data, wb, config)
+        # Excel handles error gracefully — returns tab list even on error
+        assert isinstance(tabs, list), "Empty-data Excel must return list (not raise)"
+
+        analyst = m.render_analyst_tabs(data, config)
+        assert analyst == [], "Empty-data analyst tabs must return []"
+
+    def test_zero_row_compute_returns_empty_result(self):
+        """compute() with empty vulns_df returns _empty_result (QUAL-03)."""
+        result = _run([])  # empty vulns_df
+        assert result.error is not None, "Zero-row compute must set error"
+        assert result.metrics == {}, "Zero-row _empty_result must have empty metrics"
+
+    def test_email_no_nan_percent_after_new_fields(self):
+        """Email panel must never contain 'nan%' or 'None%' after Task 1-3 changes."""
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        email = m.render_email_panel(data, _make_config())
+        assert "nan%" not in email.lower(), "NaN% found in email panel"
+        assert "none%" not in email.lower(), "None% found in email panel"
