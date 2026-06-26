@@ -1,5 +1,5 @@
 ---
-status: issues_found
+status: resolved
 phase: 19
 plan: 19-08
 source: operator UAT (2026-06-25)
