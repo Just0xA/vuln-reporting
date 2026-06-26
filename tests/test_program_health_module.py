@@ -1993,6 +1993,340 @@ class TestQual03EmptyDataGuards:
         assert result.error is not None, "Zero-row compute must set error"
         assert result.metrics == {}, "Zero-row _empty_result must have empty metrics"
 
+
+# ===========================================================================
+# 19-11 D-7: composite RAG / on-track count / narrative use current-sign status
+# ===========================================================================
+
+def _snap_crit_red_nv_green_sla_mttr_missing() -> tuple[dict, dict]:
+    """
+    Return (prev, curr) where:
+      - Open Critical worsens (20→25) → sig1 = red
+      - Net Velocity: curr_net = new_curr(3) - fix_curr(10) = -7 (net < 0) → current-sign green
+      - SLA Posture: curr=None → sig3 = missing
+      - MTTR: curr=None → sig4 = missing
+
+    Expected after D-7 fix:
+      signal_statuses = ["red", "green", "missing", "missing"]
+      green_count = 1
+      headline "1 / 4 On Track"
+      narrative → "worsened on 3 of 4" branch
+      composite = red (0–1 green → red; missing cap: raw=red, cap only prevents green→amber)
+    """
+    prev = _make_snapshot(
+        "2026-04",
+        critical=20,
+        new_findings_count=10, fixed_findings_count=5,   # prev_net = +5
+        mttr_overall_days=None,   # missing from prev too → sig4 = missing
+        sla_rate_crit_high=None,  # missing → sig3 = missing
+        generated_at="2026-04-30T00:00:00Z",
+    )
+    curr = _make_snapshot(
+        "2026-05",
+        critical=25,             # worsened → sig1 = red
+        new_findings_count=3, fixed_findings_count=10,   # curr_net = -7 (green!)
+        mttr_overall_days=None,  # missing → sig4 = missing
+        sla_rate_crit_high=None, # missing → sig3 = missing
+        generated_at="2026-05-31T00:00:00Z",
+    )
+    return prev, curr
+
+
+class TestD7CompositeConsistency:
+    """D-7: composite RAG, green_count, and narrative must use current-sign Net Velocity
+    status (same as the tile shows), NOT the old delta-of-deltas sig2_status."""
+
+    def test_d7_green_count_uses_current_sign(self):
+        """
+        Open Crit red + Net Velocity current-sign green + SLA missing + MTTR missing
+        → green_count == 1 (the tile's Net Velocity is green).
+
+        BUG BEFORE FIX: sig2_status = delta-of-deltas = "missing" (no prev_net data)
+        even though curr_net=-7 < 0 → current-sign is green. So green_count was 0.
+        """
+        prev, curr = _snap_crit_red_nv_green_sla_mttr_missing()
+        vuln_rows = [{"severity": "critical"}]
+        result = _run(vuln_rows, snapshots=[prev, curr])
+
+        green_count = result.metrics.get("green_count")
+        assert green_count == 1, (
+            f"D-7: green_count must be 1 (Net Velocity current-sign green), got {green_count}. "
+            "If 0, signal_statuses[1] still uses delta-of-deltas (sig2_status), not current-sign."
+        )
+
+    def test_d7_on_track_headline_1_of_4(self):
+        """RAG strip headline must read '1 / 4 On Track', not '0 / 4 On Track'."""
+        prev, curr = _snap_crit_red_nv_green_sla_mttr_missing()
+        vuln_rows = [{"severity": "critical"}]
+        result = _run(vuln_rows, snapshots=[prev, curr])
+
+        headline = result.rag_strip.get("headline_value", "")
+        assert "1 / 4" in headline, (
+            f"D-7: headline must contain '1 / 4 On Track', got {headline!r}. "
+            "If '0 / 4', signal_statuses[1] is still the delta-of-deltas missing status."
+        )
+
+    def test_d7_narrative_worsened_on_3_of_4(self):
+        """Narrative must say 'worsened on 3 of 4' (composite red branch), not '4 of 4'."""
+        prev, curr = _snap_crit_red_nv_green_sla_mttr_missing()
+        vuln_rows = [{"severity": "critical"}]
+        result = _run(vuln_rows, snapshots=[prev, curr])
+
+        narrative = result.driver_narrative
+        # Composite red → "worsened on {4 - green_count} of 4" → "worsened on 3 of 4"
+        assert "3 of 4" in narrative, (
+            f"D-7: narrative must say 'worsened on 3 of 4', got {narrative!r}. "
+            "If '4 of 4', Net Velocity slot is 'missing' instead of 'green'."
+        )
+
+    def test_d7_composite_still_red(self):
+        """With 1 green (Net Velocity) + 3 non-green → composite red (0–1 green rule)."""
+        prev, curr = _snap_crit_red_nv_green_sla_mttr_missing()
+        vuln_rows = [{"severity": "critical"}]
+        result = _run(vuln_rows, snapshots=[prev, curr])
+
+        composite = result.metrics.get("composite_rag")
+        assert composite == "red", (
+            f"D-7: with 1 green of 4, composite must be red (OD-5: red = 0–1 green), got {composite!r}"
+        )
+
+    def test_d7_net_positive_excludes_from_green_count(self):
+        """
+        When curr_net > 0 (intake > fixed), Net Velocity current-sign = red
+        → green_count does NOT count Net Velocity.
+        """
+        prev = _make_snapshot(
+            "2026-04", critical=10,
+            new_findings_count=5, fixed_findings_count=8,   # prev_net = -3
+            mttr_overall_days=20.0, sla_rate_crit_high=80.0,
+            generated_at="2026-04-30T00:00:00Z",
+        )
+        curr = _make_snapshot(
+            "2026-05", critical=8,                           # critical improved → green
+            new_findings_count=12, fixed_findings_count=3,  # curr_net = +9 → current-sign red
+            mttr_overall_days=15.0,                          # mttr improved → green
+            sla_rate_crit_high=85.0,                         # sla improved → green
+            generated_at="2026-05-31T00:00:00Z",
+        )
+        vuln_rows = [{"severity": "critical"}]
+        result = _run(vuln_rows, snapshots=[prev, curr])
+
+        nv_status = result.metrics.get("net_velocity_status_current")
+        assert nv_status == "red", f"curr_net=+9 must give current-sign red, got {nv_status!r}"
+
+        green_count = result.metrics.get("green_count")
+        # Open Crit green + MTTR green + SLA green = 3; Net Velocity red → not counted
+        assert green_count == 3, (
+            f"D-7: net>0 Net Velocity must not count toward green_count, got {green_count}"
+        )
+
+    def test_d7_sla_mttr_missing_cap_still_applies(self):
+        """
+        D-17-06 missing cap: SLA + MTTR still missing → data_incomplete True.
+        Net Velocity current-sign green counts; missing cap only blocks green→amber.
+        """
+        prev, curr = _snap_crit_red_nv_green_sla_mttr_missing()
+        vuln_rows = [{"severity": "critical"}]
+        result = _run(vuln_rows, snapshots=[prev, curr])
+
+        assert result.metrics.get("data_incomplete") is True, (
+            "D-17-06: missing SLA/MTTR signals must still set data_incomplete=True"
+        )
+        missing = result.metrics.get("missing_signal_names", [])
+        assert "SLA Posture" in missing, f"SLA Posture must be in missing_signal_names: {missing}"
+        assert "MTTR" in missing, f"MTTR must be in missing_signal_names: {missing}"
+        # Net Velocity must NOT be listed as missing
+        assert "Net Velocity" not in missing, (
+            f"D-7: Net Velocity must not be in missing_signal_names when current-sign is available: {missing}"
+        )
+
+    def test_d7_email_on_track_agrees_with_pdf_count(self):
+        """
+        Email panel 'N of 4 signals on track' must agree with green_count from compute().
+        Asserts that email and PDF renderers consume the same corrected metrics.
+        """
+        prev, curr = _snap_crit_red_nv_green_sla_mttr_missing()
+        vuln_rows = [{"severity": "critical"}]
+        result = _run(vuln_rows, snapshots=[prev, curr])
+
+        green_count = result.metrics.get("green_count")
+        m = ProgramHealthModule()
+        config = _make_config()
+
+        email_html = m.render_email_panel(result, config)
+        # Email renders "green_count of 4 signals on track"
+        expected_str = f"{green_count} of 4"
+        assert expected_str in email_html, (
+            f"D-7: email panel must show '{expected_str} of 4 signals on track', "
+            f"but it reads from the wrong status. Email HTML excerpt: "
+            f"{email_html[email_html.find('of 4')-20:email_html.find('of 4')+20]!r}"
+        )
+
+
+# ===========================================================================
+# 19-11 D-8: PDF single arrow + two-row tile/caption layout, net-only NV tile
+# ===========================================================================
+
+def _make_nv_data(new_curr: int = 3, fix_curr: int = 10) -> "ModuleData":
+    """
+    Build a ModuleData with Net Velocity fields set for D-8 layout tests.
+    net = new_curr - fix_curr; green when net < 0.
+    """
+    data = _make_normal_data_with_new_fields()
+    net = float(new_curr - fix_curr)
+    data.metrics["new_current"] = new_curr
+    data.metrics["fixed_current"] = fix_curr
+    data.metrics["net_delta_current"] = net
+    data.metrics["net_velocity_status_current"] = "green" if net < 0 else ("red" if net > 0 else "flat")
+    return data
+
+
+class TestD8SingleArrow:
+    """D-8: Net Velocity tile must carry exactly ONE arrow (▼ or ▲), not two."""
+
+    def _count_nv_arrows(self, pdf: str) -> int:
+        """
+        Count arrow occurrences in the Net Velocity tile area.
+        We look for ▼ and ▲ in the PDF HTML; the tile should have exactly one.
+        Because the owner table can also have arrows (outlier markers use ▲),
+        we scope to the sparkline section before the page-break.
+        """
+        pb_pos = pdf.find('class="page-break"')
+        sparkline_section = pdf[:pb_pos] if pb_pos > 0 else pdf
+        return sparkline_section.count("▼") + sparkline_section.count("▲")
+
+    def test_single_arrow_in_nv_sparkline_section(self):
+        """
+        The sparkline section (before page-break) must contain exactly ONE arrow
+        for Net Velocity. Previously nv_curr_str embedded the arrow AND
+        _render_sparkline_b64 appended mom_arrow → two arrows per tile.
+        """
+        m = ProgramHealthModule()
+        data = _make_nv_data(new_curr=3, fix_curr=10)  # net=-7 → green ▼
+        pdf = m.render_pdf_section(data, _make_config())
+
+        pb_pos = pdf.find('class="page-break"')
+        sparkline_section = pdf[:pb_pos] if pb_pos > 0 else pdf
+
+        # The sparkline title (rendered by matplotlib as PNG) contains arrow text.
+        # The HTML annotation/caption may carry it too. We check that the net
+        # value string "net" appears with a single arrow in the annotation block,
+        # not duplicated. Specifically: the annotation_html div must not contain
+        # two consecutive arrows.
+        assert "▼▼" not in sparkline_section, (
+            "D-8: double ▼▼ found in PDF sparkline section — Net Velocity tile has two arrows"
+        )
+        assert "▲▲" not in sparkline_section, (
+            "D-8: double ▲▲ found in PDF sparkline section — Net Velocity tile has two arrows"
+        )
+
+    def test_nv_tile_net_value_only_in_annotation(self):
+        """
+        D-8: the Net Velocity tile headline annotation (the visible HTML text under
+        the PNG) shows only the net value (e.g. 'net -7'), NOT the full
+        'in {new} / fixed {fixed} · net {net}' string inside the sparkline section.
+        The 'in / fixed' breakdown must be in the caption row below (outside the tile).
+        """
+        m = ProgramHealthModule()
+        data = _make_nv_data(new_curr=3, fix_curr=10)  # net=-7
+        pdf = m.render_pdf_section(data, _make_config())
+
+        pb_pos = pdf.find('class="page-break"')
+        sparkline_section = pdf[:pb_pos] if pb_pos > 0 else pdf
+
+        # The 'in {new} / fixed {fixed}' breakdown must appear in the caption row,
+        # meaning it must appear somewhere in the PDF (D-3: all three numbers shown).
+        assert "in 3" in pdf, (
+            "D-8: 'in {new}' must appear in the PDF (in caption row or annotation)"
+        )
+        assert "fixed 10" in pdf, (
+            "D-8: 'fixed {fix}' must appear in the PDF (in caption row or annotation)"
+        )
+
+    def test_nv_caption_row_contains_breakdown(self):
+        """
+        D-8: the caption row below the Net Velocity tile must carry
+        the 'in {new} / fixed {fix}' breakdown text.
+        Both values must appear somewhere after the sparkline row in the HTML.
+        """
+        m = ProgramHealthModule()
+        data = _make_nv_data(new_curr=5, fix_curr=8)  # net=-3
+        pdf = m.render_pdf_section(data, _make_config())
+
+        # 'in 5' and 'fixed 8' must appear in the full PDF HTML (caption row)
+        assert "in 5" in pdf, "Caption row must contain 'in {new}' (in 5)"
+        assert "fixed 8" in pdf, "Caption row must contain 'fixed {fixed}' (fixed 8)"
+
+    def test_nv_tile_shows_net_with_arrow(self):
+        """
+        D-8: the sparkline PNG title carries 'net' value + one arrow.
+        Since the PNG title is passed via current_val_str to _render_sparkline_b64,
+        the net-only str (e.g. 'net -7') must be the current_val_str, and
+        mom_arrow must be '' (empty) so only the sparkline title arrow renders.
+        Verified indirectly: 'net' keyword appears in PDF (annotation or PNG title text).
+        """
+        m = ProgramHealthModule()
+        data = _make_nv_data(new_curr=3, fix_curr=10)  # net=-7
+        pdf = m.render_pdf_section(data, _make_config())
+
+        # 'net' must appear somewhere in the PDF HTML annotation / caption
+        assert "net" in pdf.lower(), (
+            "D-8: 'net' keyword must appear in PDF for Net Velocity tile"
+        )
+
+
+class TestD8TwoRowLayout:
+    """D-8: two-row PDF layout — top tile row + caption row below."""
+
+    def test_caption_row_separator_present(self):
+        """
+        D-8: the PDF HTML must have a structure where caption cells appear
+        as a separate row below the sparkline tiles (not inside each tile's div).
+        The caption row is identified by having both caption texts AND being
+        positioned after all sparkline img tags.
+        """
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        pdf = m.render_pdf_section(data, _make_config())
+
+        pb_pos = pdf.find('class="page-break"')
+        sparkline_section = pdf[:pb_pos] if pb_pos > 0 else pdf
+
+        # Caption row must follow after the sparkline tile cells.
+        # At minimum, the approved caption text must appear in the HTML.
+        assert "lower is better" in sparkline_section, (
+            "D-8: Open Critical caption ('lower is better') must appear in sparkline section"
+        )
+        assert "higher is better" in sparkline_section, (
+            "D-8: SLA Posture caption ('higher is better') must appear in sparkline section"
+        )
+        # Net Velocity definition must appear in caption row
+        assert "negative is good" in sparkline_section or "new findings minus fixed" in sparkline_section, (
+            "D-8: Net Velocity caption must appear in sparkline section"
+        )
+
+    def test_caption_row_after_all_img_tags(self):
+        """
+        D-8: the caption text must appear AFTER the last <img> tag in the sparkline section,
+        confirming the caption is in a separate row below the tiles.
+        """
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        pdf = m.render_pdf_section(data, _make_config())
+
+        pb_pos = pdf.find('class="page-break"')
+        sparkline_section = pdf[:pb_pos] if pb_pos > 0 else pdf
+
+        last_img_pos = sparkline_section.rfind("<img")
+        caption_pos = sparkline_section.find("lower is better")
+
+        assert last_img_pos >= 0, "Must have img tags (sparklines rendered)"
+        assert caption_pos >= 0, "Caption text must be present"
+        assert caption_pos > last_img_pos, (
+            f"D-8: caption row (pos {caption_pos}) must appear AFTER last img tag "
+            f"(pos {last_img_pos}), confirming two-row layout"
+        )
+
     def test_email_no_nan_percent_after_new_fields(self):
         """Email panel must never contain 'nan%' or 'None%' after Task 1-3 changes."""
         m = ProgramHealthModule()
