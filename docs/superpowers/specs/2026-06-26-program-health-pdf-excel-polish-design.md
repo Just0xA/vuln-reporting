@@ -111,3 +111,27 @@ This spec addresses the *readability and current-month correctness* gaps, not th
 - Threading `fixed_vulns_df` into program_health (D-17-01 stays).
 - Any composer / email_sender / mttr_trend module changes beyond reusing mttr_trend's Excel
   header style.
+
+## Revision 2026-06-26b — re-verification fixes (Plan 19-11)
+
+Operator re-verified the 19-10 build and found two issues. Approved fixes:
+
+- **D-7 — composite consistency (correctness bug).** 19-10 changed the Net Velocity *tile* to
+  the current-sign status but left the composite RAG, the "N of 4 On Track" count, and the
+  narrative reading the OLD delta-of-deltas status (`sig2_status` = "missing" with no history).
+  Result: tile shows green but header says "0 of 4" / "worsened on 4 of 4". Fix: the composite
+  RAG / on-track count / narrative consume the **same current-sign Net Velocity status** the
+  tile shows. (`signal_statuses[1]` becomes the current-sign status.) The missing-cap (D-17-06)
+  still applies to genuinely missing signals (SLA, MTTR with no history). Expected after fix
+  with Open Critical red + Net Velocity green + SLA/MTTR missing: "1 of 4 On Track", narrative
+  "worsened on 3 of 4", composite stays red.
+- **D-8 — PDF chart-row layout (refines D-1/D-2/D-3).**
+  - **Single arrow:** today the net string embeds an arrow (`…net {net} {nv_arrow}`) AND
+    `_render_sparkline_b64` appends `{mom_arrow}` → two arrows. Pass the arrow once.
+  - **Two-row layout:** page-1 chart area = a top row of 4 tiles (uniform height + uniform
+    font), each = sparkline + one headline value + one arrow; a small vertical gap; then a
+    bottom row of 4 caption cells aligned under each chart. The definition text moves OUT of
+    the tiles into the caption row (fixes the cram + per-tile height mismatch).
+  - **Net Velocity headline:** the tile shows the **net** value only (e.g. `net −8,272 ▼`) at
+    the same font as the other three; the `in {new} / fixed {fixed}` breakdown moves to that
+    tile's caption cell below. All three numbers still shown (honors D-3), tiles stay uniform.
