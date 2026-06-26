@@ -6,7 +6,7 @@
 - ✅ **v1.1 PDF Chrome Redesign** — Phases 5–6 (shipped 2026-05-13) — [`milestones/v1.1-ROADMAP.md`](milestones/v1.1-ROADMAP.md)
 - ✅ **v1.2 Deployment & Self-Update Infrastructure** — Phases 7–11 (shipped 2026-05-22) — [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Trend & Segmentation Substrate** — Phases 12–13 (shipped 2026-06-11) — [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
-- 🔵 **v1.4 Management Summary Reporting Improvement** — Phases 14–18 (in progress)
+- ✅ **v1.4 Management Summary Reporting Improvement** — Phases 14–19 (shipped 2026-06-26) — [`milestones/v1.4-ROADMAP.md`](milestones/v1.4-ROADMAP.md)
 
 ## Phases
 
@@ -220,7 +220,7 @@ Full detail: [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 **Goal:** Close out the v1.4 milestone (off `tech_debt`): fix INT-WARN-1/2/3, all deferred 18/17/15-REVIEW findings, and the 39 net-new CodeRabbit findings; then run the Phase 16 UAT + Phase 17 human verifications against the fixed build and refresh the milestone audit.
 **Requirements**: none (closure/tech-debt phase — no REQ-IDs; covers CONTEXT decisions D-01..D-07 + enumerated finding IDs)
 **Depends on:** Phase 18
-**Plans:** 10/11 plans executed
+**Plans:** 11/11 plans executed (complete)
 
 Plans:
 **Wave 1**
@@ -245,7 +245,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 19-09-PLAN.md — Closeout: flip 16-UAT/17-VERIFICATION + refresh milestone audit off tech_debt + CR-G6/G7
+- [x] 19-09-PLAN.md — Closeout: flip 16-UAT/17-VERIFICATION + refresh milestone audit off tech_debt + CR-G6/G7
 
 ---
 
@@ -271,7 +271,7 @@ Plans:
 | 16. MTTR Rework | v1.4 | 7/7 | Complete    | 2026-06-12 |
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
 | 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
-| 19. v1.4 Closure | v1.4 | 10/11 | In Progress|  |
+| 19. v1.4 Closure | v1.4 | 11/11 | Complete   | 2026-06-26 |
 
 ## Backlog
 
