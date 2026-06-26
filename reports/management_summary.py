@@ -488,8 +488,16 @@ def run_report(
             _snap_accepted_count = _safe_metric("accepted_recast", "accepted_count")
             _snap_recast_count   = _safe_metric("accepted_recast", "recast_count")
 
-            # reopened_vulns → reopened_count
-            _snap_reopened_count = _safe_metric("reopened_vulns", "reopened_count")
+            # REAUDIT-WARN-1: compute reopened_count inline from vulns_df["state"]
+            # (reopened_vulns module is NOT in _MGMT_MODULE_CONFIGS, so
+            # _safe_metric("reopened_vulns", ...) always returned None).
+            # Mirror capture_trend_snapshot.py L271-273 exactly.
+            if "state" in vulns_df.columns:
+                _snap_reopened_count: int | None = int(
+                    (vulns_df["state"].astype(str).str.upper() == "REOPENED").sum()
+                )
+            else:
+                _snap_reopened_count = None
 
             # scan_coverage_sla → on_time_asset_count (stored as "scanned_on_time")
             _snap_on_time_asset_count = _safe_metric("scan_coverage_sla", "scanned_on_time")
@@ -518,8 +526,24 @@ def run_report(
             else:
                 _snap_mttr_by_owner = None
 
-            # program_health → sla_rate_crit_high (stored as "sla_rate_current")
-            _snap_sla_rate_crit_high = _safe_metric("program_health", "sla_rate_current")
+            # REAUDIT-WARN-1: compute sla_rate_crit_high inline via the shared helper
+            # (program_health module is NOT in _MGMT_MODULE_CONFIGS, so
+            # _safe_metric("program_health", ...) always returned None).
+            # Mirror capture_trend_snapshot.py L387-407; fail-soft None on error.
+            try:
+                from config import SLA_DAYS                                   # noqa: PLC0415
+                from utils.open_count import open_findings_at                 # noqa: PLC0415
+                from utils.sla_calculator import compute_sla_rate_crit_high   # noqa: PLC0415
+                _open_df = open_findings_at(vulns_df, generated_at)
+                _snap_sla_rate_crit_high: float | None = compute_sla_rate_crit_high(
+                    _open_df, generated_at, SLA_DAYS
+                )
+            except Exception as _sla_exc:
+                logger.warning(
+                    "management_summary: sla_rate_crit_high inline compute failed "
+                    "— field will cold-start: %s", _sla_exc
+                )
+                _snap_sla_rate_crit_high = None
 
             capture_snapshot(
                 df                  = vulns_df,
