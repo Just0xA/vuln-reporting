@@ -1024,6 +1024,28 @@ class ProgramHealthModule(BaseModule):
         # ------------------------------------------------------------------
         # Sparkline row (or cold-start notice)
         # ------------------------------------------------------------------
+        # D-2: verbatim approved captions (spec lines 40-45 — copy EXACTLY)
+        _CAPTION_OPEN_CRITICAL = (
+            "open Critical-VPR findings — lower is better; ▼ green = falling"
+        )
+        _CAPTION_NET_VELOCITY = (
+            "new findings minus fixed this window (intake − fixed) — negative is good"
+            " (you fixed more than came in); ▼ green when fixed > intake, ▲ red when intake > fixed"
+        )
+        _CAPTION_SLA_POSTURE = (
+            "% of open Critical + High findings still within SLA — higher is better;"
+            " ▲ green = rising"
+        )
+        _CAPTION_MTTR = (
+            "average days to remediate (rolling 30-day) — lower is better; ▼ green = falling"
+        )
+        _CHART_CAPTIONS = [
+            _CAPTION_OPEN_CRITICAL,
+            _CAPTION_NET_VELOCITY,
+            _CAPTION_SLA_POSTURE,
+            _CAPTION_MTTR,
+        ]
+
         if cold_start:
             sparkline_row = (
                 '<p style="color:#9E9E9E;font-style:italic;">'
@@ -1031,6 +1053,37 @@ class ProgramHealthModule(BaseModule):
                 "</p>"
             )
         else:
+            # D-3: Net Velocity current-value annotation — "in {new} / fixed {fixed} · net {net} {arrow}"
+            # using current-sign status, not MoM sparkline direction
+            nv_status_curr = m.get("net_velocity_status_current", "flat")
+            if nv_status_curr == "green":
+                nv_arrow, nv_arrow_color = "▼", _COLOR_IMPROVED   # ▼ green
+            elif nv_status_curr == "red":
+                nv_arrow, nv_arrow_color = "▲", _COLOR_WORSENED   # ▲ red
+            else:
+                nv_arrow, nv_arrow_color = "—", _COLOR_FLAT        # — flat
+
+            curr_new = m.get("new_current")
+            curr_fix = m.get("fixed_current")
+            curr_net = m.get("net_delta_current")
+            if curr_new is not None and curr_fix is not None and curr_net is not None:
+                new_str = f"{int(curr_new):,}"
+                fix_str = f"{int(curr_fix):,}"
+                net_sign = "+" if curr_net >= 0 else ""
+                net_str = f"{net_sign}{int(curr_net):,}"
+                nv_curr_str = f"in {new_str} / fixed {fix_str} · net {net_str} {nv_arrow}"
+            else:
+                nv_curr_str = "—"
+
+            # D-4: MTTR caption — append "establishing from monthly snapshots" when None
+            mttr_curr = m.get("mttr_current")
+            if mttr_curr is not None:
+                mttr_curr_str = safe_format(mttr_curr, ".0f") + " d"
+                mttr_caption = _CAPTION_MTTR
+            else:
+                mttr_curr_str = "—"
+                mttr_caption = _CAPTION_MTTR + " — establishing from monthly snapshots"
+
             sparklines_data = [
                 (
                     m.get("sparkline_open_crit", []),
@@ -1038,16 +1091,16 @@ class ProgramHealthModule(BaseModule):
                     safe_int(m.get("open_crit_current")),
                     *_mom_arrow_and_color(m.get("signal_open_crit_status", "missing"), False),
                     "#d32f2f",
+                    _CAPTION_OPEN_CRITICAL,
                 ),
                 (
                     m.get("sparkline_net_velocity", []),
                     "Net Velocity",
-                    (
-                        ("+" if (m.get("net_delta_current") or 0) >= 0 else "")
-                        + safe_format(m.get("net_delta_current"), ".0f")
-                    ) if m.get("net_delta_current") is not None else "—",
-                    *_mom_arrow_and_color(m.get("signal_net_velocity_status", "missing"), False),
+                    nv_curr_str,
+                    nv_arrow,
+                    nv_arrow_color,
                     "#1976d2",
+                    _CAPTION_NET_VELOCITY,
                 ),
                 (
                     m.get("sparkline_sla_rate", []),
@@ -1055,19 +1108,20 @@ class ProgramHealthModule(BaseModule):
                     safe_pct(m.get("sla_rate_current")),
                     *_mom_arrow_and_color(m.get("signal_sla_rate_status", "missing"), True),
                     "#388e3c",
+                    _CAPTION_SLA_POSTURE,
                 ),
                 (
                     m.get("sparkline_mttr", []),
                     "MTTR",
-                    (safe_format(m.get("mttr_current"), ".0f") + " d")
-                    if m.get("mttr_current") is not None else "—",
+                    mttr_curr_str,
                     *_mom_arrow_and_color(m.get("signal_mttr_status", "missing"), False),
                     "#f57c00",
+                    mttr_caption,
                 ),
             ]
 
             cells_html = ""
-            for values, label, curr_str, arrow, arrow_color, line_color in sparklines_data:
+            for values, label, curr_str, arrow, arrow_color, line_color, caption in sparklines_data:
                 try:
                     b64 = self._render_sparkline_b64(
                         values        = values,
@@ -1082,10 +1136,28 @@ class ProgramHealthModule(BaseModule):
                     logger.warning("%s sparkline render failed for %s: %s", self._log_prefix(), label, exc)
                     img_tag = f'<span style="color:#9E9E9E;font-size:8pt;">{html.escape(label)}: chart unavailable</span>'
 
+                # D-2: caption under each chart cell; also show annotation as text
+                # so the intake/fixed/net values appear in the HTML (not only in the PNG title)
+                annotation_html = ""
+                if label == "Net Velocity" and curr_str not in ("—", ""):
+                    annotation_html = (
+                        f'<div style="font-size:8pt;color:{arrow_color};font-weight:bold;'
+                        f'margin-top:1pt;">'
+                        f"{html.escape(curr_str)}"
+                        f"</div>"
+                    )
+                caption_html = (
+                    f'<div style="font-size:7pt;color:#666;margin-top:2pt;text-align:left;">'
+                    f'<strong>{html.escape(label)}</strong> — {html.escape(caption)}'
+                    f'</div>'
+                )
+
                 cells_html += (
                     f'<div style="display:inline-block;text-align:center;'
-                    f'width:23%;margin:0 1%;">'
+                    f'width:23%;margin:0 1%;vertical-align:top;">'
                     f"{img_tag}"
+                    f"{annotation_html}"
+                    f"{caption_html}"
                     f"</div>"
                 )
 
@@ -1105,53 +1177,53 @@ class ProgramHealthModule(BaseModule):
         owner_rows = data.table_data or []
 
         if cold_start:
-            # Cold-start: current-only (no MoM Delta column)
+            # Cold-start: current-only — D-5 columns minus MoM (no history yet)
+            owner_header = (
+                "<thead><tr>"
+                "<th>Owner</th>"
+                "<th style='text-align:right;'>Open Crit+High</th>"
+                "<th style='text-align:right;'>Share %</th>"
+                "<th style='text-align:right;'>Assets</th>"
+                "</tr></thead>"
+            )
             if owner_rows:
-                owner_header = (
-                    "<thead><tr>"
-                    "<th>Owner</th>"
-                    "<th style='text-align:right;'>Open Crit+High</th>"
-                    "</tr></thead>"
-                )
                 owner_body = "".join(
                     f"<tr>"
                     f"<td>{html.escape(str(r.get('owner', '')))}</td>"
                     f"<td style='text-align:right;'>{safe_int(r.get('open_crit_high'))}</td>"
+                    f"<td style='text-align:right;'>{safe_pct(r.get('share_pct'))}</td>"
+                    f"<td style='text-align:right;'>{safe_int(r.get('asset_count'))}</td>"
                     f"</tr>"
                     for r in owner_rows
                 )
             else:
-                owner_header = (
-                    "<thead><tr>"
-                    "<th>Owner</th>"
-                    "<th style='text-align:right;'>Open Crit+High</th>"
-                    "</tr></thead>"
-                )
                 owner_body = (
-                    "<tr><td colspan='2' style='color:#9E9E9E;'>"
+                    "<tr><td colspan='4' style='color:#9E9E9E;'>"
                     "No owner data available.</td></tr>"
                 )
             owner_note = ""
         else:
-            # Normal: full table with MoM Delta and Status
+            # Normal: D-5 six columns — Owner | Open Crit+High | Share % | Assets | MoM Delta | MoM Delta %
             if owner_mom_suppressed:
-                # Snapshot data insufficient — omit MoM Delta column
+                # Snapshot data insufficient — suppress MoM Delta / MoM Delta % columns
                 owner_header = (
                     "<thead><tr>"
                     "<th>Owner</th>"
                     "<th style='text-align:right;'>Open Crit+High</th>"
-                    "<th>Status</th>"
+                    "<th style='text-align:right;'>Share %</th>"
+                    "<th style='text-align:right;'>Assets</th>"
                     "</tr></thead>"
                 )
                 owner_body = "".join(
                     f"<tr>"
                     f"<td>{html.escape(str(r.get('owner', '')))}</td>"
                     f"<td style='text-align:right;'>{safe_int(r.get('open_crit_high'))}</td>"
-                    f"<td>—</td>"
+                    f"<td style='text-align:right;'>{safe_pct(r.get('share_pct'))}</td>"
+                    f"<td style='text-align:right;'>{safe_int(r.get('asset_count'))}</td>"
                     f"</tr>"
                     for r in owner_rows
                 ) if owner_rows else (
-                    "<tr><td colspan='3' style='color:#9E9E9E;'>"
+                    "<tr><td colspan='4' style='color:#9E9E9E;'>"
                     "No owner data available.</td></tr>"
                 )
                 owner_note = (
@@ -1160,42 +1232,54 @@ class ProgramHealthModule(BaseModule):
                     if owner_insufficient_note else ""
                 )
             else:
+                # Full D-5 six columns
                 owner_header = (
                     "<thead><tr>"
                     "<th>Owner</th>"
                     "<th style='text-align:right;'>Open Crit+High</th>"
+                    "<th style='text-align:right;'>Share %</th>"
+                    "<th style='text-align:right;'>Assets</th>"
                     "<th style='text-align:right;'>MoM Delta</th>"
-                    "<th>Status</th>"
+                    "<th style='text-align:right;'>MoM Delta %</th>"
                     "</tr></thead>"
                 )
                 owner_body_parts = []
                 for r in (owner_rows or []):
                     outlier = r.get("outlier", False)
                     mom_delta = r.get("mom_delta")
+                    mom_delta_pct = r.get("mom_delta_pct")
                     mom_str = (
                         ("+" if mom_delta >= 0 else "") + safe_format(mom_delta, ".0f")
                     ) if mom_delta is not None else "—"
+                    # Outlier marker appended to MoM Delta % (▲ Outlier in red)
                     if outlier:
-                        status_cell = (
-                            f'<td style="color:#d32f2f;font-weight:bold;">&#9650; Outlier</td>'
-                        )
+                        mom_pct_str = (
+                            (("+" if mom_delta_pct >= 0 else "") + safe_format(mom_delta_pct, ".1f") + "%")
+                            if mom_delta_pct is not None else ""
+                        ) + ' <span style="color:#d32f2f;font-weight:bold;">&#9650; Outlier</span>'
                     else:
-                        status_cell = "<td>—</td>"
+                        mom_pct_str = (
+                            ("+" if mom_delta_pct >= 0 else "") + safe_format(mom_delta_pct, ".1f") + "%"
+                        ) if mom_delta_pct is not None else "—"
                     owner_body_parts.append(
                         f"<tr>"
                         f"<td>{html.escape(str(r.get('owner', '')))}</td>"
                         f"<td style='text-align:right;'>{safe_int(r.get('open_crit_high'))}</td>"
+                        f"<td style='text-align:right;'>{safe_pct(r.get('share_pct'))}</td>"
+                        f"<td style='text-align:right;'>{safe_int(r.get('asset_count'))}</td>"
                         f"<td style='text-align:right;'>{mom_str}</td>"
-                        f"{status_cell}"
+                        f"<td style='text-align:right;'>{mom_pct_str}</td>"
                         f"</tr>"
                     )
                 owner_body = "".join(owner_body_parts) if owner_body_parts else (
-                    "<tr><td colspan='4' style='color:#9E9E9E;'>"
+                    "<tr><td colspan='6' style='color:#9E9E9E;'>"
                     "No owner data available.</td></tr>"
                 )
                 owner_note = ""
 
+        # D-1: page-break before Owner table so it begins on page 2
         owner_table = f"""
+<div class="page-break"></div>
   <h3 class="subsection-heading">Owner Velocity — Open Critical + High</h3>
   <table class="data-table" style="width:100%;margin-top:4pt;">
     {owner_header}

@@ -681,6 +681,7 @@ def _make_normal_data() -> "ModuleData":
     """
     import openpyxl  # noqa: PLC0415 — local import to keep top-level clean
 
+    _total_ch = 25 + 8
     owner_rows = [
         {
             "owner":          "Engineering",
@@ -689,6 +690,8 @@ def _make_normal_data() -> "ModuleData":
             "mom_delta":      5,
             "mom_delta_pct":  25.0,  # 25% rise — outlier
             "outlier":        True,
+            "share_pct":      round(25 / _total_ch * 100, 1),
+            "asset_count":    10,
         },
         {
             "owner":          "Operations",
@@ -697,6 +700,8 @@ def _make_normal_data() -> "ModuleData":
             "mom_delta":      -2,
             "mom_delta_pct":  -20.0,
             "outlier":        False,
+            "share_pct":      round(8 / _total_ch * 100, 1),
+            "asset_count":    5,
         },
     ]
     analyst_df = pd.DataFrame([
@@ -721,6 +726,10 @@ def _make_normal_data() -> "ModuleData":
         "net_delta_current":         -3.0,
         "sla_rate_current":          87.3,
         "mttr_current":              18.0,
+        # D-3: surfaced current intake/fixed and current-sign status
+        "new_current":               5,
+        "fixed_current":             8,
+        "net_velocity_status_current": "green",   # net = -3 < 0
         "signal_open_crit_status":   "green",
         "signal_net_velocity_status": "green",
         "signal_sla_rate_status":    "red",
@@ -775,6 +784,10 @@ def _make_cold_data() -> "ModuleData":
         "sla_rate_current":          75.0,
         "mttr_current":              None,
         "net_delta_current":         None,
+        # D-3: new fields present in cold-start (None values)
+        "new_current":               None,
+        "fixed_current":             None,
+        "net_velocity_status_current": "flat",
         "signal_open_crit_status":   "missing",
         "signal_net_velocity_status": "missing",
         "signal_sla_rate_status":    "missing",
@@ -792,7 +805,8 @@ def _make_cold_data() -> "ModuleData":
         metrics          = metrics,
         table_data       = [
             {"owner": "Engineering", "open_crit_high": 12,
-             "prev_open": None, "mom_delta": None, "mom_delta_pct": None, "outlier": False},
+             "prev_open": None, "mom_delta": None, "mom_delta_pct": None, "outlier": False,
+             "share_pct": 100.0, "asset_count": 5},
         ],
         chart_data       = {},
         summary_text     = "Program Health Overview — cold start. Current Open Critical: 12.",
@@ -1550,6 +1564,16 @@ class TestOwnerSharePctAndAssetCount:
         for row in result.table_data:
             assert "asset_count" in row, f"asset_count key missing from owner row: {row}"
 
+    def test_share_pct_none_when_absent_in_cold_start_data(self):
+        """Cold-start owner rows also carry share_pct (None) and asset_count keys."""
+        result = _run(
+            [{"severity": "critical", "asset_uuid": _uuid(1)}],
+            asset_rows=[{"asset_uuid": _uuid(1), "tags": "Owner=Engineering"}],
+        )
+        for row in result.table_data:
+            assert "share_pct" in row, "share_pct missing from cold-start owner row"
+            assert "asset_count" in row, "asset_count missing from cold-start owner row"
+
     def test_zero_total_owner_share_pct_is_none(self):
         """When total open Crit+High is zero, share_pct should be None (no divide-by-zero)."""
         # Snapshots exist but no critical/high vulns open at report_date
@@ -1566,3 +1590,169 @@ class TestOwnerSharePctAndAssetCount:
             assert row.get("share_pct") is None, (
                 f"Expected None share_pct when no crit+high, got {row.get('share_pct')!r}"
             )
+
+
+# ===========================================================================
+# 19-10 Task 2: PDF render — two-page split, verbatim captions,
+#               intake/fixed/net annotation, MTTR caption
+# ===========================================================================
+
+# Verbatim approved captions (spec lines 40-45)
+_CAPTION_OPEN_CRITICAL = (
+    "open Critical-VPR findings — lower is better; ▼ green = falling"
+)
+_CAPTION_NET_VELOCITY = (
+    "new findings minus fixed this window (intake − fixed) — negative is good"
+)
+_CAPTION_SLA_POSTURE = (
+    "% of open Critical + High findings still within SLA — higher is better; ▲ green = rising"
+)
+_CAPTION_MTTR = (
+    "average days to remediate (rolling 30-day) — lower is better; ▼ green = falling"
+)
+
+
+def _make_normal_data_with_new_fields() -> "ModuleData":
+    """
+    Extend _make_normal_data() with the Task 1 new fields so Task 2 tests
+    exercise the real renderer without touching ModuleData internals.
+    """
+    data = _make_normal_data()
+    # Inject new compute metrics (Task 1 output)
+    data.metrics["new_current"] = 5
+    data.metrics["fixed_current"] = 8
+    data.metrics["net_velocity_status_current"] = "green"   # net = -3 < 0
+    # Inject share_pct + asset_count into table_data rows
+    total_ch = sum(r["open_crit_high"] for r in data.table_data)
+    for row in data.table_data:
+        row["share_pct"] = (row["open_crit_high"] / total_ch * 100.0) if total_ch > 0 else None
+        row["asset_count"] = 10  # synthetic
+    return data
+
+
+class TestPdfCaptions:
+    """D-2: each chart shows its verbatim approved caption."""
+
+    def test_open_critical_caption_present(self):
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        pdf = m.render_pdf_section(data, _make_config())
+        assert "Open Critical" in pdf
+        assert "lower is better" in pdf, "Open Critical caption missing 'lower is better'"
+
+    def test_net_velocity_caption_present(self):
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        pdf = m.render_pdf_section(data, _make_config())
+        assert "intake" in pdf.lower() or "new findings minus fixed" in pdf.lower(), (
+            "Net Velocity caption text not found in PDF HTML"
+        )
+
+    def test_sla_posture_caption_present(self):
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        pdf = m.render_pdf_section(data, _make_config())
+        assert "within SLA" in pdf or "still within SLA" in pdf, (
+            "SLA Posture caption not found in PDF HTML"
+        )
+
+    def test_mttr_caption_present(self):
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        pdf = m.render_pdf_section(data, _make_config())
+        assert "rolling 30-day" in pdf, "MTTR caption not found in PDF HTML"
+
+    def test_mttr_establishing_caption_when_none(self):
+        """MTTR caption appends 'establishing from monthly snapshots' when mttr_current is None."""
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        data.metrics["mttr_current"] = None
+        pdf = m.render_pdf_section(data, _make_config())
+        assert "establishing from monthly snapshots" in pdf, (
+            "MTTR establishing caption not present when mttr_current is None"
+        )
+
+    def test_mttr_establishing_caption_absent_when_value_present(self):
+        """MTTR establishing caption NOT shown when mttr_current has a value."""
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        data.metrics["mttr_current"] = 18.0  # non-None
+        pdf = m.render_pdf_section(data, _make_config())
+        assert "establishing from monthly snapshots" not in pdf, (
+            "MTTR establishing caption should not appear when mttr_current is set"
+        )
+
+
+class TestPdfNetVelocityAnnotation:
+    """D-3: Net Velocity annotation reads 'in {new} / fixed {fixed} · net {net} {arrow}'."""
+
+    def test_annotation_format_with_values(self):
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        data.metrics["new_current"] = 5
+        data.metrics["fixed_current"] = 8
+        data.metrics["net_delta_current"] = -3.0
+        data.metrics["net_velocity_status_current"] = "green"
+        pdf = m.render_pdf_section(data, _make_config())
+        # The annotation "in {new} / fixed {fixed} · net {net} {arrow}" appears in the HTML
+        # annotation_html div beneath the Net Velocity sparkline cell
+        assert "in 5" in pdf, "intake annotation ('in 5') missing from PDF HTML"
+        assert "fixed 8" in pdf, "fixed annotation ('fixed 8') missing from PDF HTML"
+
+    def test_annotation_contains_net_arrow(self):
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        data.metrics["new_current"] = 5
+        data.metrics["fixed_current"] = 8
+        data.metrics["net_delta_current"] = -3.0
+        data.metrics["net_velocity_status_current"] = "green"
+        pdf = m.render_pdf_section(data, _make_config())
+        # Green net (net < 0): arrow should be ▼
+        assert "▼" in pdf, "Green net velocity arrow (▼) missing from PDF annotation"
+
+
+class TestPdfPageBreak:
+    """D-1: Owner table begins on page 2 — explicit page-break element present."""
+
+    def test_page_break_element_before_owner_table(self):
+        """A page-break div appears between the sparkline/chart block and the Owner table."""
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        pdf = m.render_pdf_section(data, _make_config())
+        # The composer CSS defines .page-break { page-break-before: always }
+        assert 'class="page-break"' in pdf, (
+            "page-break div not found in PDF HTML — Owner table won't start on page 2"
+        )
+        # The page-break must come before the Owner table heading
+        pb_pos = pdf.find('class="page-break"')
+        owner_pos = pdf.find("Owner Velocity")
+        assert pb_pos < owner_pos, (
+            f"page-break (pos {pb_pos}) must appear before 'Owner Velocity' (pos {owner_pos})"
+        )
+
+    def test_cold_start_no_page_break_needed(self):
+        """Cold-start PDF renders without crash; page-break present if owner table present."""
+        m = ProgramHealthModule()
+        data = _make_cold_data()
+        # Inject new Task 1 fields into cold-start data
+        data.metrics["new_current"] = None
+        data.metrics["fixed_current"] = None
+        data.metrics["net_velocity_status_current"] = "flat"
+        pdf = m.render_pdf_section(data, _make_config())
+        assert isinstance(pdf, str), "cold-start PDF render must return a string"
+
+
+class TestPdfOwnerTableD5Columns:
+    """D-5: Owner table has six columns: Owner | Open Crit+High | Share % | Assets | MoM Delta | MoM Delta %."""
+
+    def test_owner_table_has_share_pct_header(self):
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        pdf = m.render_pdf_section(data, _make_config())
+        assert "Share %" in pdf, "Share % column header missing from PDF Owner table"
+
+    def test_owner_table_has_assets_header(self):
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        pdf = m.render_pdf_section(data, _make_config())
+        assert "Assets" in pdf, "Assets column header missing from PDF Owner table"
