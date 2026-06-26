@@ -294,6 +294,11 @@ class ProgramHealthModule(BaseModule):
             "sla_rate_current":  curr_sla_rate,
             "mttr_current":      None,
             "net_delta_current": None,
+            # D-3: surfaced current intake/fixed counts — None in cold-start
+            "new_current":       None,
+            "fixed_current":     None,
+            # D-3: current-sign status — flat in cold-start (no net data)
+            "net_velocity_status_current": "flat",
             # Signal statuses all missing in cold-start
             "signal_open_crit_status":   "missing",
             "signal_net_velocity_status": "missing",
@@ -630,6 +635,21 @@ class ProgramHealthModule(BaseModule):
                 else:
                     owner_insufficient_note = True
 
+                # D-5: in-scope total Open Crit+High for share_pct denominator
+                in_scope_total = sum(curr_owner_counts.values())
+
+                # D-5: per-owner asset count — count distinct assets per owner
+                # extract_owner() always adds an "owner" column; dedup on asset_uuid
+                # first so one asset with two Owner tags is not double-counted.
+                enriched_deduped = enriched.drop_duplicates(subset=["asset_uuid"])
+                owner_asset_counts: dict[str, int] = {}
+                if "owner" in enriched_deduped.columns and not enriched_deduped.empty:
+                    owner_asset_counts = (
+                        enriched_deduped.groupby("owner")["asset_uuid"]
+                        .count()
+                        .to_dict()
+                    )
+
                 # Build owner_rows
                 all_owners = sorted(
                     set(curr_owner_counts) | set(prev_owner_counts)
@@ -650,6 +670,12 @@ class ProgramHealthModule(BaseModule):
                         mom_delta_pct = None
                         outlier = False
 
+                    # D-5: share_pct — owner's share of in-scope Open Crit+High
+                    # Guard divide-by-zero: zero total → None (renders "—")
+                    share_pct: Optional[float] = None
+                    if in_scope_total > 0:
+                        share_pct = (curr_cnt / in_scope_total) * 100.0
+
                     owner_rows.append({
                         "owner":            owner_name,
                         "open_crit_high":   curr_cnt,
@@ -657,6 +683,9 @@ class ProgramHealthModule(BaseModule):
                         "mom_delta":        mom_delta,
                         "mom_delta_pct":    mom_delta_pct,
                         "outlier":          outlier,
+                        # D-5: new columns
+                        "share_pct":        share_pct,
+                        "asset_count":      owner_asset_counts.get(owner_name, 0),
                     })
 
                 # Sort descending by current open count
@@ -739,6 +768,20 @@ class ProgramHealthModule(BaseModule):
             )
 
             # ----------------------------------------------------------------
+            # D-3: current-sign net velocity status (not delta-of-deltas)
+            # net < 0 → green (fixed > intake); net > 0 → red; net == 0 → flat
+            # This is SEPARATE from sig2_status (MoM sparkline trend, unchanged).
+            # ----------------------------------------------------------------
+            if curr_net_delta is None:
+                net_velocity_status_current = "flat"
+            elif curr_net_delta < 0:
+                net_velocity_status_current = "green"
+            elif curr_net_delta > 0:
+                net_velocity_status_current = "red"
+            else:
+                net_velocity_status_current = "flat"
+
+            # ----------------------------------------------------------------
             # Metrics dict (consumed by renderers)
             # ----------------------------------------------------------------
             metrics = {
@@ -752,7 +795,12 @@ class ProgramHealthModule(BaseModule):
                 "net_delta_current":    curr_net_delta,
                 "sla_rate_current":     curr_sla_tile,     # live, reopened-aware
                 "mttr_current":         curr_mttr,          # from snapshot
-                # Signal statuses
+                # D-3: surfaced intake/fixed counts for current-month annotation
+                "new_current":          curr_new,
+                "fixed_current":        curr_fix,
+                # D-3: current-sign status (drives arrow/annotation, not sparkline)
+                "net_velocity_status_current": net_velocity_status_current,
+                # Signal statuses (MoM sparkline/trend — unchanged)
                 "signal_open_crit_status":    sig1_status,
                 "signal_net_velocity_status": sig2_status,
                 "signal_sla_rate_status":     sig3_status,

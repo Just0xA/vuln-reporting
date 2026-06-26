@@ -1412,3 +1412,157 @@ class TestAnalystDfNaNAndIntCast:
         # Spot-check key presence — these are written by capture_snapshot
         for key in ("month", "generated_at", "sla_rate_crit_high", "asset_count"):
             assert key in _OWNER_SNAPSHOT_METADATA_KEYS, f"Missing key: {key!r}"
+
+
+# ===========================================================================
+# 19-10 Task 1: Compute layer — new_current/fixed_current, net_velocity_status_current,
+#               owner share_pct + asset_count
+# ===========================================================================
+
+class TestNetVelocityCurrentSign:
+    """D-3: net_velocity_status_current derived from sign(curr_net_delta), not delta-of-deltas."""
+
+    def _two_snaps(self, new_curr: int, fix_curr: int) -> ModuleData:
+        prev = _make_snapshot(
+            "2026-04",
+            critical=20,
+            new_findings_count=10, fixed_findings_count=5,
+            mttr_overall_days=25.0, sla_rate_crit_high=70.0,
+            generated_at="2026-04-30T00:00:00Z",
+        )
+        curr = _make_snapshot(
+            "2026-05",
+            critical=10,
+            new_findings_count=new_curr, fixed_findings_count=fix_curr,
+            mttr_overall_days=15.0, sla_rate_crit_high=90.0,
+            generated_at="2026-05-31T00:00:00Z",
+        )
+        vuln_rows = [{"severity": "critical"}]
+        return _run(vuln_rows, snapshots=[prev, curr])
+
+    def test_net_negative_gives_green(self):
+        """fixed > intake → net < 0 → net_velocity_status_current == 'green'."""
+        result = self._two_snaps(new_curr=3, fix_curr=8)  # net = -5
+        status = result.metrics.get("net_velocity_status_current")
+        assert status == "green", f"Expected 'green', got {status!r}"
+
+    def test_net_positive_gives_red(self):
+        """intake > fixed → net > 0 → net_velocity_status_current == 'red'."""
+        result = self._two_snaps(new_curr=10, fix_curr=3)  # net = +7
+        status = result.metrics.get("net_velocity_status_current")
+        assert status == "red", f"Expected 'red', got {status!r}"
+
+    def test_net_zero_gives_flat(self):
+        """intake == fixed → net == 0 → net_velocity_status_current == 'flat'."""
+        result = self._two_snaps(new_curr=5, fix_curr=5)  # net = 0
+        status = result.metrics.get("net_velocity_status_current")
+        assert status == "flat", f"Expected 'flat', got {status!r}"
+
+
+class TestSurfacedCurrentFields:
+    """new_current / fixed_current surfaced in metrics (D-3)."""
+
+    def test_new_current_and_fixed_current_surfaced(self):
+        """compute() exposes new_current and fixed_current from curr snapshot."""
+        prev = _make_snapshot(
+            "2026-04", new_findings_count=10, fixed_findings_count=5,
+            generated_at="2026-04-30T00:00:00Z",
+        )
+        curr = _make_snapshot(
+            "2026-05", new_findings_count=7, fixed_findings_count=4,
+            generated_at="2026-05-31T00:00:00Z",
+        )
+        vuln_rows = [{"severity": "critical"}]
+        result = _run(vuln_rows, snapshots=[prev, curr])
+
+        assert result.metrics.get("new_current") == 7, (
+            f"new_current should be 7, got {result.metrics.get('new_current')!r}"
+        )
+        assert result.metrics.get("fixed_current") == 4, (
+            f"fixed_current should be 4, got {result.metrics.get('fixed_current')!r}"
+        )
+
+    def test_cold_start_has_new_current_fixed_current_keys(self):
+        """Cold-start ModuleData must not KeyError on new_current/fixed_current."""
+        vuln_rows = [{"severity": "critical"}]
+        result = _run(vuln_rows)  # no trend_snapshots → cold-start
+        assert "new_current" in result.metrics, "new_current key missing from cold-start metrics"
+        assert "fixed_current" in result.metrics, "fixed_current key missing from cold-start metrics"
+        assert "net_velocity_status_current" in result.metrics, (
+            "net_velocity_status_current key missing from cold-start metrics"
+        )
+
+    def test_cold_start_new_current_is_none(self):
+        """Cold-start: new_current and fixed_current are None (no snapshot data)."""
+        result = _run([{"severity": "critical"}])
+        assert result.metrics.get("new_current") is None
+        assert result.metrics.get("fixed_current") is None
+
+
+class TestOwnerSharePctAndAssetCount:
+    """D-5: owner rows carry share_pct (divide-by-zero guarded) and asset_count."""
+
+    def _two_snap_result_multi_owner(self) -> ModuleData:
+        """Two snapshots, two owners (Engineering + Operations)."""
+        prev = _make_snapshot(
+            "2026-04", critical=30,
+            new_findings_count=10, fixed_findings_count=5,
+            mttr_overall_days=25.0, sla_rate_crit_high=70.0,
+            generated_at="2026-04-30T00:00:00Z",
+        )
+        curr = _make_snapshot(
+            "2026-05", critical=20,
+            new_findings_count=5, fixed_findings_count=8,
+            mttr_overall_days=15.0, sla_rate_crit_high=90.0,
+            generated_at="2026-05-31T00:00:00Z",
+        )
+        # Two critical assets with different owners
+        vuln_rows = [
+            {"severity": "critical", "asset_uuid": _uuid(1), "first_found": REF - timedelta(days=5)},
+            {"severity": "critical", "asset_uuid": _uuid(1), "first_found": REF - timedelta(days=3)},
+            {"severity": "critical", "asset_uuid": _uuid(2), "first_found": REF - timedelta(days=4)},
+        ]
+        asset_rows = [
+            {"asset_uuid": _uuid(1), "tags": "Owner=Engineering"},
+            {"asset_uuid": _uuid(2), "tags": "Owner=Operations"},
+        ]
+        return _run(vuln_rows, snapshots=[prev, curr], asset_rows=asset_rows)
+
+    def test_share_pct_sums_to_100(self):
+        """Across all owner rows, share_pct values sum to ~100%."""
+        result = self._two_snap_result_multi_owner()
+        rows = result.table_data
+        # Only check if there are owner rows with non-None share_pct
+        pcts = [r.get("share_pct") for r in rows if r.get("share_pct") is not None]
+        if pcts:
+            total = sum(pcts)
+            assert abs(total - 100.0) < 0.5, f"share_pct sum should be ~100%, got {total}"
+
+    def test_owner_rows_have_share_pct_key(self):
+        """Each owner row must have a share_pct key."""
+        result = self._two_snap_result_multi_owner()
+        for row in result.table_data:
+            assert "share_pct" in row, f"share_pct key missing from owner row: {row}"
+
+    def test_owner_rows_have_asset_count_key(self):
+        """Each owner row must have an asset_count key."""
+        result = self._two_snap_result_multi_owner()
+        for row in result.table_data:
+            assert "asset_count" in row, f"asset_count key missing from owner row: {row}"
+
+    def test_zero_total_owner_share_pct_is_none(self):
+        """When total open Crit+High is zero, share_pct should be None (no divide-by-zero)."""
+        # Snapshots exist but no critical/high vulns open at report_date
+        prev = _make_snapshot("2026-04", generated_at="2026-04-30T00:00:00Z")
+        curr = _make_snapshot("2026-05", generated_at="2026-05-31T00:00:00Z")
+        # Only low-severity vulns → 0 crit+high in owner table
+        vuln_rows = [
+            {"severity": "low", "asset_uuid": _uuid(1), "first_found": REF - timedelta(days=5)},
+        ]
+        asset_rows = [{"asset_uuid": _uuid(1), "tags": "Owner=Engineering"}]
+        result = _run(vuln_rows, snapshots=[prev, curr], asset_rows=asset_rows)
+        for row in result.table_data:
+            # share_pct should be None when total is 0
+            assert row.get("share_pct") is None, (
+                f"Expected None share_pct when no crit+high, got {row.get('share_pct')!r}"
+            )
