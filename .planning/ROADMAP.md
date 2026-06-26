@@ -271,7 +271,7 @@ Plans:
 | 16. MTTR Rework | v1.4 | 7/7 | Complete    | 2026-06-12 |
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
 | 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
-| 19. v1.4 Closure | v1.4 | 11/11 | Complete   | 2026-06-26 |
+| 19. v1.4 Closure | v1.4 | 11/11 | Complete    | 2026-06-26 |
 
 ## Backlog
 
