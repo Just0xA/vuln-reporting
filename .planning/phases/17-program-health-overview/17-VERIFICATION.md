@@ -1,27 +1,32 @@
 ---
 phase: 17-program-health-overview
 verified: 2026-06-12T20:19:00-04:00
-status: human_needed
+closed: 2026-06-26T12:00:00Z
+status: passed
 score: 10/10 must-haves verified
 overrides_applied: 0
 human_verification:
   - test: "Deliver a composed_report group that includes program_health to a real (or sandbox) SMTP endpoint and confirm the email body contains the 4-tile KPI row, sparkline images, and Owner velocity table"
     expected: "Email arrives with 4 labeled tiles (Open Critical / Net Velocity / SLA Posture (Crit+High) / MTTR (30-day)), MoM arrows, and an Owner velocity table. Cold-start groups show 'Trend Being Established' instead of NaN."
     why_human: "render_email_panel returns correct HTML in unit tests but full MIME encoding, CID attachment, and Outlook/Gmail rendering cannot be verified by grep or pytest alone."
+    result: "CONFIRMED 2026-06-26. Operator verified email 4-tile KPI row + Owner velocity table; on-track count consistent after Phase 19 fixes (19-10/19-11). See 19-08-SUMMARY.md Check 1."
   - test: "Run capture_trend_snapshot.py against a live or staging Tenable tenant and inspect the written snapshot JSON for the sla_rate_crit_high field"
     expected: "Snapshot file contains a numeric sla_rate_crit_high value (float 0–100) or null (when zero Crit+High open), not a missing key."
     why_human: "The fail-soft block and field round-trip are tested with synthetic data; a live tenant exercises the full open_findings_at + SLA_DAYS path against real VPR-derived severity strings."
+    result: "CONFIRMED 2026-06-26. sla_rate_crit_high present in live snapshot entry (float or null fail-soft). See 19-08-SUMMARY.md Check 2."
   - test: "Generate a composed_report PDF with program_health included and visually inspect the sparkline row and Owner velocity table"
     expected: "Four colored sparklines (red/blue/green/orange) appear above the Owner velocity table. Outlier owners show the red '▲ Outlier' marker. Cold-start renders a notice instead of sparklines."
     why_human: "WeasyPrint layout of the display:table sparkline row and table column widths requires a real PDF render to verify — WeasyPrint flex bugs have previously passed on-paper geometry checks but failed in real renders (see project memory: feedback_layout_fixes.md)."
+    result: "CONFIRMED 2026-06-26. PDF sparkline row + Owner velocity table verified after Phase 19 layout fixes (19-10: two-page split, per-chart captions; 19-11: D-7 composite RAG / D-8 net-velocity tile). Sparse sparklines (<2 months → lone dot) accepted as-is; fill as monthly snapshots accumulate. See 19-08-SUMMARY.md Check 3."
 ---
 
 # Phase 17: Program Health Overview Verification Report
 
 **Phase Goal:** The Program Health Overview module is live — a single-page composite MoM velocity dashboard that stitches New vs Remediated, MTTR trend, and SLA posture into one composite RAG with an Owner velocity table, cold-start-safe.
 **Verified:** 2026-06-12T20:19:00-04:00
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Human checks closed:** 2026-06-26 (operator-confirmed via Phase 19 plan 08 checkpoint — approved after 19-10/19-11 gap-closure fixes)
+**Status:** passed
+**Re-verification:** No — initial verification + human checks now complete
 
 ---
 
@@ -128,7 +133,7 @@ No `TBD`, `FIXME`, or `XXX` markers found in any Phase 17 modified files. No unr
 
 ---
 
-### Human Verification Required
+### Human Verification — COMPLETE (2026-06-26)
 
 #### 1. Email delivery rendering (Outlook / Gmail / Apple Mail)
 

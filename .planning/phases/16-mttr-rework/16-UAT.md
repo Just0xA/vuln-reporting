@@ -1,35 +1,36 @@
 ---
-status: testing
+status: passed
 phase: 16-mttr-rework
-source: [16-01-SUMMARY.md, 16-02-SUMMARY.md, 16-03-SUMMARY.md, 16-04-SUMMARY.md, 16-05-SUMMARY.md]
+source: [16-01-SUMMARY.md, 16-02-SUMMARY.md, 16-03-SUMMARY.md, 16-04-SUMMARY.md, 16-05-SUMMARY.md, 16-06-SUMMARY.md, 16-07-SUMMARY.md]
 started: 2026-06-12T13:25:00Z
-updated: 2026-06-12T17:26:00Z
+updated: 2026-06-26T12:00:00Z
 paused_reason: "Resumed 2026-06-12 after gap closure D-16-11/D-16-12 (plans 16-04/16-05) implemented the mttr_view split tables + owner-default. Test 1 reset to re-test against the new design; render-channel expectations (tests 1-3) updated to match."
+closed_reason: "All 4 re-test targets (tests 1,2,3,5) verified passed by operator against the Phase 19 fixed build (D-16-13 + sys.path bootstrap). Confirmed in 19-08-SUMMARY.md (approved 2026-06-26)."
 ---
 
 ## Current Test
 <!-- OVERWRITE each test - shows where we are -->
 
-[round 2 paused — 2 issues (tests 1, 5) locked as D-16-13 + script bootstrap fix;
-tests 2-3 deferred to re-test against the rebuilt module. Proceeding to build.]
-resume_at: 1   # re-run tests 1, 2, 3, 5 against the D-16-13 build
+[COMPLETE — all re-test targets passed against the Phase 19 fixed build (D-16-13 + capture_trend_snapshot sys.path fix). Verified operator-confirmed 2026-06-26 via 19-08 checkpoint.]
+resume_at: none   # UAT closed — status: passed
 
 ## Tests
 
 ### 1. MTTR section renders in a composed-report PDF (D-16-13 gauge band + focus-driven table)
 expected: A composed report including `mttr_trend` produces a "MTTR Trend (Reopened-Aware)" PDF page with a HEADLINE BAND of 4 per-severity MTTR gauges (Critical/High/Medium/Low, each vs its config.py SLA) each carrying a MoM direction indicator (▼ green = improving/faster, ▲ red = slipping/slower), fixed at the top of page 1. Below: a focus-driven detail table — Owner breakdown when the report is unfocused (all owners), Application breakdown when focused on a single Owner group, and NO table when focused to a single Application (gauges only). Plus a "Rolling 30-day MTTR …" disclosure line. No severity table (gauges replace it).
-result: issue
-reported: "The gauge graphic is not present."
-severity: major
-prior_result: "Round 1 issue (combined Severity+Owner table confusing + 2nd-page bleed) → resolved by D-16-11/12. Round 2 re-test surfaced this NEW issue: owner-default view had no gauge at all (per-severity gauges were gated to severity/both, no standalone overall gauge existed). Redesigned as D-16-13 (4-gauge band, all views, focus-driven table). Pending re-test against the D-16-13 build."
+result: pass
+note: "Verified against Phase 19 fixed build (D-16-13) 2026-06-26. 4-gauge severity band confirmed present in owner-default view (D-16-13). Operator confirmed via 19-08 checkpoint (19-08-SUMMARY.md)."
+prior_result: "Round 1 issue (combined Severity+Owner table confusing + 2nd-page bleed) → resolved by D-16-11/12. Round 2 re-test surfaced this NEW issue: owner-default view had no gauge at all (per-severity gauges were gated to severity/both, no standalone overall gauge existed). Redesigned as D-16-13 (4-gauge band, all views, focus-driven table)."
 
 ### 2. Excel "MTTR Trend" tab with window disclosure (split, owner default)
 expected: The same report's Excel file has an "MTTR Trend" tab. Row 1 discloses the window ("MTTR Trend — Rolling 30-day window"). With the default owner view, the tab shows an Owner section whose columns OMIT "SLA Target (Days)" (Owner rows have no SLA anchor). Columns: Owner, MTTR (Days), [no SLA Target], Status, Sample Size, MoM Delta. (mttr_view: both writes a Severity region and an Owner region separated by a blank row, not one concatenated table.)
-result: [pending]
+result: pass
+note: "Verified against Phase 19 fixed build 2026-06-26. Excel MTTR Trend tab confirmed: window disclosure present, no SLA Target column on Owner rows. Operator confirmed via 19-08 checkpoint."
 
 ### 3. Email panel renders with disclosure + sparse-data wording
 expected: The rendered delivery email body (Outlook/Gmail-safe, inline CSS) shows an MTTR panel as a table with a footer disclosing the rolling window AND the active view (e.g. "by Owner"). Any Owner/severity below the 5-finding threshold reads "Insufficient data (N findings — minimum 5 required)" rather than a number.
-result: [pending]
+result: pass
+note: "Verified against Phase 19 fixed build 2026-06-26. Email MTTR panel renders confirmed. Operator confirmed via 19-08 checkpoint."
 
 ### 4. Reopened-aware MTTR — no reopen inflation (correctness lodestar)
 expected: For a finding that was reopened (resurfaced after first-found, then later fixed), MTTR counts from the resurfaced date, not the original first-found. Reopened findings no longer inflate the average toward ~200 days; the overall mean reflects time-since-reopen. (Criterion-3: a finding found -200d, resurfaced -10d, fixed -2d contributes ~8 days, not 198.) If you can't isolate a reopened finding in live data, this is locked by the automated `TestCriterion3ReopenedClock` test — reply "skip".
@@ -38,10 +39,9 @@ reason: "Can't isolate a reopened finding in live data; relying on the automated
 
 ### 5. Snapshot persistence — MTTR fields written, cold-start MoM
 expected: Run `python scripts/capture_trend_snapshot.py` against your data. The newest entry in `data/trend/trend_severity_all_assets.json` now carries `mttr_overall_days`, `mttr_by_severity`, and `mttr_by_owner` (non-null when ≥5 durable fixes exist in the 30-day window). On the first-ever run the MoM trend cold-starts (single snapshot → trend shows "insufficient data", but the live per-severity gauges still render).
-result: issue
-reported: "ModuleNotFoundError: No module named 'config' — from config import CACHE_DIR (scripts/capture_trend_snapshot.py:33)"
-severity: blocker
-diagnosis: "scripts/capture_trend_snapshot.py has no sys.path bootstrap, so the documented invocation `python scripts/capture_trend_snapshot.py` puts scripts/ (not the repo root) on sys.path and the root-level `config`/`data`/`tenable_client` imports fail. Sibling scripts (smoke_board_summary_cutover.py, smoke_email_phase2.py) already bootstrap sys.path; this one is missing it. Masked in verification because smoke probes used `python -c \"import scripts.capture_trend_snapshot\"` (run from root). The MTTR-field WRITE behavior itself is covered by tests/content/test_trend_store.py; only the real CLI invocation is broken."
+result: pass
+note: "Verified against Phase 19 fixed build 2026-06-26. sys.path bootstrap added in Phase 19 Plan 16-06 (gap-closure D-16-13); live snapshot capture runs without ModuleNotFoundError and writes MTTR fields. Operator confirmed via 19-08 checkpoint."
+prior_result: "ModuleNotFoundError: No module named 'config' — fixed in Phase 19 Plan 16-06 by adding sys.path root bootstrap to scripts/capture_trend_snapshot.py (matching pattern in sibling scripts)."
 
 ### 6. board_summary unchanged (D-16-10 regression)
 expected: Run an existing board_summary delivery group (`python run_all.py --group "<board group>" --no-email`). The PDF and Excel render exactly as they did before Phase 16 — same page count, same MTTR-by-severity content, no new or missing sections. The Phase 16 work must not have altered board_summary output.
@@ -51,15 +51,16 @@ note: "User confirmed unchanged (ran the 'Test Pull' group). Matches automated g
 ## Summary
 
 total: 6
-passed: 1
-issues: 2
-pending: 2
+passed: 5
+issues: 0
+pending: 0
 skipped: 1
+closed: 2026-06-26
 
 ## Gaps
 
 - truth: "MTTR Trend presents an audience-appropriate breakdown that fits on one page"
-  status: resolved   # implemented + tested by plans 16-04/16-05 (commits 8030285, 0e4cded, 023ade4); re-verified 16-VERIFICATION.md G1-G7. Pending live re-test as UAT Test 1.
+  status: resolved   # implemented (D-16-11/12 plans 16-04/16-05) + superseded by D-16-13 (plans 16-06/16-07) + live re-test passed 2026-06-26 (UAT Test 1 pass).
   reason: "User reported: combining Severity and Owner in a single table is confusing, and the row count bleeds onto a second page. Audience split — exec leadership wants the Owner cut; lower/middle management scoped to a single owner wants the Severity cut."
   severity: minor
   test: 1
@@ -119,7 +120,7 @@ skipped: 1
     - tests for each mttr_view value + default + single-page fit
 
 - truth: "The MTTR module's headline is a 4-gauge severity band (with MoM direction) that renders in every view, and the detail table follows the report's focus level"
-  status: failed
+  status: resolved   # D-16-13 implemented (plans 16-06/16-07) + live re-test passed 2026-06-26 (UAT Test 1 pass).
   reason: "UAT Test 1 round 2: the D-16-11/12 owner-default view rendered NO gauge graphic at all (the only gauges were per-severity, now gated to severity/both; no standalone overall gauge existed). User redesigned the presentation in discussion 2026-06-12."
   severity: major
   test: 1
@@ -192,7 +193,7 @@ skipped: 1
     - Excel severity numeric block; tests + baseline regen
 
 - truth: "The scheduled command `python scripts/capture_trend_snapshot.py` runs without error and writes the snapshot (incl. MTTR fields)"
-  status: failed
+  status: resolved   # sys.path bootstrap added in Phase 19 plan 16-06 (gap-closure D-16-13); live re-test passed 2026-06-26 (UAT Test 5 pass).
   reason: "UAT Test 5: ModuleNotFoundError: No module named 'config' at scripts/capture_trend_snapshot.py:33. The documented/scheduled invocation `python scripts/capture_trend_snapshot.py` fails because the script has no sys.path bootstrap — running it puts scripts/ on sys.path, not the repo root, so root-level `config`/`data`/`tenable_client` imports fail. Without this, the forward-accumulating MTTR trend never populates in production (cannot be backfilled past Tenable's ~29-day fixed-finding retention)."
   severity: blocker
   test: 5
