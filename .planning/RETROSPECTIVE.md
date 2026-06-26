@@ -102,9 +102,50 @@ Two shared substrates so the June-2026 report batch becomes thin v1.4 consumers.
 
 ---
 
+## Milestone: v1.4 — Management Summary Reporting Improvement
+
+**Shipped:** 2026-06-26
+**Phases:** 6 (14–19) | **Plans:** 35 | **Quick tasks:** 1 (260626-elj)
+**Timeline:** ~15 days (built 2026-06-11 → closed 2026-06-26)
+
+### What Was Built
+
+The June-2026 management/exec trend-cut report batch as seven thin four-channel modules on the shipped S1/S2 substrates — New vs Remediated, Vulnerability Density, Reopened Vulnerabilities, Accepted & Recast, External/DMZ Exposure (Phase 15); the reworked `mttr_trend` with a disclosed rolling-30-day window, sample-weighted mean, and reopened-aware clock (Phase 16); and the Program Health Overview composite RAG dashboard (Phase 17) — atop Phase 14's shared substrates (`external_scope`, `asset_count`, composed_report kwargs gates). Phase 18 migrated `management_summary` off its ~2,200-line bespoke path onto `ReportComposer` (GEN-01), seeded ~12mo of reconstructed trend history, and shipped auditor runbooks (DOC-02). Phase 19 closed the milestone off `tech_debt`.
+
+### What Worked
+
+- **Substrate-first paid off exactly as v1.3 bet.** The seven v1.4 modules consumed `open_findings_at` + `extract_owner` + `read_trend` directly; none re-invented trend or segmentation. The S1/S2 investment from v1.3 turned report-building into thin module work.
+- **The post-close re-audit earned its keep.** Re-running `/gsd-audit-milestone` after closure, with an independent integration checker, caught REAUDIT-WARN-1 — a real data gap the Phase 19 closure had marked "resolved." Phase-level verification (which asserted kwarg key presence) had passed over it.
+- **Inline-compute over composing-more-modules.** When the fix surfaced, surfacing the report-content side effect of the "obvious" approach (adding modules to `_MGMT_MODULE_CONFIGS`) led to a cleaner inline fix that left the audience-facing report byte-identical. Asking before changing what VPs see was the right call.
+
+### What Was Inefficient
+
+- **"Forwarded" was mistaken for "populated."** The Phase 19 INT-WARN-1 fix forwarded all 8 snapshot kwargs and its regression test asserted key presence — but 2 fields silently resolved to `None` because their source modules weren't composed. The test passed green over the nulls for a full week until the re-audit's integration checker caught it. A value assertion would have caught it immediately.
+- **A documented false-positive explanation was itself wrong.** The v1.3 retro and STATE.md attributed the `audit-open` quick-task noise to "SUMMARYs omit a `status:` field." At v1.4 close the real cause turned out to be a filename mismatch (detector reads `SUMMARY.md`; gsd-quick writes `<id>-SUMMARY.md`) — the status field was already there. The wrong explanation had been inherited across two closes.
+
+### Patterns Established
+
+- **Regression tests assert VALUES, not just shape/key presence.** A kwarg can be present and `None`; a section can render and be empty. When a fix is "field X is now populated," the test must assert X is non-null with realistic data — not that the key exists.
+- **Re-run the milestone audit post-closure with an independent integration checker.** It exercises cross-phase wiring against live code and catches what per-phase verification (scoped to one phase's diff) structurally cannot.
+- **Verify a documented root cause before inheriting it.** A note that says "false positive because X" can be right about the symptom and wrong about X. Re-test the cause when it next matters.
+
+### Key Lessons
+
+1. **Present ≠ populated.** The highest-value catch of the milestone was a `None` that a green test endorsed. Assert the value.
+2. **Surface side effects before applying the "obvious" fix.** The audit's own recommended approach (add modules) would have silently changed the management report; the inline alternative didn't. One clarifying question saved a regression.
+3. **Inherited explanations decay like inherited audits.** Same lesson as v1.3 ("audits go stale"), one level up: the *explanation* of a known quirk can be stale too.
+
+### Cost Observations
+
+- **Model mix:** Opus orchestrator (main loop); integration checker on Sonnet; planner on Opus, executor on Sonnet for the closure quick task.
+- **Sessions:** Phases 14–18 across 2026-06-11 → 06-21; Phase 19 closure 06-24 → 06-26; re-audit + REAUDIT-WARN-1 + milestone close 06-26.
+- **Notable:** the re-audit integration checker (one Sonnet agent, ~137k tokens) found a week-old latent data bug that four phase verifications had each passed — the cheapest high-leverage catch of the milestone.
+
+---
+
 ## Cross-Milestone Trends
 
-(This section accumulates patterns across multiple milestones. v1.1 and v1.2 retrospectives were not captured at their close; entries exist for v1.0 and v1.3.)
+(This section accumulates patterns across multiple milestones. v1.1 and v1.2 retrospectives were not captured at their close; entries exist for v1.0, v1.3, and v1.4.)
 
 ### Velocity
 
@@ -112,6 +153,7 @@ Two shared substrates so the June-2026 report batch becomes thin v1.4 consumers.
 |-----------|--------|-------|-------------|------|---------|
 | v1.0 | 4 | 19 | 1 | 4 | 140 |
 | v1.3 | 2 | 8 | 1 | 3 | 63 |
+| v1.4 | 6 | 35 | 1 | 15 | ~164 |
 
 ### UAT Issues Found Per Milestone
 
@@ -119,9 +161,12 @@ Two shared substrates so the June-2026 report batch becomes thin v1.4 consumers.
 |-----------|--------------|------------------|--------------------|
 | v1.0 | 1 (Phase 03 — pd.NA chokepoint) | 1 (Phase 03 — RAG strip layout) | 0 |
 | v1.3 | 0 | 1 (Phase 13 verify gap — CR-01 duplicate-`asset_uuid`, closed via 13-05) | 0 |
+| v1.4 | 0 | 1 (Phase 17 PDF/email layout gaps — closed via 19-10/19-11) + REAUDIT-WARN-1 (post-close, inline-compute fix) | 0 |
 
 ### Recurring Failure Modes (carry-forward watchlist)
 
 - **WeasyPrint flex layout** — phantom-space consumption beyond cell+gap math. v1 fixed cover; if v2 adds modules, re-test with multi-row wrap.
 - **pandas Copy-on-Write dtype shifts** — `.loc[:, col]=` vs `df[col]=` semantics differ post-3.0. v2 module migrations should use `.assign()` for any int-dtype-critical column.
+- **Key-presence tests that pass over `None` values** — v1.4's INT-WARN-1 guard asserted kwargs were forwarded but not that they were non-null; 2 fields stayed `None` for a week behind a green test. For any "field is now populated" fix, assert the value with realistic data, not just key/shape presence.
+- **`audit-open` quick-task false positives** — fires at every milestone close. Root cause (corrected at v1.4): filename mismatch (detector reads `<dir>/SUMMARY.md`; gsd-quick writes `<dir>/<id>-SUMMARY.md`), NOT a missing `status:` field. Acknowledge & proceed; drop an unprefixed `SUMMARY.md` copy to silence per task.
 - **Synthetic regression fixtures don't catch real-data nulls** — Plan 03-07's BLOCKER (StringDtype `pd.NA`, `Int64` `pd.NA`, `datetime64[ns, UTC]` `pd.NaT`) only reproduced against live Tenable. Fixture pattern: include `pd.NA` in StringDtype, `pd.NaT` in datetime, `pd.NA` in Int64 columns by default for any new test fixture.

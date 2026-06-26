@@ -12,13 +12,24 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 ## Current State
 
-**Shipped:** v1.3 Trend & Segmentation Substrate (2026-06-11) — see [`MILESTONES.md`](MILESTONES.md).
+**Shipped:** v1.4 Management Summary Reporting Improvement (2026-06-26) — see [`MILESTONES.md`](MILESTONES.md).
+
+- 6 phases (14–19), 35 plans, 62 tasks across 2026-06-11 → 2026-06-26; 17/17 requirements satisfied (SUB-01..03, RPT-01..07, QUAL-01..05, GEN-01, DOC-02); milestone audit status: passed
+- **Seven v1.4 metric modules on the four-channel contract:** New vs Remediated, Vulnerability Density, Reopened Vulnerabilities, Accepted & Recast, External/DMZ Exposure (Phase 15), reworked `mttr_trend` (Phase 16), and the Program Health Overview composite dashboard (Phase 17) — all consuming the S1 trend + S2 Owner substrates, cold-start-safe and zero-row-safe.
+- **Shared substrates + gates (Phase 14):** `utils/external_scope.py` external classifier, `utils/asset_count.py` on-time-scanned denominator, and `composed_report.py` trend/recast kwargs frozenset gates fanning out through `ReportComposer`.
+- **GEN-01 — `management_summary` migrated (Phase 18):** atomic cutover from the ~2,200-line bespoke path to `ReportComposer` (7 modules, chrome-aware, modular email), ~12mo all-assets trend reconstruction (overlap-gate 0-diff) behind a bounded `last_fixed` fetch + zero-drift consumer audit; auditor runbooks (DOC-02).
+- **Closure (Phase 19):** INT-WARN-1/2/3 fixed, 39 CodeRabbit findings cleared, all deferred 15/17/18-REVIEW findings resolved, Phase 16 UAT + Phase 17 human checks operator-confirmed — audit flipped `tech_debt` → `passed`.
+- Post-milestone: re-audit finding REAUDIT-WARN-1 (management_summary snapshot persisted `reopened_count`/`sla_rate_crit_high` as `None`) closed via quick task `260626-elj` — inline compute mirroring the cron writer; report output unchanged.
+
+<details>
+<summary>Previous shipped: v1.3 Trend & Segmentation Substrate (2026-06-11)</summary>
 
 - 2 phases (12–13), 8 plans, 52 files / +8,811 / −373 across 2026-06-08 → 2026-06-11; 13/13 requirements satisfied (TREND-01..07, SEG-01..05, DOC-01); milestone audit status: passed
-- **S1 — Trend snapshot substrate:** reopened-aware two-interval `open_findings_at()` open-count primitive (`utils/open_count.py`) — the naive single-interval form silently dropped ~19% of findings (all REOPENED); `data/trend_store.py` atomic capture/read with idempotent monthly overwrite, cold-start safety, and aggregate-only PII discipline; `scripts/capture_trend_snapshot.py` cron entry point. Extends `data/trend/` without regressing `management_summary`'s private path.
-- **S2 — Owner segmentation:** `extract_owner()` Owner/Application tag helper with a lossless `Unassigned` catch-all; combined analyst worklist (`reports/owner_supplemental.py`) wired fail-soft into `board_summary`; owner-dimension trend composition (S1×S2) proven end-to-end. Migrated board/management modules from "Business Unit" → Owner terminology.
-- Auditor runbook `docs/trend_and_segmentation_calculations.md` (DOC-01).
-- Post-milestone: substrate tech debt closed via quick task `260611-b1x` (owner_supplemental asset-count dedup + pandas-3.0 CoW chained-assignment). The third audited item — `open_findings_at` NaT-FIXED over-count — was found already-fixed (commit `71207e6`) and regression-tested, so the Phase 14 created to address it was removed as unnecessary.
+- **S1 — Trend snapshot substrate:** reopened-aware two-interval `open_findings_at()` open-count primitive (`utils/open_count.py`) — the naive single-interval form silently dropped ~19% of findings (all REOPENED); `data/trend_store.py` atomic capture/read with idempotent monthly overwrite, cold-start safety, and aggregate-only PII discipline; `scripts/capture_trend_snapshot.py` cron entry point.
+- **S2 — Owner segmentation:** `extract_owner()` Owner/Application tag helper with a lossless `Unassigned` catch-all; combined analyst worklist (`reports/owner_supplemental.py`) wired fail-soft into `board_summary`; owner-dimension trend composition (S1×S2) proven end-to-end.
+- Auditor runbook `docs/trend_and_segmentation_calculations.md` (DOC-01); post-milestone tech debt closed via quick task `260611-b1x`.
+
+</details>
 
 <details>
 <summary>Previous shipped: v1.2 Deployment & Self-Update Infrastructure (2026-05-22)</summary>
@@ -60,23 +71,11 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 **Codebase state (post-v1.2):** Five reports work end-to-end plus the YAML-driven `composed_report` slug. `board_summary` and `composed_report` are chrome-aware. `management_summary` + `ops_remediation` remain on legacy render paths (untouched); they will inherit chrome only after migration to the module contract (GEN-01/02 deferred). The suite is now server-deployable from signed release tarballs with scripted install/update/rollback (`scripts/update_from_github.sh`), CI-published artifacts (`.github/workflows/release.yml`), a standalone warm-cache job, and authoritative `DEPLOYMENT.md` / `RUNBOOK.md` / `README.md`.
 
-## Current Milestone: v1.4 Management Summary Reporting Improvement
+## Next Milestone
 
-**Goal:** Build the June-2026 management/exec trend-cut report batch as modular four-channel reports consuming the shipped S1 (trend) + S2 (Owner) substrates, and migrate `management_summary` onto the module render contract (GEN-01).
+**Not yet defined.** v1.4 is shipped and archived. Start the next cycle with `/gsd-new-milestone` (questioning → research → requirements → roadmap). Phase numbering continues from Phase 19 (next milestone starts at Phase 20).
 
-**Target features:**
-- **New vs Remediated** — monthly incoming vs remediated trend (most direct S1 consumer)
-- **Vulnerability Density** — vulns/asset MoM; introduces an asset-count denominator substrate
-- **Reopened Vulnerabilities** — build/config regression tracking (`state==REOPENED` / `resurfaced_date`)
-- **Accepted & Recast** — current posture + prev-month ▲▼%, by Owner (recast rules already in codebase)
-- **Program Health Overview** — MoM velocity across totals, Owner cut
-- **MTTR rework** — disclose ~30d window, sample-weight, reopened-aware, add trend + Owner, four-channel contract
-- **External / DMZ exposure cut** — scope = tagged `Location=External/DMZ` OR computed public IPv4 (non-RFC1918); analyst mismatch/exception list (mirrors S2 `Unassigned`). **WAS deferred** — no pyTenable upgrade this milestone
-- **GEN-01** — migrate `management_summary` to the module render contract (folded in)
-
-**Key context:** WAS deferral keeps the locked pyTenable-version constraint intact (External report is a host-vuln exposure cut, not a new data source). Two new substrates emerge — an asset-count denominator (Density) and an external-scope helper. GEN-01 migration must not regress existing `management_summary` delivery (smoke baselines + visual UAT, same pattern as the v1.0 `board_summary` cutover). All new modules use the four-channel render contract + empty-data hardening; aggregate-only PII discipline (D-04-08) on any new trend snapshots.
-
-**Founding analysis:** [`notes/report-requests-batch-2026-06.md`](notes/report-requests-batch-2026-06.md), [`notes/trend-reconstruction-engine.md`](notes/trend-reconstruction-engine.md), spikes 001–003 ([`spikes/MANIFEST.md`](spikes/MANIFEST.md)), and the `spike-findings-vuln-reporting` skill.
+**Leading candidates** (from the backlog below): **GEN-02** (migrate `ops_remediation` to the module contract — the deferred "Operator Remediation Report v2"), **GEN-03/04** (broader YAML-driven module composition beyond the `composed_report` slug), the **MTTR window-widening** metric-design change (90-day/all-time, now that ~12mo of fixed data is retrievable), and **EXT-WAS-01 / EXT-TREND-01** (gated on a pyTenable-upgrade decision).
 
 ## Backlog (deferred from prior milestones)
 
@@ -124,6 +123,10 @@ Carried from the v1.0 backlog (see `milestones/v1.0-REQUIREMENTS.md` v2 section)
 | v1.3: Trend is snapshot-capture, NOT reconstruction | Spike 002: Tenable's ~29-day fixed-retention wall forbids backfill. History accumulates forward from the first snapshot; cold start is real. | ✓ Good — `data/trend_store.py` forward-accumulating + cold-start safe |
 | v1.3: Reopened-aware two-interval open-count predicate is mandatory | The naive `last_fixed null OR last_fixed>D` form drops the entire REOPENED population (~19% of findings). The two-interval model using `resurfaced_date` resolves it exactly. | ✓ Good — `open_findings_at` unit-tested on OPEN/REOPENED/FIXED edges incl. NaT-FIXED (WR-01) |
 | v1.3: Phase 14 created then removed — tech-debt premise was stale | A milestone-close audit deferred 3 substrate items into a new Phase 14. The headline item (`open_findings_at` NaT-FIXED over-count) was already fixed + regression-tested (`71207e6`); the other 2 were ~15 lines in one file. Phase removed; closed via quick task `260611-b1x`. | ✓ Good — verified before building; avoided a full phase for a trivial fix |
+| v1.4 (D-18-01): Trend reconstruction overturns the v1.3 cold-start premise | Spike 002's "~29-day fixed-retention wall" assumed the API default; passing `last_fixed` reaches ~12–16mo of fixed history. v1.4 reconstructs ~12mo all-assets MoM history before the GEN-01 cutover instead of cold-starting `management_summary`. | ✓ Good — overlap gate PASS (live_open == reconstructed, 0 diff); provenance-marked immutable reconstructed months |
+| v1.4 (OD-7): MTTR rework ships as new `mttr_trend` MODULE_ID, `mttr_by_severity` byte-unchanged | Reworking the existing module in place would have regressed board_summary groups that reference `mttr_by_severity`. A new MODULE_ID lets the corrected metric ship without touching the legacy one. | ✓ Good — board_summary baselines byte-identical; `mttr_trend` carries window disclosure + reopened-aware clock |
+| v1.4: GEN-01 cutover guarded by structural smoke + bucketed parity, no dual-writer window | The ~2,200-line bespoke path was removed in the same commit that routed reads through `read_trend()`. Structural baseline (pre-cutover) + per-metric parity buckets (5 exact-match, 2 documented-difference) caught regressions without locking churning values. | ✓ Good — operator UAT APPROVED; existing groups deliver with zero YAML changes |
+| v1.4: REAUDIT-WARN-1 fixed by inline compute, not by composing more modules | The post-close re-audit found 2 of 8 snapshot fields persisted as `None` because they were sourced from modules absent from `_MGMT_MODULE_CONFIGS`. Adding the modules would have changed the audience-facing report; computing the fields inline (cron-writer style) fixes the data with byte-identical report output. | ✓ Good — quick task `260626-elj`; report unchanged, snapshot fields now populated |
 
 ## Evolution
 
@@ -143,4 +146,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-26 — v1.4 complete (Phases 14–19, all verified passed; Phase 19 closure milestone audit status: passed). Ready for milestone archival via /gsd-complete-milestone.*
+*Last updated: 2026-06-26 — after v1.4 milestone (Phases 14–19 shipped & archived; audit passed; REAUDIT-WARN-1 closed via quick task 260626-elj). Awaiting next milestone via /gsd-new-milestone.*

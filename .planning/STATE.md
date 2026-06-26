@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Management Summary Reporting Improvement
-status: milestone_complete
-stopped_at: Milestone complete (Phase 19 was final phase)
-last_updated: 2026-06-26T12:54:56.795Z
-last_activity: 2026-06-26
+status: Awaiting next milestone
+stopped_at: Phase 19 plan 09 — v1.4 milestone closeout complete
+last_updated: "2026-06-26T14:58:34.625Z"
+last_activity: 2026-06-26 — Milestone v1.4 completed and archived
 progress:
   total_phases: 6
   completed_phases: 6
@@ -25,15 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 ## Current Position
 
-Phase: 19
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-06-26 - Completed quick task 260626-elj: fill management_summary snapshot reopened_count + sla_rate_crit_high inline (REAUDIT-WARN-1)
-
-```
-v1.4 progress: [##############] 100% (6/6 phases — COMPLETE)
-Phase 14 [x] Phase 15 [x] Phase 16 [x] Phase 17 [x] Phase 18 [x] Phase 19 [x]
-```
+Phase: Milestone v1.4 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-26 — Milestone v1.4 completed and archived
 
 ## Shipped Milestones
 
@@ -174,11 +169,21 @@ Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 whic
 | cleanup | Phase 3 W3 deprecated aliases (`_PDF_RAG_STRIP_TEMPLATE`, `_build_rag_strip_page`) | deferred (cosmetic) | 2026-05-08 |
 | backlog | composed_report output filenames are hardcoded to `composed_report.{pdf,xlsx}` — every group with `reports: [composed_report]` writes the same basenames in its run folder. Need per-group disambiguation (slugified `report_title`, explicit `output_basename:` YAML field, or slugified group name). Captured during Phase 6 chrome rollout once multiple composed groups became plausible. | deferred | 2026-05-13 |
 
+### Acknowledged at v1.4 close (2026-06-26)
+
+`gsd-sdk query audit-open` flagged 14 items at the v1.4 close — all verified **non-blocking** (the v1.4 milestone audit is `passed`, 17/17 requirements, 0 broken flows). Acknowledged and proceeded.
+
+| Category | Count | Disposition |
+|----------|-------|-------------|
+| quick_tasks | 12 | Detector false positive (filename quirk — see note below; all complete with commits, mostly v1.2/v1.3 work). The v1.4 task `260626-elj` was cleared by adding an unprefixed `SUMMARY.md`. |
+| uat_gaps | 1 | `16-UAT.md` is `status: passed` with 0 open scenarios — false positive (Phase 16 UAT confirmed 2026-06-26). |
+| todos | 1 | `2026-06-18-run-coderabbit-on-phase-18` — work resolved in Phase 19 (39 CodeRabbit findings cleared, D-06); the reminder file is an untracked `.planning/todos/pending/` leftover. |
+
 ### Acknowledged at v1.3 close (2026-06-11)
 
-`gsd-sdk query audit-open` flags 12 quick tasks as "missing summary" — a **detector false positive**, not open work. This project's quick-task SUMMARY frontmatter omits a `status:` field, so `audit-open` cannot see them as complete; every quick task ever run here is flagged identically (v1.2 already shipped on top of 8 of them). All 12 are complete, logged above in "Quick Tasks Completed" with commits. Acknowledged and proceeded with the v1.3 close.
+`gsd-sdk query audit-open` flags 12 quick tasks as "missing summary" — a **detector false positive**, not open work. All are complete, logged above in "Quick Tasks Completed" with commits. Acknowledged and proceeded with the v1.3 close.
 
-- Follow-up (cosmetic, optional): have the quick-task executor write `status: complete` into SUMMARY frontmatter so `audit-open` stops false-flagging future closes.
+**Accurate root cause (corrected at v1.4 close 2026-06-26):** the earlier "omits a `status:` field" explanation was wrong. `audit-open` resolves the SUMMARY at `<quick-dir>/SUMMARY.md` (unprefixed), but gsd-quick writes `<quick-dir>/<quick-id>-SUMMARY.md` (prefixed). The unprefixed path isn't found → "missing". The prefixed file already carries `status: complete` (the executor writes it). Go-forward clean-up: drop an unprefixed copy (`cp <id>-SUMMARY.md SUMMARY.md`) in the quick dir — verified to clear the detector. `uat_gaps` with `status: passed`/0 open scenarios and resolved-but-uncommitted `.planning/todos/pending/` files are similar false positives.
 
 ## Session Continuity
 
@@ -186,3 +191,7 @@ Last session: 2026-06-26T12:46:42.146Z
 Stopped at: Phase 19 plan 09 — v1.4 milestone closeout complete
 Resume file: None
 Next command: `/gsd-plan-phase 20` or `/gsd-milestone v1.5` (v1.4 is fully closed)
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone

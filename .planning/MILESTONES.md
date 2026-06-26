@@ -4,6 +4,31 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 
 ---
 
+## v1.4 — Management Summary Reporting Improvement
+
+**Shipped:** 2026-06-26
+**Phases:** 6 (14–19) | **Plans:** 35 | **Tasks:** 62
+**Timeline:** 2026-06-11 → 2026-06-26
+**Git range:** `6119120` (Phase 14 start) → `bf661aa`
+**Files changed:** 194 | **LOC delta:** +50,434 / −2,777
+**Requirements:** 17/17 satisfied (SUB-01..03, RPT-01..07, QUAL-01..05, GEN-01, DOC-02); milestone audit passed
+**Known deferred at close:** 14 `audit-open` items, all verified non-blocking false positives (see STATE.md "Deferred Items")
+
+**Delivered:** The June-2026 management/exec trend-cut report batch built as thin four-channel modules on the shipped S1 (trend) + S2 (Owner) substrates, plus the GEN-01 `management_summary` migration onto the `ReportComposer` module pipeline — so each audience's report is assembled from a shared metric library rather than a bespoke render path.
+
+**Key accomplishments:**
+
+- **Shared substrates + composed_report gates (SUB-01/02/03, Phase 14):** `utils/external_scope.py` (tag/public-IPv4 external classifier + mismatch list, stdlib `ipaddress`), `utils/asset_count.py` (`count_on_time_assets` denominator + `config.ON_TIME_SCAN_WINDOW_DAYS`), and two new `composed_report.py` frozenset gates (`_MODULES_NEEDING_TREND_SNAPSHOTS`, `_MODULES_NEEDING_RECAST_RULES`) fanning `read_trend()` + `recast_rules_df` through `ReportComposer` to module `compute()` — proven by an auto-discovered SC#4 stub.
+- **Five new four-channel metric modules (RPT-01/02/03/04/06, Phase 15):** New vs Remediated, Vulnerability Density (per-snapshot denominator + >10% drift flag), Reopened Vulnerabilities (live-tenant schema confirmed — 30,010 REOPENED rows, 100% `resurfaced_date`), Accepted & Recast (separate counts, expiry-aware), and External/DMZ Exposure (locked mismatch schema) — all cold-start-safe and zero-row-safe across PDF/Excel/email/analyst channels.
+- **MTTR rework (RPT-05, Phase 16):** new `mttr_trend` module with a disclosed rolling-~30-day window, sample-weighted overall mean, reopened-aware COALESCE clock (kills reopen-cycle inflation — 198d→8d on the lodestar fixture), and an always-on 4-gauge severity band + focus-driven Owner/Application table; legacy `mttr_by_severity` left byte-unchanged so board_summary groups don't regress.
+- **Program Health Overview (RPT-07, Phase 17):** single-page composite MoM velocity dashboard — OD-5 composite RAG with a structural missing-signal Amber cap, 4-tile KPI row, sparklines, and an Owner velocity table with >20% outlier flagging; cold-start renders "Trend Being Established" instead of NaN.
+- **management_summary migration + docs (GEN-01/QUAL-04/DOC-02, Phase 18):** atomic cutover from the ~2,200-line bespoke path to `ReportComposer` (7 modules, chrome-aware, modular email), ~12mo all-assets trend reconstruction (overlap-gate PASS: live_open=210267 == reconstructed, 0 diff) behind a bounded `last_fixed` fetch + zero-drift consumer audit, and auditor calculation runbooks; per-metric parity gate green (5 exact-match, 2 documented-difference confirmed by operator UAT).
+- **v1.4 closure (Phase 19):** INT-WARN-1/2/3 fixed, 39 CodeRabbit findings cleared, all deferred 15/17/18-REVIEW findings resolved, shared `compute_sla_rate_crit_high` helper across 3 sites; Phase 16 UAT + Phase 17 human checks operator-confirmed — milestone audit flipped `tech_debt` → `passed`.
+
+**Post-close:** re-audit finding **REAUDIT-WARN-1** (management_summary snapshot persisted `reopened_count`/`sla_rate_crit_high` as `None`) fixed via quick task `260626-elj` — inline compute mirroring the cron writer, report output unchanged.
+
+---
+
 ## v1.3 — Trend & Segmentation Substrate
 
 **Shipped:** 2026-06-11
