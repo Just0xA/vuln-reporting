@@ -1756,3 +1756,152 @@ class TestPdfOwnerTableD5Columns:
         data = _make_normal_data_with_new_fields()
         pdf = m.render_pdf_section(data, _make_config())
         assert "Assets" in pdf, "Assets column header missing from PDF Owner table"
+
+
+# ===========================================================================
+# 19-10 Task 3: Email + Excel — intake/fixed/net + definitions; readable
+#               Excel header; Owner Velocity columns
+# ===========================================================================
+
+class TestEmailD3D4:
+    """D-3/D-4: Email Net Velocity tile shows intake/fixed/net + current-sign arrow;
+    MTTR tile shows 'establishing from monthly snapshots'; per-tile definitions present."""
+
+    def _email(self, **overrides) -> str:
+        m = ProgramHealthModule()
+        data = _make_normal_data_with_new_fields()
+        for k, v in overrides.items():
+            data.metrics[k] = v
+        return m.render_email_panel(data, _make_config())
+
+    def test_net_velocity_tile_intake_value(self):
+        """Email Net Velocity tile must show 'in {new}' annotation."""
+        html_out = self._email(new_current=5, fixed_current=8, net_delta_current=-3.0,
+                               net_velocity_status_current="green")
+        assert "in 5" in html_out, "Email Net Velocity tile missing 'in {new}' (in 5)"
+
+    def test_net_velocity_tile_fixed_value(self):
+        """Email Net Velocity tile must show 'fixed {fixed}' annotation."""
+        html_out = self._email(new_current=5, fixed_current=8, net_delta_current=-3.0,
+                               net_velocity_status_current="green")
+        assert "fixed 8" in html_out, "Email Net Velocity tile missing 'fixed {fixed}' (fixed 8)"
+
+    def test_net_velocity_tile_green_arrow(self):
+        """Net < 0 → green ▼ arrow in email tile."""
+        html_out = self._email(new_current=5, fixed_current=8, net_delta_current=-3.0,
+                               net_velocity_status_current="green")
+        assert "▼" in html_out, "Green net velocity ▼ arrow missing from email"
+
+    def test_net_velocity_tile_red_arrow(self):
+        """Net > 0 → red ▲ arrow in email tile."""
+        html_out = self._email(new_current=10, fixed_current=3, net_delta_current=7.0,
+                               net_velocity_status_current="red")
+        assert "▲" in html_out, "Red net velocity ▲ arrow missing from email"
+
+    def test_mttr_establishing_caption_in_email(self):
+        """MTTR tile shows 'establishing from monthly snapshots' when mttr_current is None."""
+        html_out = self._email(mttr_current=None)
+        assert "establishing from monthly snapshots" in html_out, (
+            "MTTR establishing caption missing from email when mttr_current=None"
+        )
+
+    def test_per_tile_definition_open_critical(self):
+        """Email has a per-tile definition for Open Critical."""
+        html_out = self._email()
+        assert "lower is better" in html_out, (
+            "Open Critical per-tile definition ('lower is better') missing from email"
+        )
+
+    def test_per_tile_definition_net_velocity(self):
+        """Email has a per-tile definition for Net Velocity."""
+        html_out = self._email()
+        assert "negative is good" in html_out or "intake" in html_out.lower(), (
+            "Net Velocity per-tile definition missing from email"
+        )
+
+    def test_no_style_blocks_in_email(self):
+        """Email output must not contain <style blocks (Outlook-safe inline CSS only)."""
+        html_out = self._email()
+        assert "<style" not in html_out, (
+            "Email panel must not contain <style blocks (use inline CSS only)"
+        )
+
+    def test_cold_start_email_no_crash_with_new_fields(self):
+        """Cold-start email render does not crash with the new metric keys present."""
+        m = ProgramHealthModule()
+        data = _make_cold_data()
+        html_out = m.render_email_panel(data, _make_config())
+        assert isinstance(html_out, str) and len(html_out) > 0
+
+
+class TestExcelD6:
+    """D-6: Excel Program Health header fill == E3F2FD; definitions block present;
+    Owner Velocity has Share %/Assets columns."""
+
+    def _render_wb(self, data=None):
+        import openpyxl
+        m = ProgramHealthModule()
+        if data is None:
+            data = _make_normal_data_with_new_fields()
+        config = _make_config()
+        wb = openpyxl.Workbook()
+        m.render_excel_tabs(data, wb, config)
+        return wb
+
+    def test_program_health_header_fill_is_e3f2fd(self):
+        """Program Health tab row-header fill must be E3F2FD (not 1F3864)."""
+        wb = self._render_wb()
+        ws = wb["Program Health"]
+        # Row 4 is the signal header row (Signal | Current Value | MoM Direction)
+        header_fill = ws.cell(row=4, column=1).fill.fgColor.rgb
+        # Strip alpha prefix if present (openpyxl returns 'FF' + hex for ARGB)
+        fill_hex = header_fill[-6:].upper()
+        assert fill_hex == "E3F2FD", (
+            f"Program Health header fill should be E3F2FD, got {fill_hex!r} (old dark fill was 1F3864)"
+        )
+
+    def test_program_health_header_not_dark(self):
+        """Old dark 1F3864 fill must be gone from Program Health header."""
+        wb = self._render_wb()
+        ws = wb["Program Health"]
+        header_fill = ws.cell(row=4, column=1).fill.fgColor.rgb
+        fill_hex = header_fill[-6:].upper()
+        assert fill_hex != "1F3864", "Old dark blue 1F3864 fill must not be used on header row"
+
+    def test_program_health_definitions_block_present(self):
+        """Program Health tab has a definitions block (the 4 approved caption lines)."""
+        wb = self._render_wb()
+        ws = wb["Program Health"]
+        # Definitions block should contain at least one of the approved caption phrases
+        all_values = " ".join(
+            str(ws.cell(row=r, column=c).value or "")
+            for r in range(1, ws.max_row + 1)
+            for c in range(1, 4)
+        )
+        assert "lower is better" in all_values, (
+            "Definitions block missing 'lower is better' phrase on Program Health tab"
+        )
+
+    def test_owner_velocity_has_share_pct_column(self):
+        """Owner Velocity tab header row contains 'Share %'."""
+        wb = self._render_wb()
+        ws = wb["Owner Velocity"]
+        headers = [str(ws.cell(row=3, column=c).value or "") for c in range(1, 8)]
+        assert "Share %" in headers, f"'Share %' missing from Owner Velocity headers: {headers}"
+
+    def test_owner_velocity_has_assets_column(self):
+        """Owner Velocity tab header row contains 'Assets'."""
+        wb = self._render_wb()
+        ws = wb["Owner Velocity"]
+        headers = [str(ws.cell(row=3, column=c).value or "") for c in range(1, 8)]
+        assert "Assets" in headers, f"'Assets' missing from Owner Velocity headers: {headers}"
+
+    def test_cold_start_excel_no_crash(self):
+        """Cold-start Excel render does not crash."""
+        import openpyxl
+        m = ProgramHealthModule()
+        data = _make_cold_data()
+        wb = openpyxl.Workbook()
+        tabs = m.render_excel_tabs(data, wb, _make_config())
+        assert "Program Health" in tabs
+        assert "Owner Velocity" in tabs

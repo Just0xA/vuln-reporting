@@ -1393,26 +1393,63 @@ class ProgramHealthModule(BaseModule):
                 sym, color = "—", _COLOR_FLAT
             return f'<span style="color:{color};font-weight:bold;">{sym}</span>'
 
-        # Tile values
-        open_crit_val = (
-            f"{safe_int(m.get('open_crit_current'))} open"
-        )
-        net_vel_curr = m.get("net_delta_current")
-        if net_vel_curr is not None:
-            prefix = "+" if net_vel_curr >= 0 else ""
-            net_vel_val = f"{prefix}{safe_format(net_vel_curr, '.0f')} MoM"
+        # D-3: Net Velocity — intake/fixed/net display using current-sign status
+        nv_status_curr = m.get("net_velocity_status_current", "flat")
+        if nv_status_curr == "green":
+            nv_curr_arrow_sym, nv_curr_color = "▼", _COLOR_IMPROVED
+        elif nv_status_curr == "red":
+            nv_curr_arrow_sym, nv_curr_color = "▲", _COLOR_WORSENED
+        else:
+            nv_curr_arrow_sym, nv_curr_color = "—", _COLOR_FLAT
+
+        curr_new_e = m.get("new_current")
+        curr_fix_e = m.get("fixed_current")
+        curr_net_e = m.get("net_delta_current")
+        if curr_new_e is not None and curr_fix_e is not None and curr_net_e is not None:
+            net_sign = "+" if curr_net_e >= 0 else ""
+            net_vel_val = (
+                f"in {int(curr_new_e):,} / fixed {int(curr_fix_e):,}"
+                f" · net {net_sign}{int(curr_net_e):,} {nv_curr_arrow_sym}"
+            )
+            nv_arrow_html = f'<span style="color:{nv_curr_color};font-weight:bold;">{nv_curr_arrow_sym}</span>'
         else:
             net_vel_val = "—"
-        sla_val  = safe_pct(m.get("sla_rate_current"))
-        mttr_val = (
-            safe_format(m.get("mttr_current"), ".0f") + " d"
-        ) if m.get("mttr_current") is not None else "—"
+            nv_arrow_html = f'<span style="color:{_COLOR_FLAT};font-weight:bold;">—</span>'
 
-        # Arrow HTML per signal
+        # D-4: MTTR tile — always "—"; append establishing caption when None
+        mttr_curr = m.get("mttr_current")
+        if mttr_curr is not None:
+            mttr_val = safe_format(mttr_curr, ".0f") + " d"
+            mttr_caption_note = ""
+        else:
+            mttr_val = "—"
+            mttr_caption_note = (
+                '<div style="font-size:9px;color:#757575;font-style:italic;">'
+                "establishing from monthly snapshots</div>"
+            )
+
+        # Tile values
+        open_crit_val = f"{safe_int(m.get('open_crit_current'))} open"
+        sla_val  = safe_pct(m.get("sla_rate_current"))
+
+        # Arrow HTML per signal (MoM sparkline direction — unchanged)
         arrow1 = _arrow_html(m.get("signal_open_crit_status",    "missing"), False)
-        arrow2 = _arrow_html(m.get("signal_net_velocity_status", "missing"), False)
         arrow3 = _arrow_html(m.get("signal_sla_rate_status",     "missing"), True)
         arrow4 = _arrow_html(m.get("signal_mttr_status",         "missing"), False)
+
+        # D-2: per-tile definition text (inline-CSS, Outlook-safe, no <style> blocks)
+        _DEF_OPEN_CRIT = "open Critical-VPR findings — lower is better; &#9660; green = falling"
+        _DEF_NET_VEL   = (
+            "new findings minus fixed this window (intake &#8722; fixed) — "
+            "negative is good (you fixed more than came in)"
+        )
+        _DEF_SLA       = "% of open Crit+High still within SLA — higher is better; &#9650; green = rising"
+        _DEF_MTTR      = "average days to remediate (rolling 30-day) — lower is better; &#9660; green = falling"
+
+        def _tile_def(text: str) -> str:
+            return (
+                f'<div style="font-size:9px;color:#9E9E9E;margin-top:2px;">{text}</div>'
+            )
 
         tiles_html = f"""
 <div style="display:table;width:100%;margin:6px 0;">
@@ -1420,21 +1457,25 @@ class ProgramHealthModule(BaseModule):
     <strong style="font-size:13px;color:#1F3864;">{html.escape(open_crit_val)}</strong>
     {arrow1}
     <div style="font-size:10px;color:#757575;">Open Critical</div>
+    {_tile_def(_DEF_OPEN_CRIT)}
   </div>
   <div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">
-    <strong style="font-size:13px;color:#1F3864;">{html.escape(net_vel_val)}</strong>
-    {arrow2}
+    <strong style="font-size:13px;color:{nv_curr_color};">{html.escape(net_vel_val)}</strong>
     <div style="font-size:10px;color:#757575;">Net Velocity</div>
+    {_tile_def(_DEF_NET_VEL)}
   </div>
   <div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">
     <strong style="font-size:13px;color:#1F3864;">{html.escape(sla_val)}</strong>
     {arrow3}
     <div style="font-size:10px;color:#757575;">SLA Posture (Crit+High)</div>
+    {_tile_def(_DEF_SLA)}
   </div>
   <div style="display:table-cell;width:25%;padding:4px 8px;text-align:center;">
     <strong style="font-size:13px;color:#1F3864;">{html.escape(mttr_val)}</strong>
     {arrow4}
     <div style="font-size:10px;color:#757575;">MTTR (30-day)</div>
+    {mttr_caption_note}
+    {_tile_def(_DEF_MTTR)}
   </div>
 </div>"""
 
@@ -1514,8 +1555,10 @@ class ProgramHealthModule(BaseModule):
                 ws_ph["A2"] = data.summary_text or ""
             ws_ph["A2"].font = Font(italic=True, color="757575")
 
-            # Signal rows
-            _FILL_HDR = PatternFill("solid", fgColor="1F3864")
+            # D-6: readable header fill — match mttr_trend tab's readable style
+            # PatternFill("solid", fgColor="E3F2FD") + Font(bold=True)
+            # (replaces the old dark 1F3864 fill with black text)
+            _FILL_HDR = PatternFill("solid", fgColor="E3F2FD")
 
             signal_rows = [
                 ("Signal", "Current Value", "MoM Direction"),
@@ -1536,13 +1579,25 @@ class ProgramHealthModule(BaseModule):
                 ws_ph.cell(row=r_idx, column=1, value=label)
                 ws_ph.cell(row=r_idx, column=2, value=curr_val)
                 ws_ph.cell(row=r_idx, column=3, value=direction)
-                if r_idx == 4:  # header row
+                if r_idx == 4:  # header row — readable light-blue fill + bold
                     for c in range(1, 4):
                         ws_ph.cell(row=r_idx, column=c).font = Font(bold=True)
                         ws_ph.cell(row=r_idx, column=c).fill = _FILL_HDR
 
             for col_idx, w in enumerate([28, 18, 18], start=1):
                 ws_ph.column_dimensions[get_column_letter(col_idx)].width = w
+
+            # D-6: definitions block — 4 approved caption lines below the signal rows
+            _DEFS_START_ROW = 4 + len(signal_rows) + 1   # one blank row gap
+            _DEFINITIONS = [
+                ("Open Critical",      "open Critical-VPR findings — lower is better; down-arrow green = falling"),
+                ("Net Velocity",       "new findings minus fixed this window (intake - fixed) — negative is good (you fixed more than came in)"),
+                ("SLA Posture",        "% of open Critical + High findings still within SLA — higher is better; up-arrow green = rising"),
+                ("MTTR",               "average days to remediate (rolling 30-day) — lower is better; down-arrow green = falling"),
+            ]
+            for d_idx, (metric, definition) in enumerate(_DEFINITIONS, start=_DEFS_START_ROW):
+                ws_ph.cell(row=d_idx, column=1, value=metric).font = Font(bold=True, color="444444")
+                ws_ph.cell(row=d_idx, column=2, value=definition)
 
             # ----------------------------------------------------------------
             # Tab 2 — Owner Velocity (aggregate-only, QUAL-05)
@@ -1554,12 +1609,14 @@ class ProgramHealthModule(BaseModule):
             owner_rows     = data.table_data or []
             mom_suppressed = m.get("owner_mom_suppressed", True)
 
+            # D-5/D-6: Owner Velocity columns match PDF table
+            # Base columns always present; MoM Delta / MoM Delta % added when not suppressed
             if mom_suppressed:
-                ov_headers = ["Owner", "Open Crit+High"]
-                ov_widths  = [28, 18]
+                ov_headers = ["Owner", "Open Crit+High", "Share %", "Assets"]
+                ov_widths  = [28, 18, 12, 12]
             else:
-                ov_headers = ["Owner", "Open Crit+High", "MoM Delta", "Status"]
-                ov_widths  = [28, 18, 14, 18]
+                ov_headers = ["Owner", "Open Crit+High", "Share %", "Assets", "MoM Delta", "MoM Delta %"]
+                ov_widths  = [28, 18, 12, 12, 14, 14]
 
             for c_idx, hdr in enumerate(ov_headers, start=1):
                 cell = ws_ov.cell(row=3, column=c_idx, value=hdr)
@@ -1569,10 +1626,21 @@ class ProgramHealthModule(BaseModule):
             for r_idx, row in enumerate(owner_rows, start=4):
                 ws_ov.cell(row=r_idx, column=1, value=str(row.get("owner", "")))
                 ws_ov.cell(row=r_idx, column=2, value=row.get("open_crit_high"))
+                # Share % as display string (safe_pct handles None → "—")
+                ws_ov.cell(row=r_idx, column=3, value=safe_pct(row.get("share_pct")))
+                ws_ov.cell(row=r_idx, column=4, value=safe_int(row.get("asset_count")))
                 if not mom_suppressed:
                     mom_delta = row.get("mom_delta")
-                    ws_ov.cell(row=r_idx, column=3, value=mom_delta)
-                    ws_ov.cell(row=r_idx, column=4, value="▲ Outlier" if row.get("outlier") else "—")
+                    mom_delta_pct = row.get("mom_delta_pct")
+                    ws_ov.cell(row=r_idx, column=5, value=mom_delta)
+                    outlier_note = " (▲ Outlier)" if row.get("outlier") else ""
+                    ws_ov.cell(
+                        row=r_idx, column=6,
+                        value=(
+                            (("+" if mom_delta_pct >= 0 else "") + f"{mom_delta_pct:.1f}%{outlier_note}")
+                            if mom_delta_pct is not None else "—"
+                        ),
+                    )
 
             for c_idx, w in enumerate(ov_widths, start=1):
                 ws_ov.column_dimensions[get_column_letter(c_idx)].width = w
