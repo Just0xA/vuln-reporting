@@ -1104,6 +1104,47 @@ def test_partial_write_regression_guard(monkeypatch, tmp_path):
     )
 
 
+def test_reopened_and_sla_rate_forwarded_non_none(monkeypatch, tmp_path):
+    """
+    REAUDIT-WARN-1 value-non-null guard: capture_snapshot must receive a real
+    (non-None) value for both reopened_count and sla_rate_crit_high when the
+    fixture data warrants non-null results.
+
+    This guards against the prior bug where both fields were sourced from modules
+    (reopened_vulns, program_health) that are NOT in _MGMT_MODULE_CONFIGS —
+    causing both to resolve to None on every run.  The fix computes both inline
+    from vulns_df, independent of which modules are composed.
+
+    The frozen parity fixture (tests/fixtures/management_summary_parity/) has:
+      - exactly 1 REOPENED-state finding  →  reopened_count must equal 1
+      - open Crit+High rows with SLA-classifiable VPR  →  sla_rate_crit_high
+        must be a non-None float (exact value not asserted to avoid coupling
+        the test to SLA-rate arithmetic; fixture yields ~27.8).
+
+    Pre-fix: both forwarded as None (INT-WARN-1 key-presence guard passes anyway).
+    Post-fix (REAUDIT-WARN-1): both forwarded as real values.
+    """
+    captured = _run_report_capture_snapshot_kwargs(monkeypatch, tmp_path)
+
+    assert captured["reopened_count"] is not None, (
+        "REAUDIT-WARN-1: reopened_count must not be None — "
+        "compute inline from vulns_df['state'], not from reopened_vulns module."
+    )
+    assert captured["reopened_count"] == 1, (
+        f"REAUDIT-WARN-1: expected reopened_count=1 (frozen fixture has exactly 1 REOPENED), "
+        f"got {captured['reopened_count']!r}."
+    )
+
+    assert captured["sla_rate_crit_high"] is not None, (
+        "REAUDIT-WARN-1: sla_rate_crit_high must not be None — "
+        "compute inline via compute_sla_rate_crit_high(), not from program_health module."
+    )
+    assert isinstance(captured["sla_rate_crit_high"], float), (
+        f"REAUDIT-WARN-1: sla_rate_crit_high must be a float, "
+        f"got {type(captured['sla_rate_crit_high']).__name__!r}."
+    )
+
+
 def test_missing_module_result_forwards_none(monkeypatch, tmp_path):
     """
     INT-WARN-1: when a contributing module's result has error != None,
