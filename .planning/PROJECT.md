@@ -143,4 +143,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-12 — v1.4 in progress; Phase 16 (MTTR rework, RPT-05) complete*
+*Last updated: 2026-06-26 — v1.4 complete (Phases 14–19, all verified passed; Phase 19 closure milestone audit status: passed). Ready for milestone archival via /gsd-complete-milestone.*
