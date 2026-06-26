@@ -2094,15 +2094,21 @@ class TestD7CompositeConsistency:
         """
         When curr_net > 0 (intake > fixed), Net Velocity current-sign = red
         → green_count does NOT count Net Velocity.
+
+        critical: 30 → 10 (delta -20, beyond flat_band=5) → sig1 green
+        net: curr_net = +9 → current-sign red → not counted
+        mttr: 20 → 15 (improved, beyond flat_band=1.0) → green
+        sla: 80 → 85 (improved, beyond flat_band=2.0) → green
+        → green_count = 3 (Open Crit + MTTR + SLA), not 4 (Net Velocity excluded)
         """
         prev = _make_snapshot(
-            "2026-04", critical=10,
+            "2026-04", critical=30,
             new_findings_count=5, fixed_findings_count=8,   # prev_net = -3
             mttr_overall_days=20.0, sla_rate_crit_high=80.0,
             generated_at="2026-04-30T00:00:00Z",
         )
         curr = _make_snapshot(
-            "2026-05", critical=8,                           # critical improved → green
+            "2026-05", critical=10,                          # critical improved by 20 (> flat_band=5) → green
             new_findings_count=12, fixed_findings_count=3,  # curr_net = +9 → current-sign red
             mttr_overall_days=15.0,                          # mttr improved → green
             sla_rate_crit_high=85.0,                         # sla improved → green
@@ -2115,9 +2121,14 @@ class TestD7CompositeConsistency:
         assert nv_status == "red", f"curr_net=+9 must give current-sign red, got {nv_status!r}"
 
         green_count = result.metrics.get("green_count")
-        # Open Crit green + MTTR green + SLA green = 3; Net Velocity red → not counted
+        # Open Crit (30→10, green) + MTTR (20→15, green) + SLA (80→85, green) = 3
+        # Net Velocity current-sign red → not counted
         assert green_count == 3, (
-            f"D-7: net>0 Net Velocity must not count toward green_count, got {green_count}"
+            f"D-7: net>0 Net Velocity must not count toward green_count, got {green_count}. "
+            f"signal statuses: open_crit={result.metrics.get('signal_open_crit_status')}, "
+            f"nv_curr={result.metrics.get('net_velocity_status_current')}, "
+            f"sla={result.metrics.get('signal_sla_rate_status')}, "
+            f"mttr={result.metrics.get('signal_mttr_status')}"
         )
 
     def test_d7_sla_mttr_missing_cap_still_applies(self):

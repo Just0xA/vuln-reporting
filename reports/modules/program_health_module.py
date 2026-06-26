@@ -482,6 +482,25 @@ class ProgramHealthModule(BaseModule):
             )
 
             # ----------------------------------------------------------------
+            # D-7: current-sign Net Velocity status — derived from sign(curr_net_delta).
+            # Computed here (before signal_statuses list) so composite RAG, green_count,
+            # and narrative all use the SAME status the tile shows.
+            # net < 0 → "green" (fixed > intake); net > 0 → "red"; net == 0 → "flat".
+            # Missing (curr_net_delta is None) → "missing" so the missing-signal cap
+            # (D-17-06) still applies correctly for a genuinely absent Net Velocity.
+            # sig2_status (delta-of-deltas sparkline trend) is kept for sparkline
+            # annotation only but is no longer used for the composite.
+            # ----------------------------------------------------------------
+            if curr_net_delta is None:
+                net_velocity_status_current = "missing"
+            elif curr_net_delta < 0:
+                net_velocity_status_current = "green"
+            elif curr_net_delta > 0:
+                net_velocity_status_current = "red"
+            else:
+                net_velocity_status_current = "flat"
+
+            # ----------------------------------------------------------------
             # Signal 3 — SLA Posture (higher_is_better=True)
             # Reads sla_rate_crit_high from snapshot (Plan 17-01 field)
             # ----------------------------------------------------------------
@@ -504,7 +523,10 @@ class ProgramHealthModule(BaseModule):
                 flat_band=mttr_flat,
             )
 
-            signal_statuses = [sig1_status, sig2_status, sig3_status, sig4_status]
+            # D-7: use current-sign net velocity status for the composite slot (slot 1),
+            # not the delta-of-deltas sig2_status. sig2_status is still available for
+            # sparkline MoM annotation if needed; it is no longer used for the composite.
+            signal_statuses = [sig1_status, net_velocity_status_current, sig3_status, sig4_status]
             signal_names    = [
                 "Open Critical count", "Net Velocity", "SLA Posture", "MTTR"
             ]
@@ -766,20 +788,6 @@ class ProgramHealthModule(BaseModule):
                 f"SLA Posture: {safe_pct(curr_sla_tile)}. "
                 f"Open Critical: {safe_int(curr_open_crit_tile)}."
             )
-
-            # ----------------------------------------------------------------
-            # D-3: current-sign net velocity status (not delta-of-deltas)
-            # net < 0 → green (fixed > intake); net > 0 → red; net == 0 → flat
-            # This is SEPARATE from sig2_status (MoM sparkline trend, unchanged).
-            # ----------------------------------------------------------------
-            if curr_net_delta is None:
-                net_velocity_status_current = "flat"
-            elif curr_net_delta < 0:
-                net_velocity_status_current = "green"
-            elif curr_net_delta > 0:
-                net_velocity_status_current = "red"
-            else:
-                net_velocity_status_current = "flat"
 
             # ----------------------------------------------------------------
             # Metrics dict (consumed by renderers)
@@ -1053,15 +1061,16 @@ class ProgramHealthModule(BaseModule):
                 "</p>"
             )
         else:
-            # D-3: Net Velocity current-value annotation — "in {new} / fixed {fixed} · net {net} {arrow}"
-            # using current-sign status, not MoM sparkline direction
+            # D-8: Net Velocity tile — derive arrow/color from current-sign status.
+            # The tile headline shows ONLY "net {net}" (no intake/fixed in the tile).
+            # The "in {new} / fixed {fix}" breakdown moves to the caption row below.
             nv_status_curr = m.get("net_velocity_status_current", "flat")
             if nv_status_curr == "green":
-                nv_arrow, nv_arrow_color = "▼", _COLOR_IMPROVED   # ▼ green
+                nv_arrow, nv_arrow_color = "▼", _COLOR_IMPROVED
             elif nv_status_curr == "red":
-                nv_arrow, nv_arrow_color = "▲", _COLOR_WORSENED   # ▲ red
+                nv_arrow, nv_arrow_color = "▲", _COLOR_WORSENED
             else:
-                nv_arrow, nv_arrow_color = "—", _COLOR_FLAT        # — flat
+                nv_arrow, nv_arrow_color = "—", _COLOR_FLAT
 
             curr_new = m.get("new_current")
             curr_fix = m.get("fixed_current")
@@ -1071,9 +1080,13 @@ class ProgramHealthModule(BaseModule):
                 fix_str = f"{int(curr_fix):,}"
                 net_sign = "+" if curr_net >= 0 else ""
                 net_str = f"{net_sign}{int(curr_net):,}"
-                nv_curr_str = f"in {new_str} / fixed {fix_str} · net {net_str} {nv_arrow}"
+                # D-8: tile headline = net value only (uniform with other tiles)
+                nv_tile_str = f"net {net_str}"
+                # D-8: caption row carries the in/fixed breakdown (all three numbers shown per D-3)
+                nv_breakdown_str = f"in {new_str} / fixed {fix_str}"
             else:
-                nv_curr_str = "—"
+                nv_tile_str = "—"
+                nv_breakdown_str = ""
 
             # D-4: MTTR caption — append "establishing from monthly snapshots" when None
             mttr_curr = m.get("mttr_current")
@@ -1084,79 +1097,118 @@ class ProgramHealthModule(BaseModule):
                 mttr_curr_str = "—"
                 mttr_caption = _CAPTION_MTTR + " — establishing from monthly snapshots"
 
+            # D-8: sparklines_data tuple: (values, label, curr_str, arrow, arrow_color, line_color, caption, extra_caption)
+            # extra_caption is appended in the caption row (used for NV breakdown).
+            # D-8 single arrow: for Net Velocity, pass mom_arrow="" to _render_sparkline_b64
+            # so the PNG title is "Net Velocity\nnet -7" with NO appended arrow;
+            # the arrow appears only once — in the annotation div beside the tile.
+            oc_arrow, oc_arrow_color = _mom_arrow_and_color(m.get("signal_open_crit_status", "missing"), False)
+            sla_arrow, sla_arrow_color = _mom_arrow_and_color(m.get("signal_sla_rate_status", "missing"), True)
+            mttr_arrow, mttr_arrow_color = _mom_arrow_and_color(m.get("signal_mttr_status", "missing"), False)
+
             sparklines_data = [
                 (
                     m.get("sparkline_open_crit", []),
                     "Open Critical",
                     safe_int(m.get("open_crit_current")),
-                    *_mom_arrow_and_color(m.get("signal_open_crit_status", "missing"), False),
+                    oc_arrow,
+                    oc_arrow_color,
                     "#d32f2f",
                     _CAPTION_OPEN_CRITICAL,
+                    "",                           # no extra caption breakdown
                 ),
                 (
                     m.get("sparkline_net_velocity", []),
                     "Net Velocity",
-                    nv_curr_str,
+                    nv_tile_str,                  # D-8: net value only in tile
                     nv_arrow,
                     nv_arrow_color,
                     "#1976d2",
                     _CAPTION_NET_VELOCITY,
+                    nv_breakdown_str,             # D-8: breakdown in caption row
                 ),
                 (
                     m.get("sparkline_sla_rate", []),
                     "SLA Posture",
                     safe_pct(m.get("sla_rate_current")),
-                    *_mom_arrow_and_color(m.get("signal_sla_rate_status", "missing"), True),
+                    sla_arrow,
+                    sla_arrow_color,
                     "#388e3c",
                     _CAPTION_SLA_POSTURE,
+                    "",
                 ),
                 (
                     m.get("sparkline_mttr", []),
                     "MTTR",
                     mttr_curr_str,
-                    *_mom_arrow_and_color(m.get("signal_mttr_status", "missing"), False),
+                    mttr_arrow,
+                    mttr_arrow_color,
                     "#f57c00",
                     mttr_caption,
+                    "",
                 ),
             ]
 
-            cells_html = ""
-            for values, label, curr_str, arrow, arrow_color, line_color, caption in sparklines_data:
+            # D-8: two-row layout.
+            # Top row: 4 tile cells (sparkline PNG + headline value + arrow annotation).
+            #   Each tile is uniform height/font; no definition text inside the tile.
+            # Caption row: 4 caption cells aligned under each chart with definition text
+            #   and (for Net Velocity) the in/fixed breakdown.
+            tile_cells_html = ""
+            caption_cells_html = ""
+            for values, label, curr_str, arrow, arrow_color, line_color, caption, extra_caption in sparklines_data:
+                # D-8 single arrow: for Net Velocity pass mom_arrow="" so _render_sparkline_b64
+                # does NOT append a second arrow in the PNG title. The arrow is shown once in
+                # the annotation div.
+                png_mom_arrow = "" if label == "Net Velocity" else arrow
                 try:
                     b64 = self._render_sparkline_b64(
-                        values        = values,
-                        signal_label  = label,
+                        values          = values,
+                        signal_label    = label,
                         current_val_str = curr_str,
-                        mom_arrow     = arrow,
-                        arrow_color   = arrow_color,
-                        line_color    = line_color,
+                        mom_arrow       = png_mom_arrow,
+                        arrow_color     = arrow_color,
+                        line_color      = line_color,
                     )
                     img_tag = f'<img src="data:image/png;base64,{b64}" style="width:100%;max-width:160pt;">'
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("%s sparkline render failed for %s: %s", self._log_prefix(), label, exc)
                     img_tag = f'<span style="color:#9E9E9E;font-size:8pt;">{html.escape(label)}: chart unavailable</span>'
 
-                # D-2: caption under each chart cell; also show annotation as text
-                # so the intake/fixed/net values appear in the HTML (not only in the PNG title)
-                annotation_html = ""
-                if label == "Net Velocity" and curr_str not in ("—", ""):
-                    annotation_html = (
-                        f'<div style="font-size:8pt;color:{arrow_color};font-weight:bold;'
+                # Annotation: arrow symbol under the PNG (one per tile, uniform font)
+                arrow_annotation = (
+                    f'<div style="font-size:8pt;color:{arrow_color};font-weight:bold;margin-top:1pt;">'
+                    f"{html.escape(arrow)}"
+                    f"</div>"
+                )
+
+                tile_cells_html += (
+                    f'<div style="display:table-cell;text-align:center;'
+                    f'width:25%;padding:0 4pt;vertical-align:top;">'
+                    f"{img_tag}"
+                    f"{arrow_annotation}"
+                    f"</div>"
+                )
+
+                # Caption row: definition text + optional breakdown (NV in/fixed)
+                breakdown_html = ""
+                if extra_caption:
+                    breakdown_html = (
+                        f'<div style="font-size:7pt;color:{arrow_color};font-weight:bold;'
                         f'margin-top:1pt;">'
-                        f"{html.escape(curr_str)}"
+                        f"{html.escape(extra_caption)}"
                         f"</div>"
                     )
                 caption_html = (
-                    f'<div style="font-size:7pt;color:#666;margin-top:2pt;text-align:left;">'
+                    f'<div style="font-size:7pt;color:#666;margin-top:1pt;text-align:left;">'
                     f'<strong>{html.escape(label)}</strong> — {html.escape(caption)}'
-                    f'</div>'
+                    f"</div>"
+                    f"{breakdown_html}"
                 )
 
-                cells_html += (
-                    f'<div style="display:inline-block;text-align:center;'
-                    f'width:23%;margin:0 1%;vertical-align:top;">'
-                    f"{img_tag}"
-                    f"{annotation_html}"
+                caption_cells_html += (
+                    f'<div style="display:table-cell;text-align:left;'
+                    f'width:25%;padding:0 4pt;vertical-align:top;">'
                     f"{caption_html}"
                     f"</div>"
                 )
@@ -1164,8 +1216,13 @@ class ProgramHealthModule(BaseModule):
             sparkline_row = (
                 f'<p style="font-size:8.5pt;color:#444;margin-bottom:4pt;">'
                 f"Month-over-month signal trends</p>"
+                # Top row: 4 uniform tiles (sparkline + headline + arrow)
+                f'<div style="display:table;width:100%;margin-bottom:4pt;">'
+                f"{tile_cells_html}"
+                f"</div>"
+                # Caption row: 4 cells with definitions + NV breakdown
                 f'<div style="display:table;width:100%;margin-bottom:8pt;">'
-                f"{cells_html}"
+                f"{caption_cells_html}"
                 f"</div>"
             )
 
