@@ -1,0 +1,20 @@
+{
+  "name": "vuln-reporting",
+  "build": { "dockerfile": "Dockerfile" },
+  "containerEnv": {
+    "UV_PROJECT_ENVIRONMENT": "/opt/venv",
+    "UV_LINK_MODE": "copy"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/venv/bin/python"
+      }
+    }
+  },
+  "postCreateCommand": "uv sync"
+}
