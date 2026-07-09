@@ -52,7 +52,7 @@ The `*_module.py` suffix is **load-bearing** — the registry's `_DISCOVERY_PATT
 
 ### Report slugs
 
-Slugs are short, lowercase, snake_case, and **must be globally unique**. They are referenced from three places (the triple-registration rule below).
+Slugs are short, lowercase, snake_case, and **must be globally unique**. They are registered in two places: `run_all.py` (`_VALID_REPORTS` + `_REPORT_MODULE_MAP`) and the `delivery_config.schema.yaml` enum. CLAUDE.md documents but does not register slugs.
 
 ### `MODULE_ID` strings
 

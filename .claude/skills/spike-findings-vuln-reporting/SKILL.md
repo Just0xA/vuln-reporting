@@ -1,6 +1,6 @@
 ---
 name: spike-findings-vuln-reporting
-description: Implementation blueprint from spike experiments. Requirements, proven patterns, and verified knowledge for building the vuln-reporting metric substrate (vuln-type classification + trend foundations). Auto-loaded during implementation work on VTD-01, trend, or the June-2026 report batch.
+description: Implementation blueprint from spike experiments. Requirements, proven patterns, and verified knowledge for building the vuln-reporting metric substrate (vuln-type classification + trend foundations). Auto-loaded during implementation work touching vuln-type classification, trend snapshots/reconstruction, or open-count logic (open_findings_at / reopened-aware predicate).
 ---
 
 <context>
@@ -21,7 +21,7 @@ Non-negotiable design decisions from spiking. Every feature area reference must 
 - **Volume unit = VPR Critical+High open count** per bucket.
 - **Microsoft Bulletins → Operations/OS** (default, config-changeable); **hide Hardware tile when empty** (~0 in real data).
 - **Any "currently open" computation MUST use the reopened-aware two-interval predicate** — the naive form silently drops ~19% of findings (all REOPENED).
-- **Trend = forward-accumulating snapshots, not backfilled reconstruction** — Tenable retains fixed findings only ~29 days. Cold start is real.
+- **Trend = forward-accumulating snapshots as the primary mechanism; bounded reconstruction is viable as a one-time seed (REVISED 2026-06-18).** Spike 002's "~29-day retention wall" was an API default (fetch with no `last_fixed` time filter), NOT platform retention — real fixed-finding retention is ~15–16 months, retrievable via a bounded `last_fixed` filter. Phase 18 reconstructed ~12mo of history this way (D-18-01/OD-8). Forward snapshots remain mandatory beyond the retrievable window, and reconstructed months are immutable (`source='reconstructed'` skip rule in `capture_snapshot()`).
 - **Classifier + predicate must be unit-tested** against labelled samples.
 - **Ship `docs/vuln_type_distribution_calculations.md`** auditor runbook with VTD-01.
 </requirements>
@@ -31,7 +31,7 @@ Non-negotiable design decisions from spiking. Every feature area reference must 
 
 | Area | Reference | Key Finding |
 |------|-----------|-------------|
-| Vuln Metric Substrate | references/vuln-metric-substrate.md | CPE+family classifier (99.2%) and reopened-aware open predicate work; multi-month trend reconstruction does NOT (~29d retention) — snapshots required |
+| Vuln Metric Substrate | references/vuln-metric-substrate.md | CPE+family classifier (99.2%) and reopened-aware open predicate work; multi-month reconstruction IS viable to ~15–16mo via bounded `last_fixed` (REVISED 2026-06-18; the ~29d wall was an API default) — snapshots still primary |
 
 ## Source Files
 

@@ -1,5 +1,15 @@
 # Vuln Metric Substrate — Classification & Trend Foundations
 
+> **REVISION NOTICE (2026-06-18, Phase 18 / D-18-01):** The "~29-day fixed-finding
+> retention" conclusion below is **superseded**. The 29-day floor was the Tenable
+> export API's *default window* when no `last_fixed` time filter is passed — not
+> platform retention. Real fixed retention is **~15–16 months**, retrievable via a
+> bounded `last_fixed` filter; Phase 18 reconstructed ~12 months of MoM history
+> this way (overlap-gate 0-diff). Forward-accumulating snapshots remain the primary
+> trend mechanism beyond the retrievable window, and reconstructed months are
+> immutable. The original spike text is preserved below for provenance — do not
+> re-derive design constraints from the ~29-day figure.
+
 Implementation blueprint for the shared foundations under the June-2026 report batch (VTD-01 + 7 reports). Two spikes proved what works and — more importantly — what silently doesn't. Follow this and you won't re-learn the landmines.
 
 ## Requirements (non-negotiable)
