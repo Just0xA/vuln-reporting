@@ -12,6 +12,8 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 ## Current State
 
+**In progress:** v1.6 Delivery Config at Scale — **Phase 20 complete (2026-07-09)**: resolve-before-validate config loader (`delivery/config_loader.py`), shared `contacts.yaml` + `defaults:` resolution, per-team `deliveries.d/` glob+merge with global delivery-name uniqueness, `--dry-run` error/warning surfacing, delivery-matrix generator (`scripts/generate_delivery_matrix.py`), and an effective-config golden test proving legacy and migrated twins resolve byte-identical (CONF-01/02/03/05, QUAL-06; 5/5 verified). `delivery_config.schema.yaml` and `scheduler.py` byte-unchanged. Phase 21 (private repo + CI + CODEOWNERS + cutover; CONF-04) remains.
+
 **Shipped:** v1.4 Management Summary Reporting Improvement (2026-06-26) — see [`MILESTONES.md`](MILESTONES.md).
 
 **Released 2026-07-09:** `v1.5.0` — a release tag cut to reconcile a dev-machine sync issue; it consumed the `v1.5` label, which is why the next *milestone* is **v1.6** (see [`roadmap-v1.6-v2.0.md`](roadmap-v1.6-v2.0.md)).
@@ -167,4 +169,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-09 — v1.6 Delivery Config at Scale milestone opened (Phases 20–21; CONF-01…05). `v1.5.0` released 2026-07-09 (release tag; consumed the v1.5 label). v1.4 phase dirs archived to `milestones/v1.4-phases/`.*
+*Last updated: 2026-07-09 — Phase 20 (config language + loader + matrix; CONF-01/02/03/05, QUAL-06) complete and verified 5/5. v1.6 Delivery Config at Scale milestone opened (Phases 20–21; CONF-01…05). `v1.5.0` released 2026-07-09 (release tag; consumed the v1.5 label). v1.4 phase dirs archived to `milestones/v1.4-phases/`.*
