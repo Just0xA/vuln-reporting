@@ -152,3 +152,161 @@ def resolve_delivery_email(
         email_block["reply_to"] = reply_to
 
     return email_block, []
+
+
+# Group-level keys copied verbatim from a directory-mode delivery entry into
+# the resolved effective group dict (today's schema shape — everything
+# except `contact` / `extra_recipients` / `subject` / `email`, which are
+# consumed by resolve_delivery_email above, and `owner`, which is metadata
+# routed through the metadata_by_delivery_name side channel).
+_PASSTHROUGH_GROUP_KEYS: tuple[str, ...] = (
+    "schedule",
+    "filters",
+    "reports",
+    "csv_severities",
+    "modules",
+    "module_options",
+    "analyst_detail",
+    "report_title",
+    "privacy_label",
+    "description",
+)
+
+
+def resolve_config(config_path: Path) -> tuple[list[dict], list[str], list[str], dict[str, dict]]:
+    """
+    Resolve directory-mode config (``contacts.yaml`` + ``deliveries.d/*.yaml``)
+    into today's effective ``groups`` shape.
+
+    Directory presence is the mode switch (D-01): if ``deliveries_dir =
+    config_path.parent / "deliveries.d"`` is not a directory, this function
+    returns ``([], [], [], {})`` immediately so the caller falls back to the
+    legacy single-file path.
+
+    Parameters
+    ----------
+    config_path : Path
+        Path to the (possibly nonexistent) single-file ``delivery_config.yaml``.
+        ``deliveries.d/`` and ``contacts.yaml`` are resolved relative to
+        ``config_path.parent`` (honors the prod ``shared/`` symlink layout).
+
+    Returns
+    -------
+    tuple[list[dict], list[str], list[str], dict[str, dict]]
+        ``(groups, errors, warnings, metadata_by_delivery_name)``.
+        ``groups`` is the list of schema-shaped effective group dicts (never
+        carrying ``owner``/``contact`` keys — D-09, schema
+        ``additionalProperties: false`` at the group level). ``errors``/
+        ``warnings`` are human-readable strings for the caller to log.
+        ``metadata_by_delivery_name`` maps each delivery name to
+        ``{"owner": str | None, "contact": str | None}``.
+
+        On any error (duplicate name, undefined contact ref, inline email
+        in directory mode, missing contacts.yaml), ``groups`` is ``[]``.
+    """
+    config_dir = config_path.parent
+    deliveries_dir = config_dir / "deliveries.d"
+
+    if not deliveries_dir.is_dir():
+        return [], [], [], {}
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    metadata_by_delivery_name: dict[str, dict] = {}
+
+    contacts_path = config_dir / "contacts.yaml"
+    if not contacts_path.exists():
+        errors.append(
+            f"directory mode: contacts.yaml missing next to deliveries.d/ (expected {contacts_path})"
+        )
+        return [], errors, warnings, {}
+
+    try:
+        with open(contacts_path, encoding="utf-8") as fh:
+            contacts_doc = yaml.safe_load(fh)
+    except yaml.YAMLError as exc:
+        errors.append(f"contacts.yaml parse error: {exc}")
+        return [], errors, warnings, {}
+
+    if not isinstance(contacts_doc, dict):
+        errors.append("contacts.yaml: root must be a mapping")
+        return [], errors, warnings, {}
+
+    contacts_by_name, defaults = resolve_contacts(contacts_doc)
+
+    groups: list[dict] = []
+    seen_names: dict[str, str] = {}  # delivery name -> source file (for the collision message)
+
+    for team_file in sorted(deliveries_dir.glob("*.yaml")):
+        try:
+            with open(team_file, encoding="utf-8") as fh:
+                team_doc = yaml.safe_load(fh)
+        except yaml.YAMLError as exc:
+            errors.append(f"{team_file.name}: parse error: {exc}")
+            continue
+
+        if not isinstance(team_doc, dict):
+            errors.append(f"{team_file.name}: root must be a mapping")
+            continue
+
+        owner = team_doc.get("owner")
+
+        # Canonical `deliveries:` key; deprecated `groups:` alias accepted
+        # with a warning (CONF-03/D-10).
+        deliveries = team_doc.get("deliveries")
+        if deliveries is None and "groups" in team_doc:
+            deliveries = team_doc.get("groups")
+            warnings.append(
+                f"{team_file.name}: uses deprecated 'groups:' key — rename to 'deliveries:'"
+            )
+
+        if not isinstance(deliveries, list):
+            errors.append(f"{team_file.name}: 'deliveries' key must be a list")
+            continue
+
+        for delivery in deliveries:
+            if not isinstance(delivery, dict):
+                errors.append(f"{team_file.name}: delivery entries must be mappings")
+                continue
+
+            name = delivery.get("name")
+
+            # D-03: inline email.recipients is rejected in directory mode —
+            # all "who" must flow through contact:.
+            inline_email = delivery.get("email")
+            if isinstance(inline_email, dict) and inline_email.get("recipients"):
+                errors.append(
+                    f"{team_file.name}: delivery '{name}' uses inline email.recipients — "
+                    "directory mode requires a contact: ref (inline email is rejected)"
+                )
+                continue
+
+            if name in seen_names:
+                errors.append(
+                    f"duplicate delivery name: {name} (in {team_file.name}, "
+                    f"already defined in {seen_names[name]})"
+                )
+                continue
+            seen_names[name] = team_file.name
+
+            email_block, email_errors = resolve_delivery_email(delivery, contacts_by_name, defaults)
+            if email_errors:
+                errors.extend(f"{team_file.name}: delivery '{name}': {e}" for e in email_errors)
+                continue
+
+            group: dict = {"name": name}
+            for key in _PASSTHROUGH_GROUP_KEYS:
+                if key in delivery:
+                    group[key] = delivery[key]
+            group["email"] = email_block
+
+            groups.append(group)
+            metadata_by_delivery_name[name] = {
+                "owner": owner,
+                "contact": delivery.get("contact"),
+            }
+
+    if errors:
+        return [], errors, warnings, metadata_by_delivery_name
+
+    return groups, errors, warnings, metadata_by_delivery_name
