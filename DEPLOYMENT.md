@@ -48,26 +48,28 @@ A systemd-capable OS is required for the daemon mode.
 **Python:** 3.10 or later.
 
 ```bash
-# RHEL 9 ships Python 3.9; install 3.11 from AppStream:
-sudo dnf install -y python3.11 python3.11-pip python3.11-devel
+# RHEL 9 ships Python 3.9; install 3.12 from AppStream:
+sudo dnf install -y python3.12 python3.12-pip python3.12-devel
 
 # Confirm:
-python3.11 --version
+python3.12 --version
 ```
 
 `scripts/update_from_github.sh` auto-resolves a versioned interpreter (>= 3.10) when
 no unversioned `python3` exists — it checks bare `python3` first, then falls back through
-`python3.13`, `python3.12`, `python3.11`, `python3.10`. On a host with only `python3.11`
-and no `/usr/bin/python3` symlink, the updater will resolve `python3.11` automatically.
+the highest available versioned name from `python3.13` down to `python3.10`. On a host with only `python3.12`
+and no `/usr/bin/python3` symlink, the updater will resolve `python3.12` automatically.
 
 Wiring up an unversioned `python3` is still recommended for clarity and compatibility with
 other tooling:
 
 ```bash
-sudo alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+sudo alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
 ```
 
 If no python3 >= 3.10 is found, the updater exits 8 with a clear error in `update.log`.
+
+`requirements.txt` (pip into a per-release `.venv`, as shown below) is the supported server install path; the `uv`/devcontainer workflow is a dev-only convenience and is not used for server deployment.
 
 **WeasyPrint system packages** (required for PDF generation):
 
@@ -148,7 +150,7 @@ sudo -u vuln-reports tar -xzf "/tmp/vuln-reporting-${VERSION}-slim.tar.gz" \
 ### Step 5 — Create the per-release virtual environment
 
 ```bash
-sudo -u vuln-reports python3.11 -m venv "${RELEASE_DIR}/.venv"
+sudo -u vuln-reports python3.12 -m venv "${RELEASE_DIR}/.venv"
 sudo -u vuln-reports "${RELEASE_DIR}/.venv/bin/pip" install --upgrade pip
 sudo -u vuln-reports "${RELEASE_DIR}/.venv/bin/pip" install -r "${RELEASE_DIR}/requirements.txt"
 ```
@@ -213,7 +215,6 @@ SMTP_FROM_NAME=Vulnerability Management Reports
 
 # GitHub Releases source — required by update_from_github.sh --check / --version
 # Format: <github-org-or-user>/<repository-name>
-GITHUB_RELEASE_REPO=owner/repo
 ```
 
 Optional variables:

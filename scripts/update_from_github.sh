@@ -110,7 +110,7 @@ resolve_python_bin() {
     fi
   done
 
-  log_completed "failed: no python3 >= 3.10 found on PATH; wire up python3 via 'alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1' or install python3.10+"
+  log_completed "failed: no python3 >= 3.10 found on PATH; wire up python3 via 'alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1' or install python3.10+"
   exit 8
 }
 

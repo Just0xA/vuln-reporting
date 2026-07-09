@@ -626,7 +626,7 @@ If you need to rebuild the venv for the current release:
 sudo -u vuln-reports bash
 cd /opt/vuln-reporting/current
 rm -rf .venv
-python3.11 -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -r requirements.txt
 exit

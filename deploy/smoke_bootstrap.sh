@@ -48,25 +48,25 @@ echo "=== smoke_bootstrap: provisioning RHEL 9 prerequisites ==="
 echo ""
 
 # ---------------------------------------------------------------------------
-# Step 1 — Python 3.11
+# Step 1 — Python 3.12
 # ---------------------------------------------------------------------------
-# RHEL 9 ships Python 3.9 from the base repos. Python 3.11 is available in
+# RHEL 9 ships Python 3.9 from the base repos. Python 3.12 is available in
 # the AppStream module stream. This matches DEPLOYMENT.md "System Requirements".
 # ---------------------------------------------------------------------------
-echo "--- installing Python 3.11 ---"
-dnf install -y python3.11 python3.11-pip python3.11-devel
+echo "--- installing Python 3.12 ---"
+dnf install -y python3.12 python3.12-pip python3.12-devel
 
-# Make python3 and python3.11 available on PATH if not already linked
-# (dnf installs /usr/bin/python3.11; smoke_test.sh calls 'python3 -m venv').
-if ! command -v python3 &>/dev/null || [[ "$(python3 --version 2>&1)" != *"3.11"* ]]; then
-  # Use alternatives to set python3 to 3.11, or create a fallback symlink.
+# Make python3 and python3.12 available on PATH if not already linked
+# (dnf installs /usr/bin/python3.12; smoke_test.sh calls 'python3 -m venv').
+if ! command -v python3 &>/dev/null || [[ "$(python3 --version 2>&1)" != *"3.12"* ]]; then
+  # Use alternatives to set python3 to 3.12, or create a fallback symlink.
   if command -v alternatives &>/dev/null; then
-    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 2>/dev/null || true
-    alternatives --set python3 /usr/bin/python3.11 2>/dev/null || true
-    echo "  set python3 -> python3.11 via alternatives"
+    alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 2>/dev/null || true
+    alternatives --set python3 /usr/bin/python3.12 2>/dev/null || true
+    echo "  set python3 -> python3.12 via alternatives"
   else
-    ln -sf /usr/bin/python3.11 /usr/local/bin/python3 2>/dev/null || true
-    echo "  symlinked /usr/local/bin/python3 -> python3.11"
+    ln -sf /usr/bin/python3.12 /usr/local/bin/python3 2>/dev/null || true
+    echo "  symlinked /usr/local/bin/python3 -> python3.12"
   fi
 fi
 echo "  python3: $(python3 --version)"
