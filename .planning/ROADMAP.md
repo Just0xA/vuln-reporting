@@ -7,7 +7,8 @@
 - ✅ **v1.2 Deployment & Self-Update Infrastructure** — Phases 7–11 (shipped 2026-05-22) — [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Trend & Segmentation Substrate** — Phases 12–13 (shipped 2026-06-11) — [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 - ✅ **v1.4 Management Summary Reporting Improvement** — Phases 14–19 (shipped 2026-06-26) — [`milestones/v1.4-ROADMAP.md`](milestones/v1.4-ROADMAP.md)
-- 🔜 **v1.6 → v2.0 (forward plan)** — candidate Phases 20–41; not yet opened as milestones — [`roadmap-v1.6-v2.0.md`](roadmap-v1.6-v2.0.md) (v1.7 spec: [`specs/milestone-spec-validation-substrate.md`](specs/milestone-spec-validation-substrate.md))
+- 🔜 **v1.6 Delivery Config at Scale** — Phases 20–21 (opened 2026-07-09, in progress)
+- 🔜 **v1.7 → v2.0 (forward plan)** — candidate Phases 22–41; not yet opened as milestones — [`roadmap-v1.6-v2.0.md`](roadmap-v1.6-v2.0.md) (v1.7 spec: [`specs/milestone-spec-validation-substrate.md`](specs/milestone-spec-validation-substrate.md))
 
 ## Phases
 
@@ -66,6 +67,45 @@ Full detail: [`milestones/v1.4-ROADMAP.md`](milestones/v1.4-ROADMAP.md)
 
 </details>
 
+<details>
+<summary>🔜 v1.6 Delivery Config at Scale (Phases 20–21) — IN PROGRESS (opened 2026-07-09)</summary>
+
+**Goal:** Stop `delivery_config.yaml` from degrading as a shared cross-team surface. Separate the "who" (recipients) from the "what/when" (deliveries), split deliveries into per-team files with clear ownership, put the config under real version control with review, and make "who gets what, when" answerable without reading YAML.
+
+- [ ] Phase 20: Config Language + Loader + Matrix — contacts.yaml + defaults resolution + deliveries.d/ split + delivery matrix generator + effective-config golden test (CONF-01, CONF-02, CONF-03, CONF-05, QUAL-06)
+- [ ] Phase 21: Private Config Repo + CI + CODEOWNERS + Production Cutover — CODEOWNERS-gated private repo, CI schema+dry-run gate, dual-source fallback cutover (CONF-04, QUAL-07)
+
+Full requirement text + design decisions: [`REQUIREMENTS.md`](REQUIREMENTS.md). Forward roadmap context: [`roadmap-v1.6-v2.0.md`](roadmap-v1.6-v2.0.md).
+
+</details>
+
+## Phase Details
+
+Full phase detail for the current (v1.6) milestone. Prior milestones' phase details are archived in their respective `milestones/vX.Y-ROADMAP.md` files.
+
+### Phase 20: Config Language + Loader + Matrix
+**Goal**: An operator can define recipients once in a shared `contacts.yaml`, split deliveries into one file per team under `deliveries.d/`, and see the whole delivery landscape in one generated matrix — with a golden test proving the new loader resolves every existing config identically to today.
+**Depends on**: Nothing (first phase of v1.6; continues from Phase 19)
+**Requirements**: CONF-01, CONF-02, CONF-03, CONF-05, QUAL-06
+**Success Criteria** (what must be TRUE):
+  1. An operator adds or updates a contact (recipients/cc/reply_to) by editing exactly one entry in `contacts.yaml`, and every delivery referencing that contact by name picks up the change — no delivery file edited.
+  2. Every delivery's outgoing email carries the `defaults.analyst_mailbox` as both Reply-To (unless a contact overrides it) and a standing Cc, without that address appearing anywhere in a team's delivery file.
+  3. An operator adds a new report for a team by editing only that team's file under `deliveries.d/<team>.yaml`; the loader globs and merges all team files at load time and rejects the load with a clear error if two files declare the same delivery name.
+  4. A single un-migrated legacy `delivery_config.yaml` (inline `email:`, top-level `groups:` key) still loads and resolves — the deprecated-alias path — and the effective-config golden test asserts it is byte-identical to its pre-migration resolution; a migrated equivalent (contacts + defaults + `contact:` refs, `deliveries:` key) resolves to that same effective config.
+  5. An operator or auditor runs one command and gets a published delivery matrix (deliveries × reports × schedule × filters × owner) covering every delivery in the merged config, answering "who gets what, when" without opening any YAML file.
+**Plans**: TBD
+
+### Phase 21: Private Config Repo + CI + CODEOWNERS + Production Cutover
+**Goal**: Delivery configuration lives in a private, reviewed repository — each team's file is protected by its own CODEOWNERS entry, CI blocks a bad merge before it reaches production, and production cuts over from hand-edited SSH files to the reviewed repo without a single delivery interruption.
+**Depends on**: Phase 20 (loader, schema-as-effective-config-validator, and matrix generator must exist before the repo can be gated and consumed)
+**Requirements**: CONF-04, QUAL-07
+**Success Criteria** (what must be TRUE):
+  1. The private internal config repository exists (provisioned via change management, requested at milestone open) with restricted access, separate from the public app repo.
+  2. A pull request touching only one team's `deliveries.d/<team>.yaml` requires that team's owner as a reviewer (CODEOWNERS mapped 1:1 to the `deliveries.d/` split), and a PR that fails schema validation or `run_all.py --dry-run` against the merged effective config is blocked by CI before merge.
+  3. Production reads its delivery configuration from the reviewed repo (pull or published artifact) instead of an untracked hand-edited file over SSH.
+  4. Every delivery that was live in `delivery_config.yaml` before the cutover continues to deliver, unchanged, through one full dual-source fallback cycle (old hand-edited path and new repo-sourced path both function) before the legacy hand-edited path is retired.
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -89,6 +129,8 @@ Full detail: [`milestones/v1.4-ROADMAP.md`](milestones/v1.4-ROADMAP.md)
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
 | 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
 | 19. v1.4 Closure | v1.4 | 11/11 | Complete    | 2026-06-26 |
+| 20. Config Language + Loader + Matrix | v1.6 | 0/TBD | Not started | - |
+| 21. Private Config Repo + CI + Cutover | v1.6 | 0/TBD | Not started | - |
 
 ## Backlog
 

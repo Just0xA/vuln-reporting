@@ -6,7 +6,7 @@ status: planning
 last_updated: "2026-07-09T17:03:27.361Z"
 last_activity: 2026-07-09
 progress:
-  total_phases: 0
+  total_phases: 2
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** Milestone complete
+**Current focus:** v1.6 Delivery Config at Scale — roadmap created, ready to plan Phase 20
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 20 (Config Language + Loader + Matrix) — not yet planned
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-09 — Milestone v1.6 started
+Status: Roadmap approved; awaiting /gsd-plan-phase 20
+Last activity: 2026-07-09 — v1.6 roadmap created (Phases 20–21, 7/7 requirements mapped)
 
 ## Shipped Milestones
 
@@ -65,6 +65,7 @@ Last activity: 2026-07-09 — Milestone v1.6 started
 - v1.4 roadmap created 2026-06-11: 5 phases (14–18), 17 requirements, 100% coverage.
 - Phase numbering continues from v1.3 (ended Phase 13); v1.4 starts at Phase 14.
 - Phase 19 added: v1.4 Closure: INT-WARN-1/2/3 fixes, Phase 17 human verification, Phase 16 UAT, CodeRabbit findings
+- v1.6 roadmap created 2026-07-09: 2 phases (20–21), 7 requirements (CONF-01/02/03/04/05, QUAL-06/07), 100% coverage. Phase numbering continues from v1.4 (ended Phase 19; v1.5 label consumed by a release tag, not a milestone); v1.6 starts at Phase 20. Phase 20 = config language + resolve-before-validate loader + deliveries.d/ split + delivery matrix + effective-config golden test. Phase 21 = private config repo + CODEOWNERS + CI gate + production cutover with one dual-source fallback cycle.
 
 ### Decisions
 
@@ -173,11 +174,12 @@ Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 whic
 
 ## Session Continuity
 
-Last session: 2026-06-26T12:46:42.146Z
-Stopped at: Phase 19 plan 09 — v1.4 milestone closeout complete
+Last session: 2026-07-09
+Stopped at: v1.6 roadmap created (Phases 20–21, 7/7 requirements mapped, 100% coverage)
 Resume file: None
-Next command: `/gsd-plan-phase 20` or `/gsd-milestone v1.5` (v1.4 is fully closed)
+Next command: `/gsd-plan-phase 20`
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Review .planning/ROADMAP.md (v1.6 section) and .planning/REQUIREMENTS.md, then run `/gsd-plan-phase 20`
+- Long-lead: start the change-management request to provision the Phase 21 private config repo now, at milestone open, not at Phase 21 (per roadmap-v1.6-v2.0.md risk note)
