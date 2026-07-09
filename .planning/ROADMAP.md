@@ -96,7 +96,7 @@ Full phase detail for the current (v1.6) milestone. Prior milestones' phase deta
 **Plans**: 4 plans
 - [x] 20-01-PLAN.md — Resolve-before-validate loader: contacts.yaml + defaults resolution + deliveries.d/ merge + global uniqueness (CONF-01/02/03)
 - [x] 20-02-PLAN.md — run_all.py --dry-run error/warning surfacing (D-10) + contacts.example.yaml reference (CONF-03)
-- [ ] 20-03-PLAN.md — Delivery matrix generator scripts/generate_delivery_matrix.py, names+owner not addresses (CONF-05)
+- [x] 20-03-PLAN.md — Delivery matrix generator scripts/generate_delivery_matrix.py, names+owner not addresses (CONF-05)
 - [ ] 20-04-PLAN.md — Effective-config golden test: legacy + migrated twin two-way equality (QUAL-06)
 
 ### Phase 21: Private Config Repo + CI + CODEOWNERS + Production Cutover
@@ -133,7 +133,7 @@ Full phase detail for the current (v1.6) milestone. Prior milestones' phase deta
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
 | 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
 | 19. v1.4 Closure | v1.4 | 11/11 | Complete    | 2026-06-26 |
-| 20. Config Language + Loader + Matrix | v1.6 | 2/4 | In Progress|  |
+| 20. Config Language + Loader + Matrix | v1.6 | 3/4 | In Progress|  |
 | 21. Private Config Repo + CI + Cutover | v1.6 | 0/TBD | Not started | - |
 
 ## Backlog

@@ -23,7 +23,7 @@
 
 ### Legibility (CONF-05) — Phase 20
 
-- [ ] **CONF-05**: An operator or auditor can generate a **delivery matrix** — deliveries × reports × schedule × filters × owner — as markdown/HTML from the *resolved* config, published from CI on every merge. "Who gets what, when" becomes answerable without reading YAML. (Also serves as the natural acceptance test / first consumer of the resolver.)
+- [x] **CONF-05**: An operator or auditor can generate a **delivery matrix** — deliveries × reports × schedule × filters × owner — as markdown/HTML from the *resolved* config, published from CI on every merge. "Who gets what, when" becomes answerable without reading YAML. (Also serves as the natural acceptance test / first consumer of the resolver.)
 
 ### Version Control & Review (CONF-04) — Phase 21
 
@@ -89,7 +89,7 @@ Populated during roadmap creation.
 | CONF-01 | Phase 20 | Complete |
 | CONF-02 | Phase 20 | Complete |
 | CONF-03 | Phase 20 | Complete |
-| CONF-05 | Phase 20 | Pending |
+| CONF-05 | Phase 20 | Complete |
 | QUAL-06 | Phase 20 | Pending |
 | CONF-04 | Phase 21 | Pending |
 | QUAL-07 | Phase 21 | Pending |
