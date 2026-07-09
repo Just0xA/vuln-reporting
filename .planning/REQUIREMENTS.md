@@ -15,11 +15,11 @@
 
 ### Config Language & Loader (CONF-01/02/03) — Phase 20
 
-- [ ] **CONF-01**: An operator can define recipients once as named **contact groups** in a shared `contacts.yaml` (each entry carrying `recipients` + optional `cc`/`reply_to`), and a delivery references a contact by name (`contact: <key>`) instead of an inline recipient list. An Exchange distribution-list address is a valid contact entry, so membership churn handled in AD never touches this config. Updating a contact is a single edit; recipient churn no longer requires touching any delivery stanza.
+- [x] **CONF-01**: An operator can define recipients once as named **contact groups** in a shared `contacts.yaml` (each entry carrying `recipients` + optional `cc`/`reply_to`), and a delivery references a contact by name (`contact: <key>`) instead of an inline recipient list. An Exchange distribution-list address is a valid contact entry, so membership churn handled in AD never touches this config. Updating a contact is a single edit; recipient churn no longer requires touching any delivery stanza.
 
-- [ ] **CONF-02**: The config loader resolves a top-level `defaults:` block **before** schema validation. `defaults.analyst_mailbox` is applied to every delivery as **both** (a) the default `Reply-To` and (b) a standing `Cc` — so the analyst group keeps a record of every report and any recipient reply reaches the analysts, defined once and never repeated. A delivery may add ad-hoc recipients via an additive `extra_recipients:` list (merged + deduped, never overriding the referenced contact) to pull in a manager / CISO / engineer / analyst for temporary attention. A contact may override `reply_to` for its team.
+- [x] **CONF-02**: The config loader resolves a top-level `defaults:` block **before** schema validation. `defaults.analyst_mailbox` is applied to every delivery as **both** (a) the default `Reply-To` and (b) a standing `Cc` — so the analyst group keeps a record of every report and any recipient reply reaches the analysts, defined once and never repeated. A delivery may add ad-hoc recipients via an additive `extra_recipients:` list (merged + deduped, never overriding the referenced contact) to pull in a manager / CISO / engineer / analyst for temporary attention. A contact may override `reply_to` for its team.
 
-- [ ] **CONF-03**: The loader supports a `deliveries.d/` directory — **one file per team**, each with an `owner:` metadata field and a `deliveries:` list — globbing and merging all files at load, and enforcing **global delivery-name uniqueness** across files (today no uniqueness check exists; identically-named groups silently coexist). Single-file mode remains supported. The top-level YAML key is renamed `groups:` → `deliveries:`; the legacy `groups:` key is accepted as a **deprecated alias** (with a load-time warning) for the transition. CONF-01→03 are load-order sensitive and implemented in that order.
+- [x] **CONF-03**: The loader supports a `deliveries.d/` directory — **one file per team**, each with an `owner:` metadata field and a `deliveries:` list — globbing and merging all files at load, and enforcing **global delivery-name uniqueness** across files (today no uniqueness check exists; identically-named groups silently coexist). Single-file mode remains supported. The top-level YAML key is renamed `groups:` → `deliveries:`; the legacy `groups:` key is accepted as a **deprecated alias** (with a load-time warning) for the transition. CONF-01→03 are load-order sensitive and implemented in that order.
 
 ### Legibility (CONF-05) — Phase 20
 
@@ -86,9 +86,9 @@ Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONF-01 | Phase 20 | Pending |
-| CONF-02 | Phase 20 | Pending |
-| CONF-03 | Phase 20 | Pending |
+| CONF-01 | Phase 20 | Complete |
+| CONF-02 | Phase 20 | Complete |
+| CONF-03 | Phase 20 | Complete |
 | CONF-05 | Phase 20 | Pending |
 | QUAL-06 | Phase 20 | Pending |
 | CONF-04 | Phase 21 | Pending |

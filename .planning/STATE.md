@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Delivery Config at Scale
-status: Roadmap approved; awaiting /gsd-plan-phase 20
-stopped_at: Phase 20 context gathered
-last_updated: "2026-07-09T19:58:22.989Z"
-last_activity: 2026-07-09 — v1.6 roadmap created (Phases 20–21, 7/7 requirements mapped)
+status: executing
+stopped_at: Completed 20-01-PLAN.md
+last_updated: "2026-07-09T20:11:13.848Z"
+last_activity: 2026-07-09 -- Phase 20 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-11)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** v1.6 Delivery Config at Scale — roadmap created, ready to plan Phase 20
+**Current focus:** Phase 20 — config-language-loader-matrix
 
 ## Current Position
 
-Phase: 20 (Config Language + Loader + Matrix) — not yet planned
-Plan: —
-Status: Roadmap approved; awaiting /gsd-plan-phase 20
-Last activity: 2026-07-09 — v1.6 roadmap created (Phases 20–21, 7/7 requirements mapped)
+Phase: 20 (config-language-loader-matrix) — EXECUTING
+Plan: 2 of 4
+Status: Executing Phase 20
+Last activity: 2026-07-09 -- Phase 20 execution started
 
 ## Shipped Milestones
 
@@ -58,6 +58,7 @@ Last activity: 2026-07-09 — v1.6 roadmap created (Phases 20–21, 7/7 requirem
 | Phase 19 P05 | 900 | 3 tasks | 5 files |
 | Phase 19 P07 | 2700 | 3 tasks | 17 files |
 | Phase 19 P19-10 | 2400 | 4 tasks | 2 files |
+| Phase 20-config-language-loader-matrix P01 | 1080 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,8 @@ Decisions logged in PROJECT.md "Key Decisions" table. Prior milestone decision l
 - [Phase 18-03]: 2026-06 pre-existing snapshot left intact (source=unknown; immutability respected regardless of source field)
 - [Phase 18-04]: GEN-01 COMPLETE — management_summary atomically migrated from ~2,200-line bespoke path to ReportComposer pipeline composing 7 modules; chrome-aware PDF; modular email; 12mo all-assets trend wired via read_trend(); bespoke path removed in single commit (QUAL-04, D-18-10 gate 4 GREEN); per-metric parity gate passes (5 exact-match zero drift, M5/M7 documented-difference confirmed by operator visual UAT APPROVED); legacy JSON archived to data/trend/legacy_archive/
 - [Phase 18-04]: Bucketed parity gate (USER-APPROVED) — comparison_policy per metric read from golden JSON; exact-match asserts zero drift; documented-difference metrics (M5 aged_vulns_assets, M7 new_vs_remediated) excluded from exact assert; M5 fixture gap (missing 'owner' column in synthetic fixture) is a known fixture limitation, not a production bug — real-data render confirmed correct by operator UAT
+- [Phase 20-config-language-loader-matrix P01]: Directory-presence (deliveries.d/ next to config_path) is the sole mode switch for the config loader — no new CLI flag (D-01)
+- [Phase 20-config-language-loader-matrix P01]: owner + contact-name travel via a metadata_by_delivery_name side channel returned by resolve_config, kept off the schema-gated group dicts since delivery_config.schema.yaml has additionalProperties:false at the group level (D-09)
 
 ### v1.4 Plan-Time Open Decisions (lock per phase)
 
@@ -175,9 +178,9 @@ Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 whic
 
 ## Session Continuity
 
-Last session: 2026-07-09T18:21:55.923Z
-Stopped at: Phase 20 context gathered
-Resume file: .planning/phases/20-config-language-loader-matrix/20-CONTEXT.md
+Last session: 2026-07-09T20:11:13.843Z
+Stopped at: Completed 20-01-PLAN.md
+Resume file: None
 Next command: `/gsd-plan-phase 20`
 
 ## Operator Next Steps
