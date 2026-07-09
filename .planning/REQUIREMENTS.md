@@ -31,7 +31,7 @@
 
 ### Quality & Compatibility Bars (QUAL) — carried from v1.4
 
-- [ ] **QUAL-06**: An **effective-config golden test** asserts that every existing delivery resolves to an identical effective config under the new loader — an un-migrated single file resolves byte-identical, and a migrated file (contacts + defaults + refs) resolves to the *same* effective config. The golden runs against the **synthetic `example.invalid` config only — never production config** (D-04-08). This is the safety gate that makes the cutover reversible in review.
+- [x] **QUAL-06**: An **effective-config golden test** asserts that every existing delivery resolves to an identical effective config under the new loader — an un-migrated single file resolves byte-identical, and a migrated file (contacts + defaults + refs) resolves to the *same* effective config. The golden runs against the **synthetic `example.invalid` config only — never production config** (D-04-08). This is the safety gate that makes the cutover reversible in review.
 
 - [ ] **QUAL-07**: Existing `delivery_config.yaml` groups deliver **unchanged during and after** the cutover: the legacy single-file + inline-`email:` + `groups:` form keeps loading and delivering (a deprecated-but-working path), and the production cutover to the repo-sourced config runs with one dual-source fallback cycle before the old path is retired.
 
@@ -90,7 +90,7 @@ Populated during roadmap creation.
 | CONF-02 | Phase 20 | Complete |
 | CONF-03 | Phase 20 | Complete |
 | CONF-05 | Phase 20 | Complete |
-| QUAL-06 | Phase 20 | Pending |
+| QUAL-06 | Phase 20 | Complete |
 | CONF-04 | Phase 21 | Pending |
 | QUAL-07 | Phase 21 | Pending |
 

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Delivery Config at Scale
 status: executing
-stopped_at: Completed 20-03-PLAN.md
-last_updated: "2026-07-09T20:23:39.771Z"
+stopped_at: Completed 20-04-PLAN.md
+last_updated: "2026-07-09T20:30:30.760Z"
 last_activity: 2026-07-09 -- Phase 20 execution started
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
-  percent: 0
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State
@@ -61,6 +61,7 @@ Last activity: 2026-07-09 -- Phase 20 execution started
 | Phase 20-config-language-loader-matrix P01 | 1080 | 3 tasks | 3 files |
 | Phase 20-config-language-loader-matrix P02 | 13min | 2 tasks | 2 files |
 | Phase 20-config-language-loader-matrix P03 | 3min | 2 tasks | 2 files |
+| Phase 20-config-language-loader-matrix P04 | 300 | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,8 @@ Decisions logged in PROJECT.md "Key Decisions" table. Prior milestone decision l
 - [Phase 20-config-language-loader-matrix P02]: contacts.example.yaml holds contacts + defaults only (no deliveries:), mirroring delivery_config.example.yaml's header-comment + example.invalid convention; one contact overrides reply_to, one does not, to document both paths
 - [Phase 20-config-language-loader-matrix P02]: dry-run directory-mode surfacing block gated on the deliveries.d presence check, same mode switch (D-01) used by _load_config; warnings keep exit 0, errors flip exit 1
 - [Phase 20-config-language-loader-matrix P03]: scripts/generate_delivery_matrix.py renders owner+contact NAME exclusively from resolve_config's metadata_by_delivery_name side channel, never email.recipients/cc (D-05 PII invariant) — Markdown default, --format html opt-in
+- [Phase 20-config-language-loader-matrix P04]: Legacy fixture inline email: blocks hand-computed to pre-bake analyst-team@example.invalid into cc/reply_to per resolve_delivery_email's logic, so legacy and migrated-twin fixtures resolve to byte-identical effective configs (D-07 two-way equality)
+- [Phase 20-config-language-loader-matrix P04]: Added scoped .gitignore exception for tests/fixtures/phase20_config_legacy/delivery_config.yaml — the bare delivery_config.yaml ignore rule (real production config exclusion) collided with the required synthetic fixture filename
 
 ### v1.4 Plan-Time Open Decisions (lock per phase)
 
@@ -183,8 +186,8 @@ Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 whic
 
 ## Session Continuity
 
-Last session: 2026-07-09T20:23:39.766Z
-Stopped at: Completed 20-03-PLAN.md
+Last session: 2026-07-09T20:30:30.755Z
+Stopped at: Completed 20-04-PLAN.md
 Resume file: None
 Next command: `/gsd-plan-phase 20`
 
