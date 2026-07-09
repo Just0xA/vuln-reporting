@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Management Summary Reporting Improvement
-status: Awaiting next milestone
-stopped_at: Phase 19 plan 09 — v1.4 milestone closeout complete
-last_updated: "2026-06-26T14:58:34.625Z"
-last_activity: 2026-06-26 — Milestone v1.4 completed and archived
+milestone: v1.6
+milestone_name: Delivery Config at Scale
+status: planning
+last_updated: "2026-07-09T17:03:27.361Z"
+last_activity: 2026-07-09
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 35
-  completed_plans: 35
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 
 ## Current Position
 
-Phase: Milestone v1.4 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-09 — Completed quick task 260709-dux: final pre-v1.5.0 doc cleanup (STACK.md 3.12 + ar2 commit-hash placeholders)
+Status: Defining requirements
+Last activity: 2026-07-09 — Milestone v1.6 started
 
 ## Shipped Milestones
 

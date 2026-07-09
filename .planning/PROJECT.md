@@ -14,6 +14,8 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 **Shipped:** v1.4 Management Summary Reporting Improvement (2026-06-26) — see [`MILESTONES.md`](MILESTONES.md).
 
+**Released 2026-07-09:** `v1.5.0` — a release tag cut to reconcile a dev-machine sync issue; it consumed the `v1.5` label, which is why the next *milestone* is **v1.6** (see [`roadmap-v1.6-v2.0.md`](roadmap-v1.6-v2.0.md)).
+
 - 6 phases (14–19), 35 plans, 62 tasks across 2026-06-11 → 2026-06-26; 17/17 requirements satisfied (SUB-01..03, RPT-01..07, QUAL-01..05, GEN-01, DOC-02); milestone audit status: passed
 - **Seven v1.4 metric modules on the four-channel contract:** New vs Remediated, Vulnerability Density, Reopened Vulnerabilities, Accepted & Recast, External/DMZ Exposure (Phase 15), reworked `mttr_trend` (Phase 16), and the Program Health Overview composite dashboard (Phase 17) — all consuming the S1 trend + S2 Owner substrates, cold-start-safe and zero-row-safe.
 - **Shared substrates + gates (Phase 14):** `utils/external_scope.py` external classifier, `utils/asset_count.py` on-time-scanned denominator, and `composed_report.py` trend/recast kwargs frozenset gates fanning out through `ReportComposer`.
@@ -71,11 +73,25 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 **Codebase state (post-v1.2):** Five reports work end-to-end plus the YAML-driven `composed_report` slug. `board_summary` and `composed_report` are chrome-aware. `management_summary` + `ops_remediation` remain on legacy render paths (untouched); they will inherit chrome only after migration to the module contract (GEN-01/02 deferred). The suite is now server-deployable from signed release tarballs with scripted install/update/rollback (`scripts/update_from_github.sh`), CI-published artifacts (`.github/workflows/release.yml`), a standalone warm-cache job, and authoritative `DEPLOYMENT.md` / `RUNBOOK.md` / `README.md`.
 
-## Next Milestone
+## Current Milestone: v1.6 Delivery Config at Scale
 
-**Not yet defined.** v1.4 is shipped and archived. Start the next cycle with `/gsd-new-milestone` (questioning → research → requirements → roadmap). Phase numbering continues from Phase 19 (next milestone starts at Phase 20).
+**Goal:** Stop `delivery_config.yaml` from degrading as a shared cross-team surface. Separate the "who" (recipients) from the "what/when" (deliveries), split deliveries into per-team files with clear ownership, put the config under real version control with review, and make "who gets what, when" answerable without reading YAML.
 
-**Leading candidates** (from the backlog below): **GEN-02** (migrate `ops_remediation` to the module contract — the deferred "Operator Remediation Report v2"), **GEN-03/04** (broader YAML-driven module composition beyond the `composed_report` slug), the **MTTR window-widening** metric-design change (90-day/all-time, now that ~12mo of fixed data is retrievable), and **EXT-WAS-01 / EXT-TREND-01** (gated on a pyTenable-upgrade decision).
+**Why now:** Live production pain — one team receiving several reports means several stanzas, each duplicating the same recipients; updating a contact means editing every stanza; the file grows as (teams × reports). v1.6 has no downstream code dependents (see [`roadmap-v1.6-v2.0.md`](roadmap-v1.6-v2.0.md)), so it is sequenced first.
+
+**Target capabilities (CONF-01…05):**
+
+- **CONF-01** — Contacts extracted to a shared `contacts.yaml` (named contact groups + Exchange DL addresses); deliveries reference a contact by name, so recipient churn leaves the delivery files entirely.
+- **CONF-02** — A `defaults:` block whose `analyst_mailbox` is the default Reply-To *and* a standing Cc on every delivery (analysts keep a record; any reply reaches them) — defined once, never repeated.
+- **CONF-03** — Per-team `deliveries.d/<team>.yaml` split with `owner:` metadata; loader globs/merges and enforces global delivery-name uniqueness (fixes a latent missing-check bug). YAML key `groups:` → `deliveries:` (legacy `groups:` accepted as a deprecated alias during transition).
+- **CONF-04** — Private internal config repo: CODEOWNERS per team file + a CI gate (schema validation + `run_all.py --dry-run` on the merged result); production consumes the repo instead of hand-edits over SSH.
+- **CONF-05** — Delivery-matrix generator: deliveries × reports × schedule × filters × owner emitted as a published table.
+
+**Phases:** continues from Phase 19 → **Phase 20** (config language + loader + matrix; CONF-01/02/03/05) and **Phase 21** (private repo + CI + CODEOWNERS + production cutover; CONF-04). **Long-lead:** private-repo provisioning goes through change management — start that request at milestone open, not at Phase 21.
+
+Full requirement text + design decisions: [`REQUIREMENTS.md`](REQUIREMENTS.md). Forward roadmap (v1.6 → v2.0): [`roadmap-v1.6-v2.0.md`](roadmap-v1.6-v2.0.md).
+
+**After v1.6 (leading candidates):** **GEN-02** (migrate `ops_remediation` to the module contract), **GEN-03/04** (broader YAML-driven module composition), the **MTTR window-widening** change (90-day/all-time), and **EXT-WAS-01 / EXT-TREND-01** (gated on a pyTenable-upgrade decision). The full forward plan is `roadmap-v1.6-v2.0.md`.
 
 ## Backlog (deferred from prior milestones)
 
@@ -127,6 +143,11 @@ Carried from the v1.0 backlog (see `milestones/v1.0-REQUIREMENTS.md` v2 section)
 | v1.4 (OD-7): MTTR rework ships as new `mttr_trend` MODULE_ID, `mttr_by_severity` byte-unchanged | Reworking the existing module in place would have regressed board_summary groups that reference `mttr_by_severity`. A new MODULE_ID lets the corrected metric ship without touching the legacy one. | ✓ Good — board_summary baselines byte-identical; `mttr_trend` carries window disclosure + reopened-aware clock |
 | v1.4: GEN-01 cutover guarded by structural smoke + bucketed parity, no dual-writer window | The ~2,200-line bespoke path was removed in the same commit that routed reads through `read_trend()`. Structural baseline (pre-cutover) + per-metric parity buckets (5 exact-match, 2 documented-difference) caught regressions without locking churning values. | ✓ Good — operator UAT APPROVED; existing groups deliver with zero YAML changes |
 | v1.4: REAUDIT-WARN-1 fixed by inline compute, not by composing more modules | The post-close re-audit found 2 of 8 snapshot fields persisted as `None` because they were sourced from modules absent from `_MGMT_MODULE_CONFIGS`. Adding the modules would have changed the audience-facing report; computing the fields inline (cron-writer style) fixes the data with byte-identical report output. | ✓ Good — quick task `260626-elj`; report unchanged, snapshot fields now populated |
+| v1.6: Resolve-before-validate loader | The loader resolves contacts/`defaults`/refs into a concrete `email:` block *before* schema validation, so the existing schema validates the *effective* config and every migrated file must resolve to today's group shape. Backward compat falls out for free; the current schema stays the single gate. | — Pending |
+| v1.6: Nothing defined twice | Contacts + `defaults` live only in the shared `contacts.yaml`; per-team `deliveries.d/*.yaml` hold deliveries only. This is the guardrail that stops per-team splitting from re-duplicating the shared "who" one level up (the failure mode that would make the split worse than today). | — Pending |
+| v1.6: Rename YAML key `groups:`→`deliveries:`; internal `group` identifiers untouched | User-facing clarity (a *delivery* = one schedule+filter+reports+contact) without a risky churn through `run_group()`, `output/<date>_<group-name>/` naming, and the `delivery_log.db` audit schema. Legacy `groups:` accepted as a deprecated alias during the transition. | — Pending |
+| v1.6: Analyst mailbox = default Reply-To + standing Cc (one knob), universal, no opt-out | Satisfies "analysts keep a record and any reply reaches them" with one `defaults.analyst_mailbox` line driving both headers. All reporting is internal, so no per-delivery opt-out — deletes a config knob and a code branch. | — Pending |
+| v1.6: No per-delivery SLA override (scope decision) | A stricter-turnaround team self-selects operationally; the org SLA stays universal, so their report is just a narrower per-delivery `filters:` (already supported) with unchanged SLA math. Keeps v1.6 pure config-plumbing and the "config resolves identically" parity gate clean. | ✓ Good — confirmed with operator 2026-07-09 |
 
 ## Evolution
 
@@ -146,4 +167,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-26 — after v1.4 milestone (Phases 14–19 shipped & archived; audit passed; REAUDIT-WARN-1 closed via quick task 260626-elj). Awaiting next milestone via /gsd-new-milestone.*
+*Last updated: 2026-07-09 — v1.6 Delivery Config at Scale milestone opened (Phases 20–21; CONF-01…05). `v1.5.0` released 2026-07-09 (release tag; consumed the v1.5 label). v1.4 phase dirs archived to `milestones/v1.4-phases/`.*
