@@ -1,0 +1,25 @@
+# tests/fixtures/phase20_config_twin/deliveries.d/exec.yaml
+#
+# Migrated-twin team file for the "Executive Team" delivery — mirrors
+# delivery_config.example.yaml's first group. Exercises: weekly
+# schedule, tag filters, `cc` + `reply_to` via a contact override.
+#
+# All addresses use the RFC 6761 reserved example.invalid domain
+# (Hard Rule 2 / D-04-08).
+
+owner: exec-reporting-team
+
+deliveries:
+  - name: "Executive Team"
+    subject: "Weekly Vuln Management Summary — Production"
+    contact: exec_team
+    schedule:
+      frequency: weekly
+      day_of_week: monday
+      time: "07:00"
+    filters:
+      tag_category: "Environment"
+      tag_value: "Production"
+    reports:
+      - executive_kpi
+      - trend_analysis

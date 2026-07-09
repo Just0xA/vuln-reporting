@@ -1,0 +1,24 @@
+# tests/fixtures/phase20_config_twin/deliveries.d/remediation.yaml
+#
+# Migrated-twin team file for the "Remediation Team" delivery — mirrors
+# delivery_config.example.yaml's second group. Exercises: weekly
+# schedule, empty `filters: {}` (all assets), recipients-only contact
+# (reply_to falls back to defaults.analyst_mailbox).
+#
+# All addresses use the RFC 6761 reserved example.invalid domain
+# (Hard Rule 2 / D-04-08).
+
+owner: remediation-ops-team
+
+deliveries:
+  - name: "Remediation Team"
+    subject: "Weekly Remediation Worklist"
+    contact: remediation_team
+    schedule:
+      frequency: weekly
+      day_of_week: wednesday
+      time: "08:30"
+    filters: {}
+    reports:
+      - sla_remediation
+      - patch_compliance

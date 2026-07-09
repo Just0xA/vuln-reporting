@@ -12,6 +12,9 @@ data/cache/
 data/trend/
 *.parquet
 delivery_config.yaml
+# Exception: committed synthetic legacy-fixture twin for the Phase 20
+# effective-config golden test (QUAL-06) — example.invalid only, no real config.
+!tests/fixtures/phase20_config_legacy/delivery_config.yaml
 
 # Operator-supplied brand logo — keep out of the repo (CHROME-CFG-02);
 # config.LOGO_PATH points at this path but the chrome silent-fallback

@@ -1,0 +1,43 @@
+# tests/fixtures/phase20_config_twin/contacts.yaml
+#
+# Migrated-twin fixture for the effective-config golden test (QUAL-06,
+# D-07/D-08). Derived from delivery_config.example.yaml's three groups
+# (Executive Team, Remediation Team, Tag Severity & Type Profile) —
+# see tests/fixtures/phase20_config_legacy/delivery_config.yaml for the
+# legacy single-file twin that must resolve to the SAME effective config.
+#
+# All addresses use the RFC 6761 reserved example.invalid domain
+# (Hard Rule 2 / D-04-08) — no real recipient addresses.
+
+contacts:
+  # Referenced from deliveries.d/exec.yaml via `contact: exec_team`.
+  # Overrides reply_to explicitly.
+  exec_team:
+    recipients:
+      - ciso@example.invalid
+      - vp-it@example.invalid
+    cc:
+      - security-team@example.invalid
+    reply_to: security@example.invalid
+
+  # Referenced from deliveries.d/remediation.yaml via
+  # `contact: remediation_team`. No reply_to override — resolved
+  # reply_to falls back to defaults.analyst_mailbox below.
+  remediation_team:
+    recipients:
+      - remediation@example.invalid
+
+  # Referenced from deliveries.d/tag_profile.yaml via
+  # `contact: tag_profile_team`. Overrides reply_to explicitly.
+  tag_profile_team:
+    recipients:
+      - ciso@example.invalid
+    reply_to: reports-test@example.invalid
+
+# One universal knob: analyst_mailbox is the default Reply-To (when a
+# contact doesn't override it) AND a standing Cc on every resolved
+# delivery (D-02). The legacy single-file twin's inline email: blocks
+# already bake in this same analyst mailbox so both fixtures resolve
+# to an identical effective config (D-07 two-way equality).
+defaults:
+  analyst_mailbox: analyst-team@example.invalid

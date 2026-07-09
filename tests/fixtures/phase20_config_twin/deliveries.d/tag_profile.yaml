@@ -1,0 +1,28 @@
+# tests/fixtures/phase20_config_twin/deliveries.d/tag_profile.yaml
+#
+# Migrated-twin team file for the "Tag Severity & Type Profile" delivery
+# — mirrors delivery_config.example.yaml's third group. Exercises:
+# on_demand schedule, composed_report + modules:, tag filters, and a
+# contact reply_to override.
+#
+# All addresses use the RFC 6761 reserved example.invalid domain
+# (Hard Rule 2 / D-04-08).
+
+owner: analyst-tooling-team
+
+deliveries:
+  - name: "Tag Severity & Type Profile — example"
+    description: "Tag-scoped VPR severity share vs environment and CPE type distribution."
+    subject: "Tag Severity & Type Profile — Production"
+    contact: tag_profile_team
+    schedule:
+      frequency: on_demand
+    reports:
+      - composed_report
+    modules:
+      - tag_severity_share
+      - vuln_type_distribution
+    report_title: "Tag Severity & Type Profile"
+    filters:
+      tag_category: "Environment"
+      tag_value: "Production"

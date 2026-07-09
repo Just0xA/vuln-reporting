@@ -1,0 +1,81 @@
+# tests/fixtures/phase20_config_legacy/delivery_config.yaml
+#
+# Legacy single-file twin for the effective-config golden test (QUAL-06,
+# D-07/D-08) — the pre-migration form of the same three deliveries
+# defined by the migrated twin under tests/fixtures/phase20_config_twin/.
+# Uses the legacy `groups:` key and inline `email:` blocks (no
+# contacts.yaml / deliveries.d/ resolution).
+#
+# IMPORTANT for the byte-identical golden (D-07): the migrated twin
+# injects `defaults.analyst_mailbox` (analyst-team@example.invalid) as a
+# standing Cc + default Reply-To on every delivery. This legacy fixture's
+# inline `email:` blocks already bake in that same analyst mailbox in
+# `cc` (and as `reply_to` where the twin's contact does not override),
+# so both fixtures resolve to an identical effective config.
+#
+# All addresses use the RFC 6761 reserved example.invalid domain
+# (Hard Rule 2 / D-04-08).
+
+groups:
+  # Mirrors deliveries.d/exec.yaml + contacts.yaml:exec_team.
+  - name: "Executive Team"
+    schedule:
+      frequency: weekly
+      day_of_week: monday
+      time: "07:00"
+    filters:
+      tag_category: "Environment"
+      tag_value: "Production"
+    reports:
+      - executive_kpi
+      - trend_analysis
+    email:
+      subject: "Weekly Vuln Management Summary — Production"
+      recipients:
+        - ciso@example.invalid
+        - vp-it@example.invalid
+      cc:
+        - security-team@example.invalid
+        - analyst-team@example.invalid
+      reply_to: security@example.invalid
+
+  # Mirrors deliveries.d/remediation.yaml + contacts.yaml:remediation_team
+  # (no reply_to override on the contact, so reply_to == analyst_mailbox).
+  - name: "Remediation Team"
+    schedule:
+      frequency: weekly
+      day_of_week: wednesday
+      time: "08:30"
+    filters: {}
+    reports:
+      - sla_remediation
+      - patch_compliance
+    email:
+      subject: "Weekly Remediation Worklist"
+      recipients:
+        - remediation@example.invalid
+      cc:
+        - analyst-team@example.invalid
+      reply_to: analyst-team@example.invalid
+
+  # Mirrors deliveries.d/tag_profile.yaml + contacts.yaml:tag_profile_team.
+  - name: "Tag Severity & Type Profile — example"
+    description: "Tag-scoped VPR severity share vs environment and CPE type distribution."
+    schedule:
+      frequency: on_demand
+    reports:
+      - composed_report
+    modules:
+      - tag_severity_share
+      - vuln_type_distribution
+    report_title: "Tag Severity & Type Profile"
+    filters:
+      tag_category: "Environment"
+      tag_value: "Production"
+    email:
+      subject: "Tag Severity & Type Profile — Production"
+      recipients:
+        - ciso@example.invalid
+      cc:
+        - analyst-team@example.invalid
+      reply_to: reports-test@example.invalid
