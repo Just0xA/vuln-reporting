@@ -1,12 +1,24 @@
 # CLAUDE.MD — Vulnerability Management Reporting Suite (pyTenable)
 
-## Project Overview
+Modular Python reporting suite for Tenable Vulnerability Management: self-registering metric modules on a four-channel render contract (PDF / Excel / email panel / analyst drill-down), composed into audience bundles via `delivery_config.yaml`, delivered on schedule from a hardened RHEL 9 host.
 
-Build a modular Python reporting suite that connects to **Tenable.io / Tenable Vulnerability Management** via the `pyTenable` SDK and produces meaningful, audience-specific vulnerability management reports. Reports are segmented by **Tenable Tags/Labels**, support three distinct audience formats, and are exported as **CSV/Excel, PDF, and matplotlib/plotly charts**.
-
-The suite supports **scheduled and on-demand execution**, with a YAML-driven delivery system that emails the right reports to the right recipients — each group with its own filters, report selection, frequency, and recipient list that can be updated without touching code.
+**Core value:** Right metric, right audience, right channel — without writing a new report each time.
 
 **Vocabulary:** Project-specific terms (chrome, RAG strip, VPR, four-channel render contract, slug, etc.) are defined in [`docs/GLOSSARY.md`](docs/GLOSSARY.md). Read it when a term is unfamiliar; add an entry when introducing a new one.
+
+---
+
+## Hard Rules — Invariants (never violate; each has already caused or prevented a real incident)
+
+1. **No live Tenable pulls from Claude Code — ever.** A PreToolUse hook (`.claude/hooks/block_tenable_fetch.py`, wired via `.claude/settings.json`) denies every live-pull entry point: `data/fetchers.py`, `tenable_client.py`, all `reports/*.py` standalone invocations, `utils/tag_helper.py`, and the live-pull scripts. Only verified pre-auth dry-runs are permitted: `run_all.py --dry-run`, `scripts/warm_cache.py --dry-run`, `scripts/capture_trend_snapshot.py --dry-run`. A human runs live pulls manually, outside Claude Code. Do not attempt workarounds; if a task seems to need live data, stop and ask the operator to warm the parquet cache.
+2. **Aggregate-only PII in anything committed (D-04-08).** No real hostnames, IPs, MACs, plugin names, or asset UUIDs in test fixtures, baselines, snapshots, debug dumps, or docs. Two git-history scrubs have already been required (`data/trend` 2026-05-14, `tests/debug_fetch2.txt` 2026-06-03). Synthetic data only.
+3. **All "currently open" logic MUST use the reopened-aware two-interval predicate** — `utils/open_count.open_findings_at()`. The naive `last_fixed null OR last_fixed > D` form silently drops ~19% of findings (the entire REOPENED population).
+4. **Severity is VPR-first** via `config.vpr_to_severity(vpr_score, fallback=native)` (Critical 9.0–10.0, High 7.0–8.9, Medium 4.0–6.9, Low 0.1–3.9). Never tier from the raw CVSS severity string.
+5. **pandas CoW: `.assign()` only.** Never `df["col"] = val` after a filter or slice — it raises `ChainedAssignmentError` under pandas 3.0 semantics and has produced real parquet-serialization bugs (`fix-recast-rules` 2026-06-04).
+6. **Empty-data guard on all four channels.** Filtered-to-zero recipient groups are routine. Use `safe_pct` / `safe_int` / `safe_format` for any possibly-`None`/`NaN` value; return `BaseModule._empty_result()` instead of raising. Inline f-string format specs on possibly-`None` values are forbidden.
+7. **Cold-start branch mandatory for MoM modules:** branch on `read_trend()`'s `insufficient_data` flag before computing deltas.
+8. **Zero new dependencies** without explicit operator approval — `requirements.txt` is locked.
+9. **Credentials via `.env` only** (see `.env.example`) — never hardcoded, never logged, never committed. Single chokepoint: `tenable_client.get_client()`; validate on startup, exit with a clear error on auth failure.
 
 ---
 
@@ -51,63 +63,33 @@ The test: Every changed line should trace directly to the user's request.
 - "Fix the bug" → "Write a test that reproduces it, then make it pass"
 - "Refactor X" → "Ensure tests pass before and after"
 
-## Technology Stack
-
-Python 3.12+, `pyTenable`, pandas, openpyxl, matplotlib + plotly, weasyprint, python-dotenv, PyYAML, APScheduler, smtplib + email.mime, Jinja2, tenacity, rich.
-
-Full per-dependency notes (versions, where each is imported, retry policies, etc.) live in `.planning/codebase/STACK.md`. Read that when you need the deep version pinning or library-usage detail.
-
 ---
 
-## Credential Management
+## Planning Systems — Boundary
 
-All credentials loaded exclusively from `.env` via `python-dotenv`. Never hardcode credentials.
+Two systems coexist by design:
 
-```
-# .env
-TVM_ACCESS_KEY=your_access_key_here
-TVM_SECRET_KEY=your_secret_key_here
-TVM_URL=https://cloud.tenable.com
-
-# SMTP
-SMTP_HOST=smtp.office365.com
-SMTP_PORT=587
-SMTP_USERNAME=reports@yourcompany.com
-SMTP_PASSWORD=your_smtp_password
-SMTP_FROM_ADDRESS=reports@yourcompany.com
-SMTP_FROM_NAME=Vulnerability Management Reports
-```
-
-Validate connection on startup; exit gracefully with a clear error on auth failure. Single chokepoint: `tenable_client.get_client()`.
+- **Superpowers** = design exploration only. Brainstorm/spec sessions write to `docs/superpowers/specs/` (and `plans/`). No repo code edits from a Superpowers session.
+- **GSD** = all execution. Every code change goes through a GSD entry point (see GSD Workflow Enforcement below). A GSD plan that implements a Superpowers spec must link the spec in its `PLAN.md` context.
 
 ---
 
 ## SLA Definitions
 
-Severity is determined by the **VPR (Vulnerability Priority Rating)** score from Tenable, **not** the native CVSS-based severity. Always derive severity from the `vpr_score` field; fall back to native severity only when VPR is null.
-
 | Severity | VPR Score Range | SLA (Days) |
 | -------- | --------------- | ---------- |
 | Critical | 9.0 – 10.0      | 15         |
 | High     | 7.0 – 8.9       | 30         |
-| Medium   | 4.0 – 6.9       | 45         |
+| Medium   | 4.0 – 6.9       | 60         |
 | Low      | 0.1 – 3.9       | 120        |
 
-A vulnerability is **overdue** when `today - first_found_date > SLA_days` AND not remediated.
-
-Defined as constants in `config.py` → `SLA_DAYS = {"critical": 15, "high": 30, "medium": 60, "low": 120}`.
+A vulnerability is **overdue** when `today - first_found_date > SLA_days` AND not remediated. Constants in `config.py` → `SLA_DAYS`.
 
 ---
 
 ## Asset Segmentation
 
-All reports must support **filtering and grouping by Tenable Tags/Labels**:
-
-- Fetch tags dynamically at runtime (do not hardcode tag values)
-- Support CLI `--tag-category` / `--tag-value` for any report
-- Defined per recipient group in `delivery_config.yaml`
-- Include as a column/dimension in aggregated outputs
-- If no tag filter, run against **all assets**
+All reports must support filtering and grouping by Tenable Tags/Labels: fetched dynamically at runtime (never hardcoded), CLI `--tag-category` / `--tag-value` on any report, defined per recipient group in `delivery_config.yaml`, included as a dimension in aggregated outputs. No tag filter = all assets.
 
 ---
 
@@ -115,167 +97,69 @@ All reports must support **filtering and grouping by Tenable Tags/Labels**:
 
 ```
 vuln-reporting/
-├── .env                          # Credentials (never commit)
-├── .env.example
-├── config.py                     # SLA constants, severity maps, shared config
+├── config.py                     # SLA constants, severity maps, vpr_to_severity
 ├── tenable_client.py             # Authenticated TenableIO client factory
-├── delivery_config.yaml          # Recipient groups, schedules, report selections
-├── delivery_config.schema.yaml   # JSON Schema for YAML validation
-├── scheduler.py                  # APScheduler daemon + cron/manual modes
-├── data/
-│   ├── fetchers.py               # All pyTenable API fetch functions
-│   └── trend/                    # Trend snapshots (management_summary)
-├── reports/
-│   ├── *.py                      # Per-slug report scripts
-│   └── modules/                  # Reusable metric module infrastructure
+├── delivery_config.yaml          # Recipient groups (gitignored; see delivery_config.example.yaml)
+├── delivery_config.schema.yaml   # JSON Schema validator for the YAML
+├── scheduler.py                  # APScheduler daemon + run-due + manual modes
+├── run_all.py                    # Master runner; run_group() is the single executor
+├── data/fetchers.py              # All pyTenable fetch functions + parquet cache
+├── data/trend_store.py           # Forward-accumulating trend snapshots
+├── reports/                      # Per-slug report scripts
+│   └── modules/                  # Metric module infrastructure (auto-discovered)
 ├── exporters/                    # excel / pdf / chart
-├── delivery/                     # email_sender / email_template / delivery_log
-├── utils/                        # sla_calculator / tag_helper / formatters
-├── templates/report_email.html
-├── docs/                         # Calculation runbooks
-├── logs/                         # app.log + delivery_log.db
-├── output/                       # Timestamped report folders
-├── run_all.py                    # Master runner
-└── README.md
+├── delivery/                     # email_sender / email_template / delivery_log (SQLite audit)
+├── utils/                        # sla_calculator / tag_helper / open_count / formatters
+├── scripts/                      # warm_cache, capture_trend_snapshot, updater, smokes
+├── deploy/                       # systemd unit, crontab.example, smoke scripts
+├── docs/                         # Calculation runbooks + API field references + GLOSSARY
+└── templates/report_email.html   # Jinja2 email body (inline CSS only)
 ```
 
-Deeper file-by-file notes live in `.planning/codebase/STRUCTURE.md` and `.planning/codebase/ARCHITECTURE.md`.
+Deeper file-by-file notes: `.planning/codebase/STRUCTURE.md` and `ARCHITECTURE.md`. Operations (scheduling, cron, install/update/rollback): `DEPLOYMENT.md` and `RUNBOOK.md`.
 
 ---
 
 ## Delivery Configuration — `delivery_config.yaml`
 
-Single file controlling who gets what, with what filters, and how often. Editable without touching Python.
+Single YAML controlling who gets what, with what filters, and how often — editable without touching Python. `delivery_config.schema.yaml` is the authoritative validator; `delivery_config.example.yaml` is the committed reference shape. Key rules:
 
-```yaml
-groups:
-  - name: "Executive Team"
-    schedule:
-      frequency: weekly # weekly | monthly | on_demand
-      day_of_week: monday # weekly only
-      time: "07:00" # 24hr, server local
-    filters:
-      tag_category: "Environment"
-      tag_value: "Production"
-    reports:
-      - executive_kpi
-      - trend_analysis
-    email:
-      subject: "Weekly Vuln Management Summary — Production"
-      recipients: [ciso@company.com, vp-it@company.com]
-      cc: [security-team@company.com]
-      reply_to: security@company.com
-```
-
-### YAML Schema Rules
-
-- `frequency` ∈ {`weekly`, `monthly`, `on_demand`}
-- `day_of_week` required for weekly (`monday`–`sunday`)
-- `day_of_month` required for monthly (integer 1–28; 28 max to avoid February edge cases)
-- `time` required for weekly/monthly (`HH:MM`, 24-hour, server local)
-- `filters` may be `{}` (all assets)
-- `reports` must be a list from: `executive_kpi`, `sla_remediation`, `asset_risk`, `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`, `management_summary`, `vuln_export`, `board_summary`, `unscanned_assets`, `composed_report`
-- When `reports` contains `composed_report`, the group must also declare a non-empty `modules:` array of registered module IDs. Optional `module_options:` is a per-module options dict; optional `report_title:` overrides the cover-page title.
-- `recipients` required; `cc` may be empty
-- Validate on startup — exit with a clear error if misconfigured
-- `delivery_config.schema.yaml` is the JSON-Schema validator (editor/CI use)
+- `frequency` ∈ {weekly, monthly, on_demand}; `day_of_week` (weekly) / `day_of_month` (monthly, 1–28) / `time` (`HH:MM` server-local) as applicable
+- `filters` may be `{}` (all assets); `recipients` required
+- Valid report slugs are defined in **`run_all.py` → `_VALID_REPORTS`** and mirrored in the schema enum — those two are the only registration points (this file is not a registry)
+- Groups using `composed_report` must declare a non-empty `modules:` array of registered module IDs; optional `module_options:` per-module dict and `report_title:` cover override
+- Config is validated on startup and by `run_all.py --dry-run` — exit with a clear error if misconfigured
 
 ---
 
-## Scheduler — `scheduler.py`
+## Execution Model
 
-Three execution modes, all delegating to the same `run_group(group_config)`:
+`run_group(group_config)` in `run_all.py` is the sole "run one delivery group" entry point; all modes converge there:
 
-- **Mode 1 — Daemon:** `python scheduler.py --mode daemon` — APScheduler `CronTrigger` for all weekly/monthly groups; hot-reloads YAML every 5 min; logs to `logs/scheduler.log`. Sample systemd unit at `deploy/vuln-reports.service`.
-- **Mode 2 — Run-due (cron / Task Scheduler):** `python scheduler.py --mode run-due` — runs only groups whose schedule matches within a ±10-minute window. Designed to be invoked every 5–10 minutes.
-- **Mode 3 — Manual:** `--mode manual --group "<name>"`, `--all-on-demand`, `--recipients <override>`, `--no-email`.
+- **Daemon:** `python scheduler.py --mode daemon` (APScheduler; hot-reloads YAML; systemd unit at `deploy/vuln-reports.service`)
+- **Run-due:** `python scheduler.py --mode run-due` (cron every 5–10 min; ±10-minute schedule window)
+- **Manual:** `python run_all.py --group "<name>"` with `--no-email`, `--dry-run`, `--recipients`, `--tag-category/--tag-value` overrides
 
----
-
-## Email Delivery — `delivery/email_sender.py`
-
-Every delivery email must include:
-
-1. **HTML body** (Jinja2): title + timestamp + group name; scope banner; KPI strip (Total Criticals, % Critical/High in SLA, overdue Critical+High, MTTR); up to 3 inline charts via base64 CID; bullet list of attached reports; SLA reference table; footer with reply-to.
-2. **PDF attachments** — one per report in the group's list.
-3. **Excel attachments** — one per report.
-
-**SMTP rules:**
-
-- STARTTLS (587) default; SSL (465) via env override
-- `tenacity` retry: exponential backoff, up to 3 attempts on transient failures
-- Validate recipient addresses pre-send
-- Enforce `MAX_ATTACHMENT_SIZE_MB` (default 25). If exceeded: log warning, send PDF only, note in body that Excel was omitted.
-- Never send to an empty recipient list — log and skip
-
-```python
-def send_report_email(group_config: dict, report_outputs: dict) -> bool:
-    """Returns True on success, False on failure — logs error, never raises."""
-```
+Outputs land in `output/YYYY-MM-DD_HH-MM_<group-name>/`. Fail-soft batch semantics: one report failing never aborts the group; one group failing never aborts the batch.
 
 ---
 
-## Email Template — `templates/report_email.html`
+## Email Delivery — key rules
 
-Jinja2 HTML template compatible with Outlook / Gmail / Apple Mail:
-
-- **Inline CSS only.** No external stylesheets, no `<style>` blocks.
-- Section order: Header band → Scope banner → KPI tiles (table-based layout) → Inline charts (`<img src="cid:chart_N">`) → Attached reports list → SLA reference table → Footer.
-- If `ops_remediation` is in the run, its pre-built `kpi_tiles` from `metrics` take priority over the generic tile logic.
+`delivery/email_sender.py` sends HTML body (Jinja2, **inline CSS only** — Outlook/Gmail/Apple Mail compatible) + PDF and Excel attachments per report. STARTTLS 587 default; `tenacity` retry ×3; `MAX_ATTACHMENT_SIZE_MB` (25) enforced — over limit sends PDF-only with a body note; never send to an empty recipient list. `send_report_email()` returns bool, logs errors, never raises. Delivery audit: SQLite at `logs/delivery_log.db` (`delivery/delivery_log.py`, CLI: `--recent N`, `--failures`, `--group`, date range).
 
 ---
-
-## Delivery Log — `delivery/delivery_log.py`
-
-SQLite audit log at `logs/delivery_log.db`:
-
-```sql
-CREATE TABLE delivery_log (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp           DATETIME NOT NULL,
-    group_name          TEXT NOT NULL,
-    trigger_mode        TEXT NOT NULL,      -- 'scheduled' | 'manual' | 'daemon'
-    reports_run         TEXT NOT NULL,      -- JSON array
-    tag_filter          TEXT,               -- "Category=Value" or "all_assets"
-    recipients          TEXT NOT NULL,      -- JSON array
-    status              TEXT NOT NULL,      -- 'success' | 'partial' | 'failed'
-    error_message       TEXT,
-    output_folder       TEXT NOT NULL,
-    attachment_size_kb  INTEGER,
-    duration_seconds    REAL
-);
-```
-
-CLI: `--recent N`, `--failures`, `--group "<name>"`, `--from YYYY-MM-DD --to YYYY-MM-DD`.
-
----
-
-## `run_all.py` — Master Runner
-
-```bash
-python run_all.py                                              # All due groups
-python run_all.py --group "Finance Remediation Team"           # Specific group
-python run_all.py --group "Executive Team" --no-email          # Reports only
-python run_all.py --dry-run                                    # Validate config
-python run_all.py --group "..." --tag-category X --tag-value Y # Override filter
-python run_all.py --group "..." --recipients test@company.com  # Override recipients
-```
-
-Outputs land in `output/YYYY-MM-DD_HH-MM_<group-name>/`. Prints a `rich` summary table on completion.
-
----
-
 ## Board-Style Reports — Module Infrastructure
 
-Reports built on `reports/modules/` are composed of independent, testable metric modules assembled by `ReportComposer` into PDF, Excel, and email outputs. Used by `board_summary` and `management_summary`.
+Reports built on `reports/modules/` are composed of independent, testable metric modules assembled by `ReportComposer` into PDF, Excel, and email outputs. Used by `board_summary`, `management_summary`, and `composed_report`.
 
 ### Module anatomy
 
 Every metric module lives in `reports/modules/` and must:
 
-1. Be named `*_module.py` (auto-discovered by `registry.discover()` on package import)
+1. Be named `*_module.py` (auto-discovered by `registry.discover()` on package import — the suffix is load-bearing)
 2. Decorate the class with `@register_module`
-3. Extend `BaseModule` and implement `compute()`. Override any renderer methods whose channel the module contributes to.
+3. Extend `BaseModule` and implement `compute()` (contractually side-effect-free). Override any renderer methods whose channel the module contributes to.
 
 ```python
 from reports.modules import register_module
@@ -292,133 +176,81 @@ class MyMetricModule(BaseModule):
 
 All renderer methods are **concrete with no-op defaults** (not `@abstractmethod`).
 
-| Method                                                                | Channel                               | Default             |
-| --------------------------------------------------------------------- | ------------------------------------- | ------------------- |
-| `render_pdf_section(data, config) -> str`                             | PDF                                   | `""`                |
-| `render_excel_tabs(data, workbook, config) -> list[str]`              | Excel                                 | `[]`                |
-| `render_email_kpis(data, config) -> list[dict]`                       | Email KPI tiles (legacy)              | `[]`                |
-| `render_email_panel(data, config) -> str`                             | Email body panel (CONTRACT-01)        | `""`                |
-| `render_analyst_tabs(data, config) -> list[tuple[str, pd.DataFrame]]` | Analyst-detail workbook (CONTRACT-02) | `[]`                |
-| `render_rag_strip_entry(data, config) -> dict`                        | Cover-page RAG strip (CONTRACT-03)    | Gray "No Data" cell |
+| Method                                                                 | Channel                               | Default             |
+| ---------------------------------------------------------------------- | ------------------------------------- | ------------------- |
+| `render_pdf_section(data, config) -> str`                              | PDF                                   | `""`                |
+| `render_excel_tabs(data, workbook, config) -> list[str]`               | Excel                                 | `[]`                |
+| `render_email_kpis(data, config) -> list[dict]`                        | Email KPI tiles (legacy)              | `[]`                |
+| `render_email_panel(data, config) -> str`                              | Email body panel (CONTRACT-01)        | `""`                |
+| `render_analyst_tabs(data, config) -> list[tuple[str, pd.DataFrame]]`  | Analyst-detail workbook (CONTRACT-02) | `[]`                |
+| `render_rag_strip_entry(data, config) -> dict`                         | Cover-page RAG strip (CONTRACT-03)    | Gray "No Data" cell |
 
-`ModuleData` (CONTRACT-04) carries the supporting fields:
+`ModuleData` (CONTRACT-04) carries `driver_narrative: str` (1-line "what's driving it"), `analyst_rows`, and `rag_strip` (`{label, headline_value, rag_color, rag_label}`).
 
-- `driver_narrative: str` — 1-line "what's driving it" for `render_email_panel`
-- `analyst_rows: list[tuple[str, pd.DataFrame]]` — drill-down data for `render_analyst_tabs`
-- `rag_strip: dict` — pre-built strip cell `{label, headline_value, rag_color, rag_label}`
-
-### Empty-data guard pattern
-
-Filtered-to-zero recipient groups happen regularly. Render methods MUST not crash on a zero-row `ModuleData`:
-
-1. **Use `safe_pct` / `safe_int` / `safe_format` from `reports.modules.format_utils`** for any value that could be `None`/`NaN`. Inline f-string format specs on possibly-`None` values are forbidden.
-
-   ```python
-   from reports.modules import safe_pct, safe_int, safe_format
-   panel_html = f"<p>Coverage: {safe_pct(cov_pct)}</p>"   # Good
-   panel_html = f"<p>Coverage: {cov_pct:.1f}%</p>"        # Crashes on None
-   ```
-
-2. **Return safe defaults instead of raising.** `BaseModule._empty_result()` produces a coherent failed-`ModuleData` (gray strip cell, "No data in scope." driver).
-
-Shared utilities: `reports/modules/rag_utils.py` (`STATUS_COLOR`, `STATUS_LABEL`, `NO_DATA_HEADLINE`, `NO_DATA_DRIVER`, `rag_status_from_value`, `build_rag_strip_entry`) and `reports/modules/format_utils.py` (`safe_pct`, `safe_int`, `safe_format`). Both re-exported at the package level.
+Shared utilities: `reports/modules/rag_utils.py` and `reports/modules/format_utils.py`, both re-exported at the package level. Empty-data handling is Hard Rule 6.
 
 ### Adding a new module to an existing composed report
 
 1. Create `reports/modules/my_metric_module.py` following the pattern above.
-2. Add `ModuleConfig("my_metric")` to the report's module-config list (e.g. `_BOARD_MODULE_CONFIGS` in `board_summary.py`).
-3. No registration in `run_all.py` or this file needed for the module itself — only top-level report slugs are registered there.
+2. Add `ModuleConfig("my_metric")` to the report's module-config list (e.g. `_BOARD_MODULE_CONFIGS` in `board_summary.py`) — or, for `composed_report`, just list the MODULE_ID in the group's `modules:` YAML. Auto-discovery handles registration.
 
 ### PDF assembly note
 
-`ReportComposer.assemble_pdf()` produces a cover/title page followed by one page per module. No trailing footer page (placing metadata there caused an orphaned last page when the final module filled its page exactly).
+`ReportComposer.assemble_pdf()` produces a cover/title page followed by one page per module. No trailing footer page (metadata there caused an orphaned last page when the final module filled its page exactly).
 
 ---
 
-## Adding a New Report — Required Steps
+## Adding a New Report Slug — Required Steps
 
-Every new report script **must** be registered in three places or `--dry-run` will reject it:
+Register in exactly **two** places or `--dry-run` will reject it:
 
-1. **`run_all.py` — `_VALID_REPORTS`**: add the slug to the `frozenset`.
-2. **`run_all.py` — `_REPORT_MODULE_MAP`**: add `"slug": "reports.module_name"`.
-3. **`CLAUDE.md` — YAML Schema Rules**: add the slug to the `reports` valid-values list above.
+1. **`run_all.py` — `_VALID_REPORTS`**: add the slug to the frozenset, and add `"slug": "reports.module_name"` to `_REPORT_MODULE_MAP`.
+2. **`delivery_config.schema.yaml`**: add the slug to the reports enum.
 
-If the report needs group-config parameters beyond the standard set (`tag_category`, `tag_value`, `output_dir`, `generated_at`, `cache_dir`), add a slug-specific block inside `run_group()` in `run_all.py` (see `vuln_export` / `csv_severities` pattern).
-
-Each `run_report()` must return a dict with at minimum: `{"pdf": path_or_none, "excel": path_or_none, "charts": list_of_paths}`. CSV-only reports add `"csv"`. Other keys (`"metrics"`, etc.) are optional.
-
-### Modular reports — bundle-driven routing
-
-Reports on the `reports/modules/` infrastructure can opt into the upgraded email body and analyst workbook by populating these bundle keys in their `run_report()` return dict:
-
-- **`email_body_html: str`** — when non-empty, `delivery/email_sender.py` routes through `build_email_body_modular()` instead of the legacy `build_email_body()` KPI-tile shell. Selection is by a single predicate: "any report's `email_body_html` non-empty?". No slug allowlist.
-- **`analyst_excel: Path | None`** — when a real Path, automatically attached alongside the standard PDF and Excel.
-- **`email_inline_images: list[{"cid": str, "b64_png": str}]`** — base64 PNG entries decoded into MIMEImage parts with `Content-ID = <{cid}>` so panels can reference them as `<img src="cid:{module_id}_gauge">`.
-
-This pattern is intentional: v2's planned YAML-driven module composition (`groups[].modules: [m1, m2]`) needs zero changes to `delivery/email_sender.py` or `reports/modules/composer.py` because both layers self-describe from the bundle, not from named-report slugs.
+If the report needs group-config parameters beyond the standard set, add a slug-specific block inside `run_group()` (see `vuln_export` / `csv_severities` pattern). Every `run_report()` must return at minimum `{"pdf": path_or_none, "excel": path_or_none, "charts": list_of_paths}`; modular reports opt into the upgraded email/analyst pipeline by populating `email_body_html`, `analyst_excel`, and `email_inline_images` bundle keys — routing is by bundle self-description, never by slug allowlist.
 
 ### Composed Reports — YAML-driven module composition
 
-`reports/composed_report.py` is the generic slug that realizes the YAML-driven composition pattern. A group opts in with `reports: [composed_report]` plus a `modules:` list of registered module IDs (and optional `module_options:` per-module dicts, optional `report_title:` cover override, optional `analyst_detail:` opt-out). The slug fetches `vulns_df` + `assets_df` (plus `fixed_vulns_df` only when `critical_remediation_sla` is composed), applies the group's tag filter, drives `ReportComposer.run_full_pipeline`, and returns the standard board-shaped four-channel bundle. Adding a new metric module needs no change to `composed_report.py` — module auto-discovery picks it up on next import.
+`reports/composed_report.py` is the generic slug realizing the composition pattern: a group opts in with `reports: [composed_report]` plus a `modules:` list. The slug fetches `vulns_df` + `assets_df` (plus gated extras via the kwargs frozensets, e.g. `fixed_vulns_df`, `trend_snapshots`, `recast_rules_df`), applies the tag filter, and drives `ReportComposer.run_full_pipeline`. Adding a new metric module needs **zero** changes to `composed_report.py`.
 
 ---
 
 ## Report Scripts — Slug Index
 
-| Slug                 | Audience                          | Outputs                          | Notes                                                                       |
-| -------------------- | --------------------------------- | -------------------------------- | --------------------------------------------------------------------------- |
-| `executive_kpi`      | Management / Executives           | PDF, Excel, charts               | Open vulns by severity, SLA %, MTTR, top-5 risky tags                       |
-| `sla_remediation`    | IT / Remediation + Analysts       | Excel (per-sev tabs), PDF, chart | SLA status per vuln, velocity, breach trend                                 |
-| `asset_risk`         | Analysts + IT                     | Excel, PDF, chart                | Per-asset weighted risk score                                               |
-| `patch_compliance`   | IT / Remediation + Analysts       | Excel, PDF, chart                | Age buckets, % beyond SLA, oldest unpatched                                 |
-| `trend_analysis`     | Management + Analysts             | Excel, PDF, charts               | Weekly/monthly snapshots, MTTR trend                                        |
-| `plugin_cve`         | Analysts                          | Excel, PDF, charts               | Top plugins/CVEs, exploitable breakdown                                     |
-| `ops_remediation`    | Operations / Remediation          | Excel (7 tabs), PDF              | Overdue by plugin, risk acceptances, recurring vulns                        |
-| `vuln_export`        | Operations + Analysts             | CSV only                         | Raw open findings, configurable `csv_severities`                            |
-| `management_summary` | Senior Management (Directors/VPs) | PDF (5pp), HTML email            | 7 RAG metrics; modules-based. See `docs/management_summary_calculations.md` |
-| `board_summary`      | Board / Executive Leadership      | PDF, Excel                       | 4 board KPIs; modules-based. See `docs/board_summary_calculations.md`       |
-| `unscanned_assets`   | Analysts / IT Ops                 | Excel, CSV                       | Companion to Scan Coverage SLA; on-time / overdue / no-licensed-scan split  |
+| Slug                 | Audience                          | Outputs                          | Notes                                                                        |
+| -------------------- | --------------------------------- | -------------------------------- | ---------------------------------------------------------------------------- |
+| `executive_kpi`      | Management / Executives           | PDF, Excel, charts               | Open vulns by severity, SLA %, MTTR, top-5 risky tags                        |
+| `sla_remediation`    | IT / Remediation + Analysts       | Excel (per-sev tabs), PDF, chart | SLA status per vuln, velocity, breach trend                                  |
+| `asset_risk`         | Analysts + IT                     | Excel, PDF, chart                | Per-asset weighted risk score                                                |
+| `patch_compliance`   | IT / Remediation + Analysts       | Excel, PDF, chart                | Age buckets, % beyond SLA, oldest unpatched                                  |
+| `trend_analysis`     | Management + Analysts             | Excel, PDF, charts               | Weekly/monthly snapshots, MTTR trend                                         |
+| `plugin_cve`         | Analysts                          | Excel, PDF, charts               | Top plugins/CVEs, exploitable breakdown                                      |
+| `ops_remediation`    | Operations / Remediation          | Excel (7 tabs), PDF              | Overdue by plugin, risk acceptances, recurring vulns (legacy bespoke path)   |
+| `vuln_export`        | Operations + Analysts             | CSV only                         | Raw open findings, configurable `csv_severities`                             |
+| `management_summary` | Senior Management (Directors/VPs) | PDF, HTML email, Excel           | 7 modules on ReportComposer. See `docs/management_summary_calculations.md`   |
+| `board_summary`      | Board / Executive Leadership      | PDF, Excel                       | 4 board KPIs; modules-based. See `docs/board_summary_calculations.md`        |
+| `unscanned_assets`   | Analysts / IT Ops                 | Excel, CSV                       | Companion to Scan Coverage SLA                                               |
+| `composed_report`    | Any (YAML-defined)                | PDF, Excel, email, analyst wb    | Generic module composition — see section above                               |
 
-Per-report details (column lists, exact calculations, data sources) live in each report's module docstring and the `docs/*_calculations.md` runbooks.
-
----
-
-## Shared Utilities
-
-- **`utils/sla_calculator.py`** — `get_sla_status(severity, first_found, remediated) -> {status, days_open, days_remaining, sla_days}`. UTC-based.
-- **`utils/tag_helper.py`** — `get_all_tags(tio)`, `get_assets_by_tag(tio, cat, val)`, `enrich_vulns_with_tags(df, tio)`. CLI: `--list-tags [--category X]`.
-- **`utils/formatters.py`** — pure helpers (no I/O); filename/timestamp/value formatting.
-- **`exporters/chart_exporter.py`** — color palette: Critical `#d32f2f`, High `#f57c00`, Medium `#fbc02d`, Low `#388e3c`, Info `#1976d2`.
+Per-report details live in each report's module docstring and the `docs/*_calculations.md` auditor runbooks.
 
 ---
 
-## Data Fetching Guidelines (`data/fetchers.py`)
+## Data Fetching (`data/fetchers.py`)
 
-- `tio.exports.vulns()` for bulk vulnerability data — includes `severity_modification_type`, `recast_rule_uuid`, `recast_reason` for risk management tracking
-- `tio.exports.assets()` for asset enrichment
-- `tio.tags.list()` for tag discovery
-- `POST /v1/recast/rules/search` (`fetch_recast_rules()`) — active recast/accept rules with filter trees, expiration dates, original severity, `created_at`; optional enrichment used by `ops_remediation`
-- Cache to local `.parquet` per run to avoid redundant API calls across reports in the same group
-- **Cache folders are named by local machine date** (`YYYY-MM-DD`), not UTC. Stale prior-day folders pruned at the start of each `run_all.py` batch.
-- `tenacity` exponential backoff for rate limiting
-- All fetch functions return a normalized `pd.DataFrame`
-- `rich` progress bars on long-running fetches
-
-### Recast rules filter structure
-
-The recast rules API returns a `filter` field that can be an arbitrary AND/OR tree. Supported properties: Plugin ID (`definition.id`), Asset ID, IPv4, IPv6, FQDN, Network, CVE, Plugin Output, Protocol, Tags. Use `_summarize_filter()` to convert to a readable string. Plugin ID is only extractable when the filter is flat `{"property": "definition.id", ...}` or a single-item `and/or` wrapping one.
+- `tio.exports.vulns()` / `tio.exports.assets()` / `tio.tags.list()`; `fetch_recast_rules()` via `POST /v1/recast/rules/search` (arbitrary AND/OR filter trees — use `_summarize_filter()`; see docstrings)
+- **Bounded `last_fixed` lookback:** fixed-finding fetches with no time filter return only ~29 days by API default; real retention is ~15–16 months — always pass a bounded `last_fixed` when history is needed
+- Run-scoped parquet cache: `data/cache/<YYYY-MM-DD>/` (local machine date, not UTC); pre-warmed once per batch (`scripts/warm_cache.py` via cron), pruned at batch start; every report hits `[CACHE HIT]`
+- `tenacity` exponential backoff; all fetchers return normalized `pd.DataFrame`; `rich` progress bars on long fetches
 
 ---
 
 ## Code Quality Requirements
 
-- `if __name__ == "__main__":` with `argparse` on every script
-- Type hints and docstrings throughout
-- **Timezone policy:** report timestamps use UTC (`datetime.now(tz=timezone.utc)`); cache folder names and schedule matching use server local time (`datetime.now()` without tzinfo)
-- `logging` module with rotating file handlers (`logs/app.log`)
-- No silent failures — log all errors; failures in one group must not stop other groups (fail-soft batch semantics)
-- `requirements.txt` with pinned versions
-- `.env.example` with all variables and inline comments
+- `if __name__ == "__main__":` with `argparse` on every script; type hints and NumPy-style docstrings throughout (see `.planning/codebase/CONVENTIONS.md` for the full conventions with `file:line` references)
+- **Timezone policy:** report timestamps UTC (`datetime.now(tz=timezone.utc)`); cache folder names and schedule matching use server local time
+- `logging` with rotating file handlers (`logs/app.log`); no silent failures; fail-soft batch semantics
+- `requirements.txt` pinned; `.env.example` documents all variables
 
 ---
 
@@ -436,7 +268,7 @@ The next direction is to make every report **modular and composable** rather tha
 
 ### Constraints
 
-- **Tech stack**: Python 3.12+, `pyTenable` SDK, pandas, openpyxl, WeasyPrint, matplotlib + plotly, Jinja2, APScheduler, tenacity — locked. No new SDK adoption in v1.
+- **Tech stack**: Python 3.10+, `pyTenable` SDK, pandas, openpyxl, WeasyPrint, matplotlib + plotly, Jinja2, APScheduler, tenacity — locked. No new SDK adoption in v1.
 - **Email-client compatibility**: Outlook / Gmail / Apple Mail must render the per-module email panels. Inline CSS only; no `<style>` blocks; charts via base64 CID. Already established and must be preserved.
 - **Backward compatibility**: Existing groups in `delivery_config.yaml` referencing `board_summary`, `management_summary`, `ops_remediation`, `vuln_export`, `unscanned_assets` must continue to deliver during and after v1. Adding the analyst-detail companion to Board Summary cannot regress existing email/PDF for those recipients.
 - **Credential handling**: All Tenable + SMTP credentials via `.env` only — never hardcoded, never logged, never committed. Existing pattern is locked.
