@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Delivery Config at Scale
 status: executing
-stopped_at: Completed 20-01-PLAN.md
-last_updated: "2026-07-09T20:11:13.848Z"
+stopped_at: Completed 20-02-PLAN.md
+last_updated: "2026-07-09T20:17:21.895Z"
 last_activity: 2026-07-09 -- Phase 20 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-11)
 ## Current Position
 
 Phase: 20 (config-language-loader-matrix) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Executing Phase 20
 Last activity: 2026-07-09 -- Phase 20 execution started
 
@@ -59,6 +59,7 @@ Last activity: 2026-07-09 -- Phase 20 execution started
 | Phase 19 P07 | 2700 | 3 tasks | 17 files |
 | Phase 19 P19-10 | 2400 | 4 tasks | 2 files |
 | Phase 20-config-language-loader-matrix P01 | 1080 | 3 tasks | 3 files |
+| Phase 20-config-language-loader-matrix P02 | 13min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ Decisions logged in PROJECT.md "Key Decisions" table. Prior milestone decision l
 - [Phase 18-04]: Bucketed parity gate (USER-APPROVED) — comparison_policy per metric read from golden JSON; exact-match asserts zero drift; documented-difference metrics (M5 aged_vulns_assets, M7 new_vs_remediated) excluded from exact assert; M5 fixture gap (missing 'owner' column in synthetic fixture) is a known fixture limitation, not a production bug — real-data render confirmed correct by operator UAT
 - [Phase 20-config-language-loader-matrix P01]: Directory-presence (deliveries.d/ next to config_path) is the sole mode switch for the config loader — no new CLI flag (D-01)
 - [Phase 20-config-language-loader-matrix P01]: owner + contact-name travel via a metadata_by_delivery_name side channel returned by resolve_config, kept off the schema-gated group dicts since delivery_config.schema.yaml has additionalProperties:false at the group level (D-09)
+- [Phase 20-config-language-loader-matrix P02]: contacts.example.yaml holds contacts + defaults only (no deliveries:), mirroring delivery_config.example.yaml's header-comment + example.invalid convention; one contact overrides reply_to, one does not, to document both paths
+- [Phase 20-config-language-loader-matrix P02]: dry-run directory-mode surfacing block gated on the deliveries.d presence check, same mode switch (D-01) used by _load_config; warnings keep exit 0, errors flip exit 1
 
 ### v1.4 Plan-Time Open Decisions (lock per phase)
 
@@ -178,8 +181,8 @@ Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 whic
 
 ## Session Continuity
 
-Last session: 2026-07-09T20:11:13.843Z
-Stopped at: Completed 20-01-PLAN.md
+Last session: 2026-07-09T20:17:21.890Z
+Stopped at: Completed 20-02-PLAN.md
 Resume file: None
 Next command: `/gsd-plan-phase 20`
 
