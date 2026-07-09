@@ -1,0 +1,84 @@
+{
+  "groups": [
+    {
+      "email": {
+        "cc": [
+          "security-team@example.invalid",
+          "analyst-team@example.invalid"
+        ],
+        "recipients": [
+          "ciso@example.invalid",
+          "vp-it@example.invalid"
+        ],
+        "reply_to": "security@example.invalid",
+        "subject": "Weekly Vuln Management Summary — Production"
+      },
+      "filters": {
+        "tag_category": "Environment",
+        "tag_value": "Production"
+      },
+      "name": "Executive Team",
+      "reports": [
+        "executive_kpi",
+        "trend_analysis"
+      ],
+      "schedule": {
+        "day_of_week": "monday",
+        "frequency": "weekly",
+        "time": "07:00"
+      }
+    },
+    {
+      "email": {
+        "cc": [
+          "analyst-team@example.invalid"
+        ],
+        "recipients": [
+          "remediation@example.invalid"
+        ],
+        "reply_to": "analyst-team@example.invalid",
+        "subject": "Weekly Remediation Worklist"
+      },
+      "filters": {},
+      "name": "Remediation Team",
+      "reports": [
+        "sla_remediation",
+        "patch_compliance"
+      ],
+      "schedule": {
+        "day_of_week": "wednesday",
+        "frequency": "weekly",
+        "time": "08:30"
+      }
+    },
+    {
+      "description": "Tag-scoped VPR severity share vs environment and CPE type distribution.",
+      "email": {
+        "cc": [
+          "analyst-team@example.invalid"
+        ],
+        "recipients": [
+          "ciso@example.invalid"
+        ],
+        "reply_to": "reports-test@example.invalid",
+        "subject": "Tag Severity & Type Profile — Production"
+      },
+      "filters": {
+        "tag_category": "Environment",
+        "tag_value": "Production"
+      },
+      "modules": [
+        "tag_severity_share",
+        "vuln_type_distribution"
+      ],
+      "name": "Tag Severity & Type Profile — example",
+      "report_title": "Tag Severity & Type Profile",
+      "reports": [
+        "composed_report"
+      ],
+      "schedule": {
+        "frequency": "on_demand"
+      }
+    }
+  ]
+}
