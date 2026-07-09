@@ -93,7 +93,11 @@ Full phase detail for the current (v1.6) milestone. Prior milestones' phase deta
   3. An operator adds a new report for a team by editing only that team's file under `deliveries.d/<team>.yaml`; the loader globs and merges all team files at load time and rejects the load with a clear error if two files declare the same delivery name.
   4. A single un-migrated legacy `delivery_config.yaml` (inline `email:`, top-level `groups:` key) still loads and resolves — the deprecated-alias path — and the effective-config golden test asserts it is byte-identical to its pre-migration resolution; a migrated equivalent (contacts + defaults + `contact:` refs, `deliveries:` key) resolves to that same effective config.
   5. An operator or auditor runs one command and gets a published delivery matrix (deliveries × reports × schedule × filters × owner) covering every delivery in the merged config, answering "who gets what, when" without opening any YAML file.
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 20-01-PLAN.md — Resolve-before-validate loader: contacts.yaml + defaults resolution + deliveries.d/ merge + global uniqueness (CONF-01/02/03)
+- [ ] 20-02-PLAN.md — run_all.py --dry-run error/warning surfacing (D-10) + contacts.example.yaml reference (CONF-03)
+- [ ] 20-03-PLAN.md — Delivery matrix generator scripts/generate_delivery_matrix.py, names+owner not addresses (CONF-05)
+- [ ] 20-04-PLAN.md — Effective-config golden test: legacy + migrated twin two-way equality (QUAL-06)
 
 ### Phase 21: Private Config Repo + CI + CODEOWNERS + Production Cutover
 **Goal**: Delivery configuration lives in a private, reviewed repository — each team's file is protected by its own CODEOWNERS entry, CI blocks a bad merge before it reaches production, and production cuts over from hand-edited SSH files to the reviewed repo without a single delivery interruption.
@@ -129,7 +133,7 @@ Full phase detail for the current (v1.6) milestone. Prior milestones' phase deta
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
 | 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
 | 19. v1.4 Closure | v1.4 | 11/11 | Complete    | 2026-06-26 |
-| 20. Config Language + Loader + Matrix | v1.6 | 0/TBD | Not started | - |
+| 20. Config Language + Loader + Matrix | v1.6 | 0/4 | Planned | - |
 | 21. Private Config Repo + CI + Cutover | v1.6 | 0/TBD | Not started | - |
 
 ## Backlog
