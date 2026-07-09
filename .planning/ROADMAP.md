@@ -133,7 +133,7 @@ Full phase detail for the current (v1.6) milestone. Prior milestones' phase deta
 | 17. Program Health Overview | v1.4 | 3/3 | Complete   | 2026-06-13 |
 | 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
 | 19. v1.4 Closure | v1.4 | 11/11 | Complete    | 2026-06-26 |
-| 20. Config Language + Loader + Matrix | v1.6 | 4/4 | Complete   | 2026-07-09 |
+| 20. Config Language + Loader + Matrix | v1.6 | 4/4 | Complete    | 2026-07-09 |
 | 21. Private Config Repo + CI + Cutover | v1.6 | 0/TBD | Not started | - |
 
 ## Backlog
