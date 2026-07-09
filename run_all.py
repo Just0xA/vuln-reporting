@@ -465,6 +465,25 @@ def _dry_run(groups: list[dict]) -> int:
             any_errors = True
             console.print(f"\n[bold red]YAML parse error:[/bold red] {exc}")
 
+    # Directory-mode resolution errors/warnings (D-10): deliveries.d/ + a
+    # sibling contacts.yaml resolve through delivery.config_loader.resolve_config
+    # before the schema gate above ever runs. Surface its errors/warnings here
+    # so operators and the Phase 21 CI --dry-run gate see them prominently.
+    # This plan only needs errors/warnings — groups and metadata are discarded.
+    if (config_path.parent / "deliveries.d").is_dir():
+        _groups, errors, warnings, _meta = resolve_config(config_path)
+
+        if warnings:
+            console.print("\n[bold yellow]Config warnings:[/bold yellow]")
+            for w in warnings:
+                console.print(f"  [yellow]! {w}[/yellow]")
+
+        if errors:
+            any_errors = True
+            console.print("\n[bold red]Config errors:[/bold red]")
+            for e in errors:
+                console.print(f"  [red]x {e}[/red]")
+
     tbl = Table(
         title="Delivery Config — Dry Run Validation",
         box=box.ROUNDED,
