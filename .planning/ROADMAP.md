@@ -7,6 +7,7 @@
 - ✅ **v1.2 Deployment & Self-Update Infrastructure** — Phases 7–11 (shipped 2026-05-22) — [`milestones/v1.2-ROADMAP.md`](milestones/v1.2-ROADMAP.md)
 - ✅ **v1.3 Trend & Segmentation Substrate** — Phases 12–13 (shipped 2026-06-11) — [`milestones/v1.3-ROADMAP.md`](milestones/v1.3-ROADMAP.md)
 - ✅ **v1.4 Management Summary Reporting Improvement** — Phases 14–19 (shipped 2026-06-26) — [`milestones/v1.4-ROADMAP.md`](milestones/v1.4-ROADMAP.md)
+- 🔜 **v1.6 → v2.0 (forward plan)** — candidate Phases 20–41; not yet opened as milestones — [`roadmap-v1.6-v2.0.md`](roadmap-v1.6-v2.0.md) (v1.7 spec: [`specs/milestone-spec-validation-substrate.md`](specs/milestone-spec-validation-substrate.md))
 
 ## Phases
 
