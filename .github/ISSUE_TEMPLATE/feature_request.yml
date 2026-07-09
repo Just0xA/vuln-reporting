@@ -110,7 +110,6 @@ body:
         - label: Linux (production scheduler host)
         - label: macOS (developer machines)
         - label: Python 3.10
-        - label: Python 3.11
         - label: Python 3.12
         - label: Python 3.13+
 

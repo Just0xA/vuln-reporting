@@ -53,7 +53,7 @@ The test: Every changed line should trace directly to the user's request.
 
 ## Technology Stack
 
-Python 3.10+, `pyTenable`, pandas, openpyxl, matplotlib + plotly, weasyprint, python-dotenv, PyYAML, APScheduler, smtplib + email.mime, Jinja2, tenacity, rich.
+Python 3.12+, `pyTenable`, pandas, openpyxl, matplotlib + plotly, weasyprint, python-dotenv, PyYAML, APScheduler, smtplib + email.mime, Jinja2, tenacity, rich.
 
 Full per-dependency notes (versions, where each is imported, retry policies, etc.) live in `.planning/codebase/STACK.md`. Read that when you need the deep version pinning or library-usage detail.
 
@@ -90,7 +90,7 @@ Severity is determined by the **VPR (Vulnerability Priority Rating)** score from
 | -------- | --------------- | ---------- |
 | Critical | 9.0 – 10.0      | 15         |
 | High     | 7.0 – 8.9       | 30         |
-| Medium   | 4.0 – 6.9       | 60         |
+| Medium   | 4.0 – 6.9       | 45         |
 | Low      | 0.1 – 3.9       | 120        |
 
 A vulnerability is **overdue** when `today - first_found_date > SLA_days` AND not remediated.
@@ -436,7 +436,7 @@ The next direction is to make every report **modular and composable** rather tha
 
 ### Constraints
 
-- **Tech stack**: Python 3.10+, `pyTenable` SDK, pandas, openpyxl, WeasyPrint, matplotlib + plotly, Jinja2, APScheduler, tenacity — locked. No new SDK adoption in v1.
+- **Tech stack**: Python 3.12+, `pyTenable` SDK, pandas, openpyxl, WeasyPrint, matplotlib + plotly, Jinja2, APScheduler, tenacity — locked. No new SDK adoption in v1.
 - **Email-client compatibility**: Outlook / Gmail / Apple Mail must render the per-module email panels. Inline CSS only; no `<style>` blocks; charts via base64 CID. Already established and must be preserved.
 - **Backward compatibility**: Existing groups in `delivery_config.yaml` referencing `board_summary`, `management_summary`, `ops_remediation`, `vuln_export`, `unscanned_assets` must continue to deliver during and after v1. Adding the analyst-detail companion to Board Summary cannot regress existing email/PDF for those recipients.
 - **Credential handling**: All Tenable + SMTP credentials via `.env` only — never hardcoded, never logged, never committed. Existing pattern is locked.

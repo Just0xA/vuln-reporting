@@ -128,7 +128,7 @@ If your issue or PR was auto-closed, fix the missing fields and open a new submi
 
 Prerequisites:
 
-- Python 3.10+ (currently tested on 3.10, 3.11, 3.12).
+- Python 3.12+ (currently tested on 3.12).
 - A Tenable Vulnerability Management tenant with API keys for end-to-end validation. Many tests can run without it (smoke harness uses recorded fixtures).
 - WeasyPrint requires platform-specific GTK / Pango libraries on Windows. See WeasyPrint docs for setup.
 
