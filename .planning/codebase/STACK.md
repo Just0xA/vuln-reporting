@@ -5,7 +5,7 @@
 ## Languages
 
 **Primary:**
-- Python 3.10+ — entire codebase. `from __future__ import annotations` used pervasively (e.g. `tenable_client.py:13`, `data/fetchers.py:18`) implying minimum 3.10 baseline; project documentation in `CLAUDE.md` declares "Python 3.10+".
+- Python 3.12+ — declared floor (`pyproject.toml` `requires-python = ">=3.12"`, `.python-version` 3.12). `from __future__ import annotations` used pervasively (e.g. `tenable_client.py:13`, `data/fetchers.py:18`); project documentation in `CLAUDE.md` declares "Python 3.12+".
 
 **Secondary:**
 - HTML/Jinja2 templates — `templates/report_email.html` and inline HTML built by `delivery/email_template.py:47-57` (Jinja2 `Environment` + `FileSystemLoader`).
@@ -76,7 +76,7 @@
 ## Platform Requirements
 
 **Development:**
-- Python 3.10+.
+- Python 3.12+.
 - Local virtualenv (`.venv/`) populated by `pip install -r requirements.txt`.
 - WeasyPrint requires GTK/Pango/Cairo native libs on Windows; on Linux/RHEL these are typically installed via `pango`, `cairo`, `gdk-pixbuf2` system packages.
 

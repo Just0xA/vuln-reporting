@@ -3,7 +3,7 @@ quick_id: 260709-ar2
 title: Land v1.6–v2.0 roadmap + v1.7 validation-substrate spec as reference docs
 date: 2026-07-09
 status: complete
-commits: [<docs-commit>]
+commits: [f4f8b4c, 11e71f5]
 ---
 
 # Summary — Land v1.6–v2.0 roadmap + v1.7 spec
