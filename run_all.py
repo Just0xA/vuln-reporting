@@ -65,6 +65,7 @@ for _k in [k for k in sys.modules if k in ("reports", "data", "utils")
     del sys.modules[_k]
 
 from config import CACHE_DIR, LOG_DIR, LOG_LEVEL, OUTPUT_DIR, ROOT_DIR
+from delivery.config_loader import resolve_config
 from utils.formatters import report_timestamp, safe_filename
 
 logger = logging.getLogger(__name__)
@@ -159,9 +160,44 @@ def _load_config(config_path: Optional[Path] = None) -> list[dict]:
 
     Returns an empty list (with a logged error) if the file is missing or
     malformed, so callers can handle the empty-list case gracefully.
+
+    Phase 20 (CONF-03): if a ``deliveries.d/`` directory exists next to
+    *config_path*, directory mode is used instead — team files under
+    ``deliveries.d/*.yaml`` plus the required ``contacts.yaml`` sibling are
+    resolved into the same effective ``list[dict]`` shape via
+    ``delivery.config_loader.resolve_config`` (resolve-before-validate;
+    D-01). The resolved config is still gated by the unchanged
+    ``delivery_config.schema.yaml`` below. The resolver's fourth return
+    value (``metadata_by_delivery_name``, owner + contact-name per
+    delivery) is discarded here — it is not part of this function's
+    ``list[dict]`` contract; the matrix generator (Plan 03) consumes
+    ``resolve_config`` directly.
     """
     if config_path is None:
         config_path = ROOT_DIR / "delivery_config.yaml"
+
+    if (config_path.parent / "deliveries.d").is_dir():
+        groups, load_errors, load_warnings, _metadata = resolve_config(config_path)
+        for warning in load_warnings:
+            logger.warning("delivery config: %s", warning)
+        if load_errors:
+            for err in load_errors:
+                logger.error("delivery config: %s", err)
+            return []
+
+        try:
+            schema = _load_schema()
+        except (FileNotFoundError, yaml.YAMLError) as exc:
+            logger.error("delivery_config.schema.yaml load failed: %s", exc)
+            return []
+        schema_errors = _validate_with_schema({"groups": groups}, schema)
+        if schema_errors:
+            for err in schema_errors:
+                logger.error("config validation: %s", err)
+            return []
+
+        logger.debug("Loaded %d delivery(ies) from deliveries.d/", len(groups))
+        return groups
 
     if not config_path.exists():
         logger.error("delivery_config.yaml not found at %s", config_path)
