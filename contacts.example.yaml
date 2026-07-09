@@ -1,0 +1,40 @@
+# contacts.example.yaml
+#
+# TEMPLATE — copy this to shared/contacts.yaml (alongside shared/deliveries.d/)
+# and edit with your real contact groups and defaults:
+#
+#   sudo -u vuln-reports cp \
+#     /opt/vuln-reporting/current/contacts.example.yaml \
+#     /opt/vuln-reporting/shared/contacts.yaml
+#
+# All recipients below use the RFC 6761 reserved example.invalid domain so this
+# template never delivers mail. Replace every placeholder before going live.
+#
+# contacts.yaml holds the shared "who" ONLY — named contact groups plus the
+# top-level defaults block. It never defines deliveries: that lives in each
+# team's deliveries.d/<team>.yaml file, which references a contact by name
+# via `contact: <key>` (see delivery_config.example.yaml's deliveries.d twin).
+
+contacts:
+  # Referenced from a deliveries.d/*.yaml file via `contact: exec_team`.
+  # Overrides reply_to explicitly rather than falling back to
+  # defaults.analyst_mailbox.
+  exec_team:
+    recipients:
+      - ciso@example.invalid
+      - vp-it@example.invalid
+    cc:
+      - security-team@example.invalid
+    reply_to: security@example.invalid
+
+  # Referenced via `contact: remediation_team`. No reply_to override — the
+  # resolved reply_to falls back to defaults.analyst_mailbox below.
+  remediation_team:
+    recipients:
+      - remediation@example.invalid
+
+# One universal knob: analyst_mailbox is the default Reply-To (when a
+# contact doesn't override it) AND a standing Cc on every resolved delivery,
+# so analysts keep a record and any reply reaches them. No opt-out.
+defaults:
+  analyst_mailbox: analyst-team@example.invalid
