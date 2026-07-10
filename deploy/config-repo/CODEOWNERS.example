@@ -1,0 +1,50 @@
+# CODEOWNERS.example
+#
+# TEMPLATE — copy this to the PRIVATE config repo's root as `CODEOWNERS`
+# (or `.github/CODEOWNERS` / `docs/CODEOWNERS`, per your VCS host's convention)
+# and replace the placeholder handle before enabling branch-protection review.
+#
+# This file does NOT belong in the public vuln-reporting app repo as a live
+# CODEOWNERS — it is committed here only as a reference template for the
+# private config repo (Hard Rule 2 / D-02).
+#
+# --- Structure (D-08/D-09) ---------------------------------------------
+#
+# Entries are per-file, 1:1 with the deliveries.d/<team>.yaml split, so
+# per-team delegation can be enabled later by swapping a single handle per
+# line — no restructuring required. TODAY, every entry (including the
+# default rule) resolves to the SAME placeholder: the Vulnerability
+# Management team, which centrally manages and reviews all delivery files
+# (D-08, central stewardship). The default `*` rule covers shared,
+# cross-cutting files — contacts.yaml, the defaults: block, and the schema
+# copy — so a change to the shared "who" is always a VM-team-reviewed
+# change (D-09).
+#
+# --- Placeholder handle (D-10) ------------------------------------------
+#
+# `@ORG/vuln-management-team` is a PROVISIONING PLACEHOLDER. Concrete VCS
+# org/team handles are filled in when the private repo is created via
+# change management (long-lead; do not invent real handles here). Replace
+# every occurrence below with the real team handle at repo provisioning
+# time, and enable "Require review from Code Owners" in branch protection
+# (see the Plan 04 runbook).
+#
+# --- Reconciliation note (SC2) ------------------------------------------
+#
+# The roadmap's SC2 wording says a PR "requires that team's owner" as
+# reviewer. This file's 1:1 per-file structure is what ENABLES that
+# per-team delegation — but the roster resolves to the VM team now
+# (central stewardship, D-08). That is intentional, not an unmet
+# criterion: distributed per-team ownership is deferred, and can be turned
+# on later by editing only the handle on the relevant line.
+
+# Default rule — shared/cross-cutting files (contacts.yaml, defaults,
+# schema copy) always reviewed by the VM team (D-09).
+*                                    @ORG/vuln-management-team
+
+# Per-team delivery files — 1:1 with deliveries.d/, one line per team file
+# (D-08). All resolve to the VM team today; swap the handle per-line to
+# delegate a specific team file later.
+deliveries.d/exec.yaml               @ORG/vuln-management-team
+deliveries.d/remediation.yaml        @ORG/vuln-management-team
+deliveries.d/tag_profile.yaml        @ORG/vuln-management-team
