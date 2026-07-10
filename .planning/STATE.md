@@ -2,33 +2,33 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Delivery Config at Scale
-status: milestone_complete
-stopped_at: Milestone complete (Phase 21 was final phase)
-last_updated: 2026-07-10T11:07:13.849Z
-last_activity: 2026-07-10 -- Phase 21 execution started
+status: Awaiting next milestone
+stopped_at: Phase 21 context gathered
+last_updated: "2026-07-10T11:22:29.408Z"
+last_activity: 2026-07-10 — Milestone v1.6 completed and archived
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
   completed_plans: 8
-  percent: 50
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-11)
+See: .planning/PROJECT.md (updated 2026-07-10)
 
 **Core value:** Right metric, right audience, right channel — without writing a new report each time.
-**Current focus:** Milestone complete
+**Current focus:** Planning next milestone (v1.6 shipped 2026-07-10)
 
 ## Current Position
 
-Phase: 21
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-07-10
+Phase: Milestone v1.6 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-10 — Milestone v1.6 completed and archived
 
 ## Shipped Milestones
 
@@ -168,6 +168,14 @@ Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 whic
 | cleanup | Phase 3 W3 deprecated aliases (`_PDF_RAG_STRIP_TEMPLATE`, `_build_rag_strip_page`) | deferred (cosmetic) | 2026-05-08 |
 | backlog | composed_report output filenames are hardcoded to `composed_report.{pdf,xlsx}` — every group with `reports: [composed_report]` writes the same basenames in its run folder. Need per-group disambiguation (slugified `report_title`, explicit `output_basename:` YAML field, or slugified group name). Captured during Phase 6 chrome rollout once multiple composed groups became plausible. | deferred | 2026-05-13 |
 
+### Acknowledged at v1.6 close (2026-07-10)
+
+`gsd-sdk query audit-open` flagged 18 quick_tasks as `missing` at the v1.6 close — the **same detector false positive** documented under the v1.3-close root-cause note below (audit resolves `<quick-dir>/SUMMARY.md`, but gsd-quick writes the prefixed `<quick-dir>/<quick-id>-SUMMARY.md`). All 18 are completed tasks from prior milestones (v1.2–v1.4) with commits logged in MILESTONES.md; 17 carry a prefixed `SUMMARY.md`, one (`260520-a29-systemd-venv-path`) predates the summary convention. None are v1.6 work. The v1.6 milestone audit is `passed` (7/7 requirements, 5/5 integration, 1/1 flow). Acknowledged and proceeded.
+
+| Category | Count | Disposition |
+|----------|-------|-------------|
+| quick_tasks | 18 | Detector false positive (unprefixed-`SUMMARY.md` path quirk); all complete, all prior-milestone work. Slugs: 260514-mlk, 260520-a29/mp4/n7j, 260522-kyy/mf3/o2h, 260602-jqg, 260603-c6u, 260604-bxa, 260608-cma, 260611-b1x, 260701-da9, 260709-7ww/983/ar2/buj/dux. |
+
 ### Acknowledged at v1.4 close (2026-06-26)
 
 `gsd-sdk query audit-open` flagged 14 items at the v1.4 close — all verified **non-blocking** (the v1.4 milestone audit is `passed`, 17/17 requirements, 0 broken flows). Acknowledged and proceeded.
@@ -186,12 +194,11 @@ Carried forward from prior milestones; not in scope for v1.4 (except GEN-01 whic
 
 ## Session Continuity
 
-Last session: 2026-07-09T22:20:51.250Z
-Stopped at: Phase 21 context gathered
-Resume file: .planning/phases/21-private-config-repo-ci-codeowners-production-cutover/21-CONTEXT.md
-Next command: `/gsd-plan-phase 20`
+Last session: 2026-07-10 — Milestone v1.6 completed and archived
+Stopped at: v1.6 milestone close (archived + tagged)
+Resume file: —
+Next command: `/gsd:new-milestone`
 
 ## Operator Next Steps
 
-- Review .planning/ROADMAP.md (v1.6 section) and .planning/REQUIREMENTS.md, then run `/gsd-plan-phase 20`
-- Long-lead: start the change-management request to provision the Phase 21 private config repo now, at milestone open, not at Phase 21 (per roadmap-v1.6-v2.0.md risk note)
+- Start the next milestone with /gsd-new-milestone

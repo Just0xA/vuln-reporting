@@ -1,5 +1,41 @@
 # Milestones
 
+## v1.6 Delivery Config at Scale (Shipped: 2026-07-10)
+
+**Phases completed:** 2 phases (20–21), 8 plans, 16 tasks
+**Stats:** 60 commits, 173 files changed (+8,325 / −32), 2026-07-09 → 2026-07-10
+**Requirements:** 7/7 satisfied (CONF-01/02/03/04/05, QUAL-06/07); milestone audit status: passed
+**Known deferred items at close:** 18 (stale quick-task audit flags from prior milestones — completed tasks lacking a STATUS.md marker; see STATE.md Deferred Items)
+
+**Delivered:** `delivery_config.yaml` stops degrading as a shared cross-team surface — recipients ("who") are separated from deliveries ("what/when"), deliveries split per-team under `deliveries.d/` with clear ownership, config moves into a reviewed private repo with CI + CODEOWNERS gates, and "who gets what, when" is answerable from a generated matrix without reading YAML.
+
+**Key accomplishments:**
+
+- Resolve-before-validate config loader (`delivery/config_loader.py`): shared `contacts.yaml` named contact groups + `defaults:` (analyst mailbox as universal Reply-To + standing Cc) resolve into today's group shape *before* the unchanged `delivery_config.schema.yaml` gate runs, so backward compatibility falls out for free and the existing schema stays the single validator.
+- Per-team `deliveries.d/` glob-and-merge with global delivery-name uniqueness (fixing a latent missing-check bug), `groups:` → `deliveries:` key rename with the legacy key accepted as a deprecated alias.
+- Extended `run_all.py --dry-run` to surface directory-mode loader errors (duplicate delivery name, undefined `contact:` ref, inline `email:` block) as red output flipping exit code 1, and the deprecated `groups:` alias as a yellow warning that keeps exit 0; authored the committed `contacts.example.yaml` reference template.
+- Standalone `scripts/generate_delivery_matrix.py` renders "who gets what, when" (deliveries × reports × schedule × filters × owner) as Markdown or HTML, sourcing owner + contact NAME exclusively from the resolver's metadata side channel — zero expanded recipient addresses, PII-safe as a CI artifact.
+- Committed sorted-key JSON golden + two-way equality test proving the migrated-twin config (contacts.yaml + deliveries.d/) and the legacy single-file delivery_config.yaml resolve to an identical effective config that still passes the unchanged schema — the reversibility gate for the Phase 21 cutover.
+- Automatic dual-source fallback loader (`run_all._select_config_source` / `_load_config`, D-04) with `--dry-run` active-source surfacing (D-05): a directory-mode failure falls through to the legacy hand-edited path instead of returning `[]`, logging which source is live — the zero-interruption cutover mechanism.
+- Reference GitHub Actions workflow (`deploy/config-repo/ci.yml.example`) that gates every PR to the private config repo on a pinned + sha256-verified `vuln-reporting` release, a pre-auth `run_all.py --dry-run` against the merged config, and a PII-safe delivery-matrix PR artifact.
+- CODEOWNERS.example with 1:1 per-file VM-team governance (D-08/D-09/D-10) plus a contacts.example.yaml + deliveries.d/README.md reference pair documenting the exact config-tree shape the private repo holds — all synthetic `example.invalid` identifiers, no real handles or config (Hard Rule 2).
+- D-03 provenance stamp/verify CLI (`scripts/stamp_config_provenance.py`) plus a RUNBOOK "Reviewed-Repo Cutover" runbook, both operator-approved via dual-source dry-run verification — the live server config is now traceable to a reviewed commit SHA and the documented edit path drops SSH hand-edits.
+
+**Tech debt carried (from milestone audit, non-blocking):**
+
+- WR-01/02 — `scripts/generate_delivery_matrix.py` renders HTML cell values without `html.escape()` and Markdown cells without escaping literal `|` (matrix-artifact edge cases).
+- WR-03 — inline `email.cc`/`reply_to` without `recipients` in directory mode is silently dropped (violates "surface loudly" intent).
+- WR-04 / MATRIX-FALLBACK-01 — `run_all.py --dry-run` has no `--config` flag; `generate_delivery_matrix.py` calls `resolve_config()` directly, bypassing the dual-source fallback (bites only ad-hoc standalone operator use; CI gate is upstream-protected).
+- NYQUIST-21 — Phase 21 has no `21-VALIDATION.md` (verified via 21-VERIFICATION.md 9/9); consider `/gsd:validate-phase 21`.
+
+**Archive:**
+
+- [`milestones/v1.6-ROADMAP.md`](milestones/v1.6-ROADMAP.md) — full phase + plan details
+- [`milestones/v1.6-REQUIREMENTS.md`](milestones/v1.6-REQUIREMENTS.md) — all 7 requirements traceability
+- [`milestones/v1.6-MILESTONE-AUDIT.md`](milestones/v1.6-MILESTONE-AUDIT.md) — passed audit (7/7 requirements, 5/5 integration, 1/1 flow)
+
+---
+
 Living record of shipped versions. Each entry summarizes scope, accomplishments, and key outcomes. Full milestone details live in `.planning/milestones/v[X.Y]-ROADMAP.md` and `.planning/milestones/v[X.Y]-REQUIREMENTS.md`.
 
 ---
@@ -209,7 +245,6 @@ Living record of shipped versions. Each entry summarizes scope, accomplishments,
 
 - [`milestones/v1.0-ROADMAP.md`](milestones/v1.0-ROADMAP.md) — full phase + plan details
 - [`milestones/v1.0-REQUIREMENTS.md`](milestones/v1.0-REQUIREMENTS.md) — all 24 requirements traceability
-
 
 ---
 
