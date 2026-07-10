@@ -12,7 +12,11 @@ A Python reporting suite that connects to Tenable.io / Tenable Vulnerability Man
 
 ## Current State
 
-**In progress:** v1.6 Delivery Config at Scale — **Phase 20 complete (2026-07-09)**: resolve-before-validate config loader (`delivery/config_loader.py`), shared `contacts.yaml` + `defaults:` resolution, per-team `deliveries.d/` glob+merge with global delivery-name uniqueness, `--dry-run` error/warning surfacing, delivery-matrix generator (`scripts/generate_delivery_matrix.py`), and an effective-config golden test proving legacy and migrated twins resolve byte-identical (CONF-01/02/03/05, QUAL-06; 5/5 verified). `delivery_config.schema.yaml` and `scheduler.py` byte-unchanged. Phase 21 (private repo + CI + CODEOWNERS + cutover; CONF-04) remains.
+**All phases complete — v1.6 Delivery Config at Scale ready to close (2026-07-10):**
+- **Phase 20 (2026-07-09):** resolve-before-validate config loader (`delivery/config_loader.py`), shared `contacts.yaml` + `defaults:` resolution, per-team `deliveries.d/` glob+merge with global delivery-name uniqueness, `--dry-run` error/warning surfacing, delivery-matrix generator (`scripts/generate_delivery_matrix.py`), and an effective-config golden test proving legacy and migrated twins resolve byte-identical (CONF-01/02/03/05, QUAL-06; 5/5 verified).
+- **Phase 21 (2026-07-10):** D-04 automatic dual-source fallback loader + D-05 active-source surfacing (`run_all.py` `_select_config_source`/`_load_config`/`_dry_run` — directory-mode failure falls through to legacy instead of returning `[]`, logging the active source); private-repo CI gate, CODEOWNERS, and config-tree reference twins (`deploy/config-repo/*.example` — example.invalid/@ORG placeholders only, real config stays in the private corporate repo per Hard Rule 2); D-03 provenance stamp/verify script (`scripts/stamp_config_provenance.py`) and RUNBOOK reviewed-repo cutover runbook with the dual-source zero-interruption sequence (CONF-04, QUAL-07; 9/9 verified, operator cutover checkpoint approved).
+
+**7/7 v1.6 requirements satisfied (CONF-01..05, QUAL-06, QUAL-07).** Milestone ready to archive via `/gsd:complete-milestone`.
 
 **Shipped:** v1.4 Management Summary Reporting Improvement (2026-06-26) — see [`MILESTONES.md`](MILESTONES.md).
 
@@ -169,4 +173,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-09 — Phase 20 (config language + loader + matrix; CONF-01/02/03/05, QUAL-06) complete and verified 5/5. v1.6 Delivery Config at Scale milestone opened (Phases 20–21; CONF-01…05). `v1.5.0` released 2026-07-09 (release tag; consumed the v1.5 label). v1.4 phase dirs archived to `milestones/v1.4-phases/`.*
+*Last updated: 2026-07-10 — Phase 21 (private config repo + CI + CODEOWNERS + production cutover; CONF-04, QUAL-07) complete and verified 9/9, operator cutover checkpoint approved. v1.6 Delivery Config at Scale fully executed (Phases 20–21; 7/7 requirements CONF-01…05, QUAL-06/07) — ready to archive via `/gsd:complete-milestone`. `v1.5.0` released 2026-07-09 (release tag; consumed the v1.5 label). v1.4 phase dirs archived to `milestones/v1.4-phases/`.*
