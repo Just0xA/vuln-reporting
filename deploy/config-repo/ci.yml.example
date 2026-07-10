@@ -1,0 +1,127 @@
+# REFERENCE CI WORKFLOW — for the PRIVATE corporate config repo, NOT this public repo.
+#
+# See deploy/config-repo/README.md for full placement + operating instructions.
+#
+# Copy this file to `.github/workflows/ci.yml` at the root of the PRIVATE config
+# repo that holds `contacts.yaml` + `deliveries.d/<team>.yaml` (Phase 20 config
+# language). It gates every PR against that repo:
+#   1. Fetch a PINNED vuln-reporting slim release tarball + verify its .sha256
+#      sidecar (D-06) — never `latest`.
+#   2. Install requirements.txt from the extracted tarball.
+#   3. Place this PR's contacts.yaml + deliveries.d/ next to the extracted app
+#      so directory-mode discovery fires, then run schema validation +
+#      `run_all.py --dry-run` against the MERGED effective config (D-07).
+#   4. Publish the names+owner delivery matrix as a PR artifact for reviewers
+#      (Hard Rule 2 — no recipient addresses ever leave this gate).
+#
+# Hard Rule 1 (pre-auth): steps 5 exports PLACEHOLDER env only. No real
+# Tenable/SMTP credentials exist in this workflow or its secrets — `--dry-run`
+# performs no live API call, so the gate tests CONFIG correctness only.
+
+name: Config Repo CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # D-06: bump this whenever the vuln-reporting loader/schema changes.
+  # Never point this at "latest" — the pin is what makes the gate reproducible.
+  PINNED_VERSION: "v1.6.0"
+  # D-10 provisioning input — filled in when the private repo is created.
+  APP_REPO: "ORG/vuln-reporting"
+
+jobs:
+  validate-config:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout config repo
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch pinned slim release tarball + sha256 sidecar
+        run: |
+          set -euo pipefail
+          TARBALL="vuln-reporting-${PINNED_VERSION}-slim.tar.gz"
+          SIDECAR="${TARBALL}.sha256"
+          BASE_URL="https://github.com/${APP_REPO}/releases/download/${PINNED_VERSION}"
+
+          curl -fsSL -o "${TARBALL}" "${BASE_URL}/${TARBALL}"
+          curl -fsSL -o "${SIDECAR}" "${BASE_URL}/${SIDECAR}"
+
+      - name: Verify sha256 sidecar (T-21-05)
+        run: |
+          set -euo pipefail
+          TARBALL="vuln-reporting-${PINNED_VERSION}-slim.tar.gz"
+          SIDECAR="${TARBALL}.sha256"
+
+          if ! sha256sum -c "${SIDECAR}"; then
+            echo "FAIL: checksum mismatch — pinned tarball does not match its .sha256 sidecar" >&2
+            exit 1
+          fi
+
+      - name: Extract tarball + install requirements
+        run: |
+          set -euo pipefail
+          TARBALL="vuln-reporting-${PINNED_VERSION}-slim.tar.gz"
+          mkdir -p app
+          tar -xzf "${TARBALL}" -C app --strip-components=1
+          python -m pip install --upgrade pip
+          pip install -r app/requirements.txt
+
+      - name: Stage merged config for directory-mode discovery
+        run: |
+          set -euo pipefail
+          # run_all.py --dry-run reads delivery_config.yaml (and its deliveries.d/
+          # sibling) from the extracted app's root — copy this PR's config tree
+          # there so directory-mode discovery fires against the MERGED result.
+          cp contacts.yaml app/contacts.yaml
+          cp -r deliveries.d app/deliveries.d
+          # Placeholder legacy file so _load_config's directory-presence switch
+          # sees a config_path parent to resolve deliveries.d/ against; directory
+          # mode takes priority whenever deliveries.d/ is present (D-01, Phase 20).
+          touch app/delivery_config.yaml
+
+      - name: Export placeholder env (Hard Rule 1 — pre-auth gate, config only)
+        run: |
+          set -euo pipefail
+          {
+            echo "TVM_ACCESS_KEY=ci-placeholder"
+            echo "TVM_SECRET_KEY=ci-placeholder"
+            echo "SMTP_HOST=ci-placeholder.invalid"
+            echo "SMTP_USERNAME=ci-placeholder"
+            echo "SMTP_PASSWORD=ci-placeholder"
+            echo "SMTP_FROM_ADDRESS=ci@example.invalid"
+          } >> "$GITHUB_ENV"
+
+      - name: Schema validation + run_all.py --dry-run (D-07)
+        working-directory: app
+        run: |
+          set -euo pipefail
+          # Pre-auth (Hard Rule 1): the placeholder env above satisfies the
+          # _REQUIRED_ENV_VARS presence check so this gate fails on CONFIG
+          # errors (duplicate delivery names, undefined contact: refs, inline
+          # email: in directory mode, schema failures) — never on missing
+          # real credentials. No live Tenable/SMTP call is made.
+          python run_all.py --dry-run
+
+      - name: Generate delivery matrix (names+owner only, PII-safe)
+        working-directory: app
+        run: |
+          set -euo pipefail
+          python scripts/generate_delivery_matrix.py \
+            --format markdown \
+            --output ../delivery-matrix.md
+
+      - name: Upload delivery matrix as PR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: delivery-matrix
+          path: delivery-matrix.md
