@@ -435,6 +435,72 @@ deliveries:
 
 
 # ---------------------------------------------------------------------------
+# Task 2 (21-01) fixtures — _load_config D-04 dual-source fallback
+# ---------------------------------------------------------------------------
+
+def _task2_load_config_fallback_checks(tmp_root: Path) -> None:
+    # Broken deliveries.d/ (duplicate delivery name) + a valid legacy
+    # delivery_config.yaml sibling -> _load_config falls back and returns
+    # the LEGACY groups, not [].
+    fallback_dir = tmp_root / "load_config_legacy_fallback"
+    _write(fallback_dir / "contacts.yaml", _CONTACTS_YAML)
+    _write(
+        fallback_dir / "deliveries.d" / "team_a.yaml",
+        """
+owner: "Team A"
+deliveries:
+  - name: "Dup"
+    contact: exec_team
+    subject: "A"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+""",
+    )
+    _write(
+        fallback_dir / "deliveries.d" / "team_b.yaml",
+        """
+owner: "Team B"
+deliveries:
+  - name: "Dup"
+    contact: remediation_team
+    subject: "B"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+""",
+    )
+    _write(
+        fallback_dir / "delivery_config.yaml",
+        """
+groups:
+  - name: "Legacy Fallback Group"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+    email:
+      subject: "Legacy Fallback Report"
+      recipients:
+        - legacy-fallback@example.invalid
+""",
+    )
+    fallback_groups = _load_config(config_path=fallback_dir / "delivery_config.yaml")
+    _check(
+        "S_load_config_directory_failure_falls_back_to_legacy",
+        isinstance(fallback_groups, list)
+        and len(fallback_groups) == 1
+        and fallback_groups[0].get("name") == "Legacy Fallback Group",
+        hint=str(fallback_groups),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Task 1 (21-01) fixtures — _select_config_source
 # ---------------------------------------------------------------------------
 
@@ -620,6 +686,7 @@ def main() -> int:
         tmp_root = Path(tmp)
         _task2_checks(tmp_root)
         _task3_checks(tmp_root)
+        _task2_load_config_fallback_checks(tmp_root)
         _task_select_source_checks(tmp_root)
 
     if FAILED:

@@ -214,32 +214,57 @@ def _load_config(config_path: Optional[Path] = None) -> list[dict]:
     delivery) is discarded here — it is not part of this function's
     ``list[dict]`` contract; the matrix generator (Plan 03) consumes
     ``resolve_config`` directly.
+
+    Phase 21 (D-04): if directory-mode resolution or schema validation
+    fails, this falls THROUGH to the legacy single-file branch below
+    instead of returning ``[]``, provided a legacy ``delivery_config.yaml``
+    is present — the automatic dual-source fallback that keeps deliveries
+    flowing off the legacy file during the cutover window. "Which source
+    won" is decided once via ``_select_config_source`` so ``_load_config``
+    and ``_dry_run`` (D-05) always agree, and is logged exactly once here.
     """
     if config_path is None:
         config_path = ROOT_DIR / "delivery_config.yaml"
 
     if (config_path.parent / "deliveries.d").is_dir():
-        groups, load_errors, load_warnings, _metadata = resolve_config(config_path)
-        for warning in load_warnings:
-            logger.warning("delivery config: %s", warning)
-        if load_errors:
+        source = _select_config_source(config_path)
+
+        if source == "directory":
+            groups, load_errors, load_warnings, _metadata = resolve_config(config_path)
+            for warning in load_warnings:
+                logger.warning("delivery config: %s", warning)
+            # load_errors/schema gate already verified clean by
+            # _select_config_source; re-run here only to obtain groups.
+            logger.debug(
+                "delivery config: active source=directory (%d delivery(ies) "
+                "from deliveries.d/)", len(groups),
+            )
+            return groups
+
+        if source == "legacy-fallback":
+            logger.warning(
+                "delivery config: directory-mode config failed to resolve "
+                "or validate; falling back to legacy single file %s",
+                config_path,
+            )
+            # Fall through to the legacy single-file branch below.
+        else:  # source == "none" — directory-mode failed, no legacy file.
+            groups, load_errors, load_warnings, _metadata = resolve_config(config_path)
+            for warning in load_warnings:
+                logger.warning("delivery config: %s", warning)
             for err in load_errors:
                 logger.error("delivery config: %s", err)
+            if not load_errors:
+                # Resolution succeeded but schema validation failed.
+                try:
+                    schema = _load_schema()
+                    schema_errors = _validate_with_schema({"groups": groups}, schema)
+                except (FileNotFoundError, yaml.YAMLError) as exc:
+                    logger.error("delivery_config.schema.yaml load failed: %s", exc)
+                else:
+                    for err in schema_errors:
+                        logger.error("config validation: %s", err)
             return []
-
-        try:
-            schema = _load_schema()
-        except (FileNotFoundError, yaml.YAMLError) as exc:
-            logger.error("delivery_config.schema.yaml load failed: %s", exc)
-            return []
-        schema_errors = _validate_with_schema({"groups": groups}, schema)
-        if schema_errors:
-            for err in schema_errors:
-                logger.error("config validation: %s", err)
-            return []
-
-        logger.debug("Loaded %d delivery(ies) from deliveries.d/", len(groups))
-        return groups
 
     if not config_path.exists():
         logger.error("delivery_config.yaml not found at %s", config_path)
@@ -274,7 +299,10 @@ def _load_config(config_path: Optional[Path] = None) -> list[dict]:
         logger.error("delivery_config.yaml: 'groups' key must be a list")
         return []
 
-    logger.debug("Loaded %d group(s) from delivery_config.yaml", len(groups))
+    logger.debug(
+        "delivery config: active source=legacy (%d group(s) from %s)",
+        len(groups), config_path,
+    )
     return groups
 
 
@@ -525,6 +553,22 @@ def _dry_run(groups: list[dict]) -> int:
             console.print("\n[bold red]Config errors:[/bold red]")
             for e in errors:
                 console.print(f"  [red]x {e}[/red]")
+
+    # D-05: echo which source _load_config() will actually select, using the
+    # SAME decision _load_config() itself uses (_select_config_source), so
+    # operators can confirm the repo-sourced path delivered cleanly across a
+    # full dual-source cycle before the legacy file is retired.
+    _SOURCE_LABELS = {
+        "directory":       "directory-mode",
+        "legacy-fallback": "legacy-fallback",
+        "legacy":          "legacy single file",
+        "none":            "none (no valid config)",
+    }
+    active_source = _select_config_source(config_path)
+    console.print(
+        f"\n[bold cyan]Active config source:[/bold cyan] "
+        f"{_SOURCE_LABELS[active_source]}"
+    )
 
     tbl = Table(
         title="Delivery Config — Dry Run Validation",
