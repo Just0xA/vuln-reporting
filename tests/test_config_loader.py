@@ -31,7 +31,12 @@ from delivery.config_loader import (  # noqa: E402
     resolve_contacts,
     resolve_delivery_email,
 )
-from run_all import _load_config, _load_schema, _validate_with_schema  # noqa: E402
+from run_all import (  # noqa: E402
+    _load_config,
+    _load_schema,
+    _select_config_source,
+    _validate_with_schema,
+)
 
 FAILED: list[str] = []
 
@@ -429,6 +434,184 @@ deliveries:
     )
 
 
+# ---------------------------------------------------------------------------
+# Task 1 (21-01) fixtures — _select_config_source
+# ---------------------------------------------------------------------------
+
+def _task_select_source_checks(tmp_root: Path) -> None:
+    # Row 1 — deliveries.d/ present, resolves clean, passes schema -> "directory".
+    clean_dir = tmp_root / "select_source_directory_ok"
+    config_path = _make_well_formed_twin(clean_dir)
+    _check(
+        "N_select_source_directory_ok",
+        _select_config_source(config_path) == "directory",
+        hint=_select_config_source(config_path),
+    )
+
+    # Row 2 — deliveries.d/ present with a load_error (duplicate name) AND a
+    # legacy delivery_config.yaml sibling present -> "legacy-fallback".
+    fallback_dir = tmp_root / "select_source_legacy_fallback"
+    _write(fallback_dir / "contacts.yaml", _CONTACTS_YAML)
+    _write(
+        fallback_dir / "deliveries.d" / "team_a.yaml",
+        """
+owner: "Team A"
+deliveries:
+  - name: "Dup"
+    contact: exec_team
+    subject: "A"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+""",
+    )
+    _write(
+        fallback_dir / "deliveries.d" / "team_b.yaml",
+        """
+owner: "Team B"
+deliveries:
+  - name: "Dup"
+    contact: remediation_team
+    subject: "B"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+""",
+    )
+    _write(
+        fallback_dir / "delivery_config.yaml",
+        """
+groups:
+  - name: "Legacy Group"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+    email:
+      recipients:
+        - legacy@example.invalid
+""",
+    )
+    fallback_config_path = fallback_dir / "delivery_config.yaml"
+    _check(
+        "O_select_source_resolution_failure_legacy_fallback",
+        _select_config_source(fallback_config_path) == "legacy-fallback",
+        hint=_select_config_source(fallback_config_path),
+    )
+
+    # Row 3 — deliveries.d/ present, resolves clean but FAILS the schema
+    # gate (missing required 'reports' key) AND a legacy file exists ->
+    # "legacy-fallback".
+    schema_fail_dir = tmp_root / "select_source_schema_fail_fallback"
+    _write(schema_fail_dir / "contacts.yaml", _CONTACTS_YAML)
+    _write(
+        schema_fail_dir / "deliveries.d" / "team.yaml",
+        """
+owner: "Team Schema Fail"
+deliveries:
+  - name: "No Reports Delivery"
+    contact: exec_team
+    subject: "x"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports: []
+""",
+    )
+    _write(
+        schema_fail_dir / "delivery_config.yaml",
+        """
+groups:
+  - name: "Legacy Group"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+    email:
+      recipients:
+        - legacy@example.invalid
+""",
+    )
+    schema_fail_config_path = schema_fail_dir / "delivery_config.yaml"
+    _check(
+        "P_select_source_schema_failure_legacy_fallback",
+        _select_config_source(schema_fail_config_path) == "legacy-fallback",
+        hint=_select_config_source(schema_fail_config_path),
+    )
+
+    # Row 4 — deliveries.d/ present, resolution fails, AND legacy file
+    # absent -> "none" (terminal dual-source-retired state).
+    none_dir = tmp_root / "select_source_none"
+    _write(none_dir / "contacts.yaml", _CONTACTS_YAML)
+    _write(
+        none_dir / "deliveries.d" / "team_a.yaml",
+        """
+owner: "Team A"
+deliveries:
+  - name: "Dup"
+    contact: exec_team
+    subject: "A"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+""",
+    )
+    _write(
+        none_dir / "deliveries.d" / "team_b.yaml",
+        """
+owner: "Team B"
+deliveries:
+  - name: "Dup"
+    contact: remediation_team
+    subject: "B"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+""",
+    )
+    none_config_path = none_dir / "delivery_config.yaml"
+    _check(
+        "Q_select_source_no_fallback_available_none",
+        _select_config_source(none_config_path) == "none",
+        hint=_select_config_source(none_config_path),
+    )
+
+    # Row 5 — no deliveries.d/ at all; legacy delivery_config.yaml present
+    # -> "legacy".
+    legacy_only_dir = tmp_root / "select_source_legacy_only"
+    _write(
+        legacy_only_dir / "delivery_config.yaml",
+        """
+groups:
+  - name: "Legacy Only Group"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+    email:
+      recipients:
+        - legacy@example.invalid
+""",
+    )
+    legacy_only_config_path = legacy_only_dir / "delivery_config.yaml"
+    _check(
+        "R_select_source_no_deliveries_d_legacy",
+        _select_config_source(legacy_only_config_path) == "legacy",
+        hint=_select_config_source(legacy_only_config_path),
+    )
+
+
 def main() -> int:
     import tempfile
 
@@ -437,6 +620,7 @@ def main() -> int:
         tmp_root = Path(tmp)
         _task2_checks(tmp_root)
         _task3_checks(tmp_root)
+        _task_select_source_checks(tmp_root)
 
     if FAILED:
         print(f"\n{len(FAILED)} check(s) failed: {FAILED}")

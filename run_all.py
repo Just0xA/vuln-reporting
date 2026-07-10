@@ -154,6 +154,48 @@ _SCHEMA_PATH: Path = ROOT_DIR / "delivery_config.schema.yaml"
 # Config loading
 # ===========================================================================
 
+def _select_config_source(config_path: Path) -> str:
+    """
+    Decide which config source is authoritative for *config_path* (D-04/D-05).
+
+    Pure/side-effect-free (no logging, no I/O beyond the read-only checks
+    already required to make the decision) so both ``_load_config`` and
+    ``_dry_run`` can call it and always agree on "which source won" — the
+    scheduler daemon hot-reloads config every cycle, so this must stay
+    idempotent.
+
+    Returns one of:
+      - ``"directory"``       — deliveries.d/ present, resolves cleanly,
+                                 and the resolved config passes the schema
+                                 gate.
+      - ``"legacy-fallback"`` — deliveries.d/ present but resolution or
+                                 schema validation failed, AND a legacy
+                                 delivery_config.yaml exists to fall back to.
+      - ``"legacy"``          — no deliveries.d/ present; legacy
+                                 delivery_config.yaml is the only source.
+      - ``"none"``            — deliveries.d/ present and failed, and no
+                                 legacy file exists either (terminal
+                                 dual-source-retired state).
+    """
+    if (config_path.parent / "deliveries.d").is_dir():
+        groups, load_errors, _load_warnings, _metadata = resolve_config(config_path)
+        directory_ok = not load_errors
+        if directory_ok:
+            try:
+                schema = _load_schema()
+            except (FileNotFoundError, yaml.YAMLError):
+                directory_ok = False
+            else:
+                if _validate_with_schema({"groups": groups}, schema):
+                    directory_ok = False
+
+        if directory_ok:
+            return "directory"
+        return "legacy-fallback" if config_path.exists() else "none"
+
+    return "legacy"
+
+
 def _load_config(config_path: Optional[Path] = None) -> list[dict]:
     """
     Load and return the groups list from delivery_config.yaml.
