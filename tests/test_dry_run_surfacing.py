@@ -270,6 +270,89 @@ groups:
     )
 
 
+def _active_source_directory_case(tmp_root: Path) -> None:
+    """Well-formed directory-mode config -> 'Active config source: directory-mode'."""
+    base = _make_base(tmp_root, "active_source_directory")
+    _write(
+        base / "deliveries.d" / "team.yaml",
+        """
+owner: "Team OK"
+deliveries:
+  - name: "OK Delivery"
+    contact: exec_team
+    subject: "x"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+""",
+    )
+    _code, out = _run_dry_run_against(base)
+    _check(
+        "active_source_directory_line",
+        "Active config source: directory-mode" in out,
+        hint=f"out={out!r}",
+    )
+
+
+def _active_source_legacy_fallback_case(tmp_root: Path) -> None:
+    """Broken deliveries.d/ + valid legacy sibling -> 'Active config source: legacy-fallback'."""
+    base = _make_base(tmp_root, "active_source_legacy_fallback")
+    _write(
+        base / "deliveries.d" / "team_a.yaml",
+        """
+owner: "Team A"
+deliveries:
+  - name: "Dup"
+    contact: exec_team
+    subject: "A"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+""",
+    )
+    _write(
+        base / "deliveries.d" / "team_b.yaml",
+        """
+owner: "Team B"
+deliveries:
+  - name: "Dup"
+    contact: remediation_team
+    subject: "B"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+""",
+    )
+    _write(
+        base / "delivery_config.yaml",
+        """
+groups:
+  - name: "Legacy Fallback Group"
+    schedule:
+      frequency: on_demand
+    filters: {}
+    reports:
+      - executive_kpi
+    email:
+      subject: "Legacy Fallback Report"
+      recipients:
+        - legacy-fallback@example.invalid
+""",
+    )
+    _code, out = _run_dry_run_against(base)
+    _check(
+        "active_source_legacy_fallback_line",
+        "Active config source: legacy-fallback" in out,
+        hint=f"out={out!r}",
+    )
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
@@ -277,6 +360,8 @@ def main() -> int:
         _undefined_ref_case(tmp_root)
         _inline_email_case(tmp_root)
         _deprecated_alias_case(tmp_root)
+        _active_source_directory_case(tmp_root)
+        _active_source_legacy_fallback_case(tmp_root)
 
     if FAILED:
         print(f"\n{len(FAILED)} check(s) failed: {FAILED}")
