@@ -12,6 +12,11 @@ data/cache/
 data/trend/
 *.parquet
 delivery_config.yaml
+# Real directory-mode delivery config — never commit (Hard Rule 2 / CONF-04).
+# Root-anchored (leading /) so the committed synthetic twins under
+# tests/fixtures/ stay tracked; local example files here are for dev only.
+/contacts.yaml
+/deliveries.d/
 # Exception: committed synthetic legacy-fixture twin for the Phase 20
 # effective-config golden test (QUAL-06) — example.invalid only, no real config.
 !tests/fixtures/phase20_config_legacy/delivery_config.yaml
