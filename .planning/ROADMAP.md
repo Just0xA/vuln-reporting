@@ -73,7 +73,7 @@ Full detail: [`milestones/v1.4-ROADMAP.md`](milestones/v1.4-ROADMAP.md)
 **Goal:** Stop `delivery_config.yaml` from degrading as a shared cross-team surface. Separate the "who" (recipients) from the "what/when" (deliveries), split deliveries into per-team files with clear ownership, put the config under real version control with review, and make "who gets what, when" answerable without reading YAML.
 
 - [x] Phase 20: Config Language + Loader + Matrix — contacts.yaml + defaults resolution + deliveries.d/ split + delivery matrix generator + effective-config golden test (CONF-01, CONF-02, CONF-03, CONF-05, QUAL-06) (completed 2026-07-09)
-- [ ] Phase 21: Private Config Repo + CI + CODEOWNERS + Production Cutover — CODEOWNERS-gated private repo, CI schema+dry-run gate, dual-source fallback cutover (CONF-04, QUAL-07)
+- [x] Phase 21: Private Config Repo + CI + CODEOWNERS + Production Cutover — CODEOWNERS-gated private repo, CI schema+dry-run gate, dual-source fallback cutover (CONF-04, QUAL-07) (completed 2026-07-10)
 
 Full requirement text + design decisions: [`REQUIREMENTS.md`](REQUIREMENTS.md). Forward roadmap context: [`roadmap-v1.6-v2.0.md`](roadmap-v1.6-v2.0.md).
 
@@ -112,7 +112,7 @@ Full phase detail for the current (v1.6) milestone. Prior milestones' phase deta
 - [x] 21-01-PLAN.md — Dual-source fallback loader (D-04) + active-source surfacing (D-05) in run_all.py
 - [x] 21-02-PLAN.md — Private-repo CI gate reference (pinned tarball + config-only --dry-run + matrix artifact) (D-06/D-07)
 - [x] 21-03-PLAN.md — CODEOWNERS + config-tree reference twins (VM-team central stewardship) (D-08/D-09/D-10)
-- [ ] 21-04-PLAN.md — Config provenance (D-03) + RUNBOOK reviewed-repo cutover runbook (QUAL-07 SC4)
+- [x] 21-04-PLAN.md — Config provenance (D-03) + RUNBOOK reviewed-repo cutover runbook (QUAL-07 SC4)
 
 ## Progress
 
@@ -138,7 +138,7 @@ Full phase detail for the current (v1.6) milestone. Prior milestones' phase deta
 | 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
 | 19. v1.4 Closure | v1.4 | 11/11 | Complete    | 2026-06-26 |
 | 20. Config Language + Loader + Matrix | v1.6 | 4/4 | Complete    | 2026-07-09 |
-| 21. Private Config Repo + CI + Cutover | v1.6 | 3/4 | In Progress|  |
+| 21. Private Config Repo + CI + Cutover | v1.6 | 4/4 | Complete    | 2026-07-10 |
 
 ## Backlog
 
