@@ -91,3 +91,13 @@ None - no external service configuration required from this plan. Concrete `PINN
 ---
 *Phase: 21-private-config-repo-ci-codeowners-production-cutover*
 *Completed: 2026-07-10*
+
+## Self-Check: PASSED
+
+- `deploy/config-repo/ci.yml.example` — FOUND
+- `deploy/config-repo/README.md` — FOUND
+- `.planning/phases/21-private-config-repo-ci-codeowners-production-cutover/21-02-SUMMARY.md` — FOUND
+- Commit `64a74b7` (Task 1) — FOUND in `git log --oneline --all`
+- Commit `e2c8bc4` (Task 2) — FOUND in `git log --oneline --all`
+- Commit `d716993` (SUMMARY) — FOUND in `git log --oneline --all`
+- `git status --short` — clean, no untracked or uncommitted changes
