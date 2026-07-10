@@ -1,0 +1,37 @@
+# contacts.example.yaml
+#
+# TEMPLATE — this is a REFERENCE for the PRIVATE config repo, not the
+# committed repo template (see contacts.example.yaml at the app repo root
+# for that). It documents the exact config-tree shape the private repo
+# holds, using synthetic example.invalid identifiers only (Hard Rule 2 /
+# D-02); real recipient addresses live ONLY in the private repo.
+#
+# This is the SHARED who — contacts + defaults live ONLY here, never
+# duplicated in deliveries.d/ files (the Nothing Defined Twice guardrail).
+# deliveries.d/<team>.yaml files reference a contact by name via
+# `contact: <key>`; they never define recipients/cc/reply_to inline.
+
+contacts:
+  # Referenced from a deliveries.d/*.yaml file via `contact: exec_team`.
+  # Overrides reply_to explicitly rather than falling back to
+  # defaults.analyst_mailbox.
+  exec_team:
+    recipients:
+      - ciso@example.invalid
+      - vp-it@example.invalid
+    cc:
+      - security-team@example.invalid
+    reply_to: security@example.invalid
+
+  # Referenced via `contact: remediation_team`. No reply_to override — the
+  # resolved reply_to falls back to defaults.analyst_mailbox below.
+  remediation_team:
+    recipients:
+      - remediation@example.invalid
+
+# One universal knob: analyst_mailbox is the default Reply-To (when a
+# contact doesn't override it) AND a standing Cc on every resolved
+# delivery, so analysts keep a record and any reply reaches them. No
+# opt-out.
+defaults:
+  analyst_mailbox: analyst-team@example.invalid
