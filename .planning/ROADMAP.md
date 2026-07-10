@@ -109,7 +109,7 @@ Full phase detail for the current (v1.6) milestone. Prior milestones' phase deta
   3. Production reads its delivery configuration from the reviewed repo (pull or published artifact) instead of an untracked hand-edited file over SSH.
   4. Every delivery that was live in `delivery_config.yaml` before the cutover continues to deliver, unchanged, through one full dual-source fallback cycle (old hand-edited path and new repo-sourced path both function) before the legacy hand-edited path is retired.
 **Plans**: 4 plans
-- [ ] 21-01-PLAN.md — Dual-source fallback loader (D-04) + active-source surfacing (D-05) in run_all.py
+- [x] 21-01-PLAN.md — Dual-source fallback loader (D-04) + active-source surfacing (D-05) in run_all.py
 - [ ] 21-02-PLAN.md — Private-repo CI gate reference (pinned tarball + config-only --dry-run + matrix artifact) (D-06/D-07)
 - [ ] 21-03-PLAN.md — CODEOWNERS + config-tree reference twins (VM-team central stewardship) (D-08/D-09/D-10)
 - [ ] 21-04-PLAN.md — Config provenance (D-03) + RUNBOOK reviewed-repo cutover runbook (QUAL-07 SC4)
@@ -138,7 +138,7 @@ Full phase detail for the current (v1.6) milestone. Prior milestones' phase deta
 | 18. management_summary Migration + Docs | v1.4 | 5/5 | Complete    | 2026-06-21 |
 | 19. v1.4 Closure | v1.4 | 11/11 | Complete    | 2026-06-26 |
 | 20. Config Language + Loader + Matrix | v1.6 | 4/4 | Complete    | 2026-07-09 |
-| 21. Private Config Repo + CI + Cutover | v1.6 | 0/4 | Not started | - |
+| 21. Private Config Repo + CI + Cutover | v1.6 | 1/4 | In Progress|  |
 
 ## Backlog
 
