@@ -143,9 +143,51 @@ The June-2026 management/exec trend-cut report batch as seven thin four-channel 
 
 ---
 
+## Milestone: v1.6 — Delivery Config at Scale
+
+**Shipped:** 2026-07-10
+**Phases:** 2 (20–21) | **Plans:** 8 | **Quick tasks:** 0 (in-milestone)
+**Timeline:** ~2 days (opened 2026-07-09 → closed 2026-07-10) | **Commits:** 60
+
+### What Was Built
+
+A config-language layer that stops `delivery_config.yaml` degrading as a shared cross-team surface. Phase 20 built the resolve-before-validate loader (`delivery/config_loader.py`): shared `contacts.yaml` named contact groups + a `defaults:` block (analyst mailbox as universal Reply-To + standing Cc) resolve into today's group shape *before* the unchanged schema validates, plus per-team `deliveries.d/` glob-and-merge with global delivery-name uniqueness, a delivery-matrix generator (`scripts/generate_delivery_matrix.py`), and a two-way effective-config golden proving legacy and migrated twins resolve byte-identical (QUAL-06). Phase 21 delivered the governance + cutover: automatic dual-source fallback loader with active-source surfacing (D-04/D-05), a private-repo CI gate + CODEOWNERS reference twins under `deploy/config-repo/*.example` (synthetic identifiers only), and a D-03 provenance stamp/verify CLI with a RUNBOOK reviewed-repo cutover runbook — operator-approved on staging.
+
+### What Worked
+
+- **Resolve-before-validate made backward compatibility fall out for free.** By resolving the new source language down to today's group shape *before* the existing `delivery_config.schema.yaml` runs, the old validator stayed the single gate and no migrated file could resolve to anything the schema hadn't already blessed. The QUAL-06 two-way golden (legacy == migrated == same effective config) turned that into a reversibility proof for the cutover.
+- **Reference-twins-in-the-public-repo shipped governance without the payload.** CODEOWNERS, CI, and the config-tree shape all shipped as `*.example` / README twins using `example.invalid` / `@ORG` placeholders — the private-repo structure is reviewable in the app repo while real recipient config stays out of it (Hard Rule 2), with zero PII exposure.
+- **Dual-source fallback gave a zero-interruption cutover with a human checkpoint.** A directory-mode failure falls through to the legacy hand-edited path instead of returning `[]`, logging which source is live — so production could run both paths through one full cycle before retiring the old one, gated by an operator sign-off.
+
+### What Was Inefficient
+
+- **A milestone audit ran before the last phase executed.** The 2026-07-09 audit flagged CONF-04/QUAL-07 as "NOT BUILT" — because it predated Phase 21's execution. It had to be re-run on 2026-07-10 (passing 7/7) to supersede the stale `gaps_found` result. Auditing a milestone whose final phase hasn't landed produces a false negative that reads as a real gap.
+- **Machine-extracted accomplishments are only as good as the SUMMARY one-liner.** `milestone.complete` auto-pulled "Task 1 — `_select_config_source` helper." as a headline accomplishment from a malformed 21-01 summary line; it needed hand-rewriting into a real accomplishment at close.
+- **Hardening was deferred rather than closed in-milestone.** Matrix-generator cell escaping (WR-01/02), the directory-mode silent inline-`email` drop (WR-03), and the `--config`/fallback ergonomics gaps (WR-04 / MATRIX-FALLBACK-01) all shipped as accepted tech debt.
+
+### Patterns Established
+
+- **Resolve-before-validate for config-language evolution.** When adding a new user-facing config surface over an existing validated shape, resolve the new language *into* the old shape first and let the existing validator stay the single gate — then prove reversibility with a two-way golden (old form == new form == same effective config, both passing the unchanged schema).
+- **Reference-template-in-public-repo for a private-repo artifact.** Ship governance structure (CODEOWNERS, CI workflow, config-tree layout) as `*.example` / README twins with synthetic identifiers, so the shape is reviewable and testable without the sensitive payload ever entering the public repo.
+- **Dual-source fallback + active-source echo for zero-interruption config cutover.** Fall through to the legacy source on new-source failure, log the live source, and run both through one full cycle behind an operator checkpoint before retiring the old path.
+
+### Key Lessons
+
+1. **Don't audit a milestone before its final phase executes.** The stale 2026-07-09 audit reported built work as missing. Sequence the audit after the last phase lands, or expect to re-run it.
+2. **A green auto-extracted milestone entry still needs a human read.** `milestone.complete` will faithfully surface a junk accomplishment from a junk SUMMARY line — the extraction can't outrank its source.
+3. **Backward compatibility is cheapest when the old gate never moves.** Resolving new syntax into the already-validated shape beat teaching the validator new tricks — one gate, one golden, no drift.
+
+### Cost Observations
+
+- **Model mix:** yolo mode, `balanced` profile (Opus orchestration / Sonnet execution per GSD defaults).
+- **Sessions:** Phases 20–21 executed 2026-07-09 → 2026-07-10; audit re-run + milestone close 2026-07-10.
+- **Notable:** a tight 2-day, 2-phase milestone — the resolve-before-validate + two-way-golden approach kept the cutover low-risk enough to close same-week as execution.
+
+---
+
 ## Cross-Milestone Trends
 
-(This section accumulates patterns across multiple milestones. v1.1 and v1.2 retrospectives were not captured at their close; entries exist for v1.0, v1.3, and v1.4.)
+(This section accumulates patterns across multiple milestones. v1.1 and v1.2 retrospectives were not captured at their close; entries exist for v1.0, v1.3, v1.4, and v1.6.)
 
 ### Velocity
 
@@ -154,6 +196,7 @@ The June-2026 management/exec trend-cut report batch as seven thin four-channel 
 | v1.0 | 4 | 19 | 1 | 4 | 140 |
 | v1.3 | 2 | 8 | 1 | 3 | 63 |
 | v1.4 | 6 | 35 | 1 | 15 | ~164 |
+| v1.6 | 2 | 8 | 0 | 2 | 60 |
 
 ### UAT Issues Found Per Milestone
 
@@ -162,11 +205,13 @@ The June-2026 management/exec trend-cut report batch as seven thin four-channel 
 | v1.0 | 1 (Phase 03 — pd.NA chokepoint) | 1 (Phase 03 — RAG strip layout) | 0 |
 | v1.3 | 0 | 1 (Phase 13 verify gap — CR-01 duplicate-`asset_uuid`, closed via 13-05) | 0 |
 | v1.4 | 0 | 1 (Phase 17 PDF/email layout gaps — closed via 19-10/19-11) + REAUDIT-WARN-1 (post-close, inline-compute fix) | 0 |
+| v1.6 | 0 | 0 (operator cutover checkpoint approved on staging; stale 2026-07-09 audit re-run to passing) | 0 |
 
 ### Recurring Failure Modes (carry-forward watchlist)
 
 - **WeasyPrint flex layout** — phantom-space consumption beyond cell+gap math. v1 fixed cover; if v2 adds modules, re-test with multi-row wrap.
 - **pandas Copy-on-Write dtype shifts** — `.loc[:, col]=` vs `df[col]=` semantics differ post-3.0. v2 module migrations should use `.assign()` for any int-dtype-critical column.
 - **Key-presence tests that pass over `None` values** — v1.4's INT-WARN-1 guard asserted kwargs were forwarded but not that they were non-null; 2 fields stayed `None` for a week behind a green test. For any "field is now populated" fix, assert the value with realistic data, not just key/shape presence.
-- **`audit-open` quick-task false positives** — fires at every milestone close. Root cause (corrected at v1.4): filename mismatch (detector reads `<dir>/SUMMARY.md`; gsd-quick writes `<dir>/<id>-SUMMARY.md`), NOT a missing `status:` field. Acknowledge & proceed; drop an unprefixed `SUMMARY.md` copy to silence per task.
+- **`audit-open` quick-task false positives** — fires at every milestone close (18 at v1.6). Root cause (corrected at v1.4): filename mismatch (detector reads `<dir>/SUMMARY.md`; gsd-quick writes `<dir>/<id>-SUMMARY.md`), NOT a missing `status:` field. Acknowledge & proceed; drop an unprefixed `SUMMARY.md` copy to silence per task.
+- **Milestone audit run before the final phase executes** — v1.6's first audit (2026-07-09) flagged CONF-04/QUAL-07 as "NOT BUILT" because it predated Phase 21; it read as a real gap and had to be re-run to passing after the phase landed. Sequence `/gsd:audit-milestone` after the last phase completes, or expect a stale false-negative re-run.
 - **Synthetic regression fixtures don't catch real-data nulls** — Plan 03-07's BLOCKER (StringDtype `pd.NA`, `Int64` `pd.NA`, `datetime64[ns, UTC]` `pd.NaT`) only reproduced against live Tenable. Fixture pattern: include `pd.NA` in StringDtype, `pd.NaT` in datetime, `pd.NA` in Int64 columns by default for any new test fixture.
