@@ -13,10 +13,11 @@
 
 1. [Installation & Upgrades](#installation--upgrades)
 2. [Day-to-Day Operations](#day-to-day-operations)
-3. [Scheduler Management](#scheduler-management)
-4. [Operational Cron Schedule](#operational-cron-schedule)
-5. [Troubleshooting (Runtime)](#troubleshooting-runtime)
-6. [File Reference](#file-reference)
+3. [Delivery Config — Reviewed-Repo Cutover](#delivery-config--reviewed-repo-cutover)
+4. [Scheduler Management](#scheduler-management)
+5. [Operational Cron Schedule](#operational-cron-schedule)
+6. [Troubleshooting (Runtime)](#troubleshooting-runtime)
+7. [File Reference](#file-reference)
 
 ---
 
@@ -36,6 +37,19 @@ default.
 
 ## Day-to-Day Operations
 
+> **Delivery config edits no longer happen on the server.** As of the
+> reviewed-repo cutover (see [Delivery Config — Reviewed-Repo
+> Cutover](#delivery-config--reviewed-repo-cutover) below), the documented
+> path for adding recipients, groups, or schedule changes is: edit in the
+> private corporate config repo → PR → CODEOWNERS review → CI gate → merge
+> → manual copy of the merged commit to the server → provenance stamp. The
+> sections immediately below (recipient/group/schedule how-tos) describe the
+> **legacy single-file** editing mechanics — still accurate for the
+> mechanics of *what* to change, but the *where you edit it* has moved to
+> the private repo. They remain here as reference for reading/understanding
+> `delivery_config.yaml` shape, and for the pre-cutover legacy file during
+> the dual-source window.
+
 All day-to-day configuration changes are made in one file:
 
 ```
@@ -52,9 +66,17 @@ sudo -u vuln-reports .venv/bin/python run_all.py --dry-run
 The daemon picks up changes to `delivery_config.yaml` within 5 minutes — no
 restart needed. Changes to `config.py` (SLA values) require a service restart.
 
+**Server-side hand-edits over SSH are no longer the documented path** —
+see [Delivery Config — Reviewed-Repo Cutover](#delivery-config--reviewed-repo-cutover).
+
 ---
 
 ### How to add a recipient to an existing group
+
+> **Legacy single-file mechanics.** Post-cutover, do this edit in the
+> private repo's `contacts.yaml` (recipients are keyed by named contact,
+> not per-group) and go through PR → CODEOWNERS → CI → merge → copy, per
+> the cutover section below — do not hand-edit the server copy.
 
 1. Open the delivery configuration:
 
@@ -278,6 +300,140 @@ sudo -u vuln-reports .venv/bin/python delivery/delivery_log.py --failures
 
 This lists every delivery attempt that resulted in `failed` or `partial`
 status, with the error message included.
+
+---
+
+## Delivery Config — Reviewed-Repo Cutover
+
+**CONF-04 SC3 / QUAL-07 SC4.** This section replaces server-side SSH
+hand-edits of delivery config with a reviewed-repo flow: real recipient
+addresses, groups, and schedules are edited in a **private corporate config
+repository**, never on the server. The transport stays "like current" — a
+manual copy of the merged, reviewed commit onto the server — the server
+gains no outbound git or artifact-fetch machinery (D-01). What changes is
+provenance and review, not transport.
+
+### The documented edit path
+
+1. **Edit in the private corporate repo.** Change `contacts.yaml` and/or a
+   `deliveries.d/<team>.yaml` file (never `shared/delivery_config.yaml` on
+   the server — that file is legacy-only, see below).
+2. **Open a PR** against the private repo.
+3. **CODEOWNERS review.** Every config file maps 1:1 to a
+   `deliveries.d/<team>.yaml` owner entry; today all entries — including
+   the default rule covering `contacts.yaml`/`defaults`/the schema copy —
+   resolve to the Vulnerability Management team (central stewardship). See
+   `deploy/config-repo/CODEOWNERS.example` for the reference mapping.
+4. **CI gate passes.** The private repo's CI (`deploy/config-repo/ci.yml.example`
+   is the reference workflow) fetches a pinned `vuln-reporting` slim
+   release, runs schema validation + `run_all.py --dry-run` (pre-auth,
+   Hard Rule 1) against the merged effective config, and publishes the
+   delivery matrix (names + owner only, never addresses) as a PR artifact.
+   A non-zero `--dry-run` exit blocks the merge.
+5. **Merge.** The PR lands on the private repo's default branch.
+6. **Manually copy the merged commit's config to the server** —
+   `contacts.yaml` + `deliveries.d/` → `/opt/vuln-reporting/shared/config/`
+   on the server (same manual SCP/SSH transport as today; the server does
+   not pull).
+7. **Stamp provenance:**
+
+   ```bash
+   cd /opt/vuln-reporting/current
+   sudo -u vuln-reports .venv/bin/python scripts/stamp_config_provenance.py \
+     stamp --config-dir /opt/vuln-reporting/shared/config --commit <merge-sha>
+   ```
+
+   This writes `shared/config/.config-provenance.json`, recording the
+   merge commit SHA, a UTC timestamp, and a sha256 of the copied config
+   tree — the D-03 invariant that live config traces to a reviewed commit.
+   Periodically re-run with `verify` (drop `--commit`) to confirm no
+   untracked drift has occurred:
+
+   ```bash
+   sudo -u vuln-reports .venv/bin/python scripts/stamp_config_provenance.py \
+     verify --config-dir /opt/vuln-reporting/shared/config
+   ```
+
+   `verify` exits 0 when the live config matches its recorded provenance,
+   and non-zero (with a logged reason) on drift or a missing sidecar.
+
+Server-side hand-edits (`sudo -u vuln-reports nano
+.../delivery_config.yaml`) are **no longer the documented path**. The
+legacy how-to sections above remain for reading `delivery_config.yaml`
+shape and for operating the legacy file during the dual-source window
+only.
+
+### Cutover procedure (zero delivery interruption — QUAL-07 SC4)
+
+Perform this sequence once, when first cutting a delivery group over from
+the legacy file to the reviewed-repo path. **Do not retire the legacy file
+until step 4 confirms one full clean cycle.**
+
+1. **Place directory-mode config alongside the still-present legacy file.**
+   Copy the reviewed commit's `contacts.yaml` + `deliveries.d/` into
+   `shared/config/` per the edit path above, and stamp provenance. Leave
+   `shared/delivery_config.yaml` in place — both sources now coexist.
+2. **Confirm directory-mode is active:**
+
+   ```bash
+   cd /opt/vuln-reporting/current
+   sudo -u vuln-reports .venv/bin/python run_all.py --dry-run
+   ```
+
+   The active-source echo (D-05) must report the directory-mode source,
+   and every delivery must validate OK. If it instead reports
+   legacy-fallback, the directory-mode config failed to resolve — fix it
+   in the private repo and repeat the copy (do not hand-edit the server
+   copy).
+3. **Let ONE full delivery cycle run repo-sourced.** Wait for every
+   delivery in the group to fire at least once on its normal schedule
+   (weekly groups: one week; monthly groups: one month).
+4. **Confirm via the delivery audit log** that every pre-cutover delivery
+   still delivered:
+
+   ```bash
+   sudo -u vuln-reports .venv/bin/python delivery/delivery_log.py --recent 20
+   sudo -u vuln-reports .venv/bin/python delivery/delivery_log.py --failures
+   ```
+
+   Zero unexpected failures for the cutover group across the full cycle is
+   the gate for step 5.
+5. **Only THEN retire the legacy file** — remove (or archive)
+   `shared/delivery_config.yaml`. Directory mode is now the sole source;
+   `_select_config_source` will report `"legacy"` fallback is no longer
+   possible for this deployment until a legacy file is reintroduced.
+
+**Rollback note.** If directory-mode resolution ever fails after cutover
+but before legacy retirement (step 5), the D-04 automatic fallback
+transparently delivers off the still-present legacy file — the next
+`run_all.py --dry-run` (or the next scheduled delivery) logs a WARNING
+naming the fallback and the legacy path, with zero delivery interruption.
+No manual rollback action is required; fix the directory-mode config in
+the private repo and re-copy. If legacy has already been retired (step 5
+completed) and directory-mode then fails, re-place a last-known-good
+`shared/delivery_config.yaml` from the private repo's history to restore
+the fallback safety net while the directory-mode issue is fixed.
+
+**`symlink_shared()` decision (explicit, per-release symlink for
+`shared/config/`): YES, add one.** `run_all.py` resolves the
+directory-mode config as `config_path.parent / "deliveries.d"`, where
+`config_path` is `ROOT_DIR / "delivery_config.yaml"` and `ROOT_DIR =
+Path(__file__).resolve().parent` — i.e. `current/`'s own directory, not
+the symlink target. Because `Path.parent` does not follow symlinks, this
+check only ever sees a `deliveries.d/` that physically resolves inside
+`current/` (via a symlink placed there), the same way the existing single
+`delivery_config.yaml` symlink works today. Therefore `shared/config/`
+needs its own per-release symlink alongside the existing six in
+`scripts/update_from_github.sh`'s `symlink_shared()` — e.g.
+`ln -sfn "${INSTALL_ROOT}/shared/config" "${target_dir}/config"` — so that
+`deliveries.d/` (and `contacts.yaml`) resolve at
+`current/config/deliveries.d/` and `current/delivery_config.yaml`'s
+sibling check finds it correctly relative to `config_path.parent`. This is
+a small transport touch (one new symlink line), not a change to the D-01
+manual-copy model: the *contents* of `shared/config/` still arrive via
+manual copy from the private repo; only the per-release *pointer* to that
+persistent directory is automated, identical in kind to the existing
+`delivery_config.yaml` symlink.
 
 ---
 
@@ -702,8 +858,14 @@ concurrent reads well, but concurrent writes can briefly contend.
     requirements.txt                # Pinned Python dependency versions
   shared/                           # Persistent data that survives releases
     .env                            # Credentials and overrides (never commit)
-    delivery_config.yaml            # Recipient groups, schedules, report selections
+    delivery_config.yaml            # LEGACY single-file config (dual-source cutover window only)
     delivery_config.schema.yaml     # JSON Schema for YAML validation
+    config/                         # Directory-mode config, copied from a reviewed private-repo commit
+      contacts.yaml                 # Named contact groups + defaults.analyst_mailbox
+      deliveries.d/                 # Per-team delivery files (<team>.yaml), globbed + merged
+        <team>.yaml
+      .config-provenance.json       # D-03 sidecar: source commit SHA + UTC timestamp + sha256
+                                     # (written by scripts/stamp_config_provenance.py stamp)
     logs/
       app.log                       # Application-level log (rotating)
       scheduler.log                 # Scheduler-level log (rotating)
@@ -716,6 +878,18 @@ concurrent reads well, but concurrent writes can briefly contend.
     v1.1.0/ → (previous release, kept for rollback)
 ```
 
+**Dual-source coexistence during the cutover window (QUAL-07 SC4):** both
+`shared/config/` (directory-mode, reviewed-repo-sourced) AND the legacy
+`shared/delivery_config.yaml` are present on disk at the same time. The
+loader prefers directory mode; on any directory-mode resolution/schema
+failure it automatically falls back to the legacy file and logs a WARNING
+naming the active source (D-04). `run_all.py --dry-run` echoes which source
+is currently active (D-05) — see [Delivery Config — Reviewed-Repo
+Cutover](#delivery-config--reviewed-repo-cutover) for the full procedure.
+The `.config-provenance.json` sidecar lives inside `shared/config/` and is
+never present for the legacy file (D-03 applies only to the reviewed
+directory-mode config).
+
 ---
 
 ### Files safe to edit without developer involvement
@@ -723,9 +897,17 @@ concurrent reads well, but concurrent writes can briefly contend.
 | File | What you can change |
 | ---- | ------------------- |
 | `shared/.env` | Add or rotate credentials; adjust `MAX_ATTACHMENT_SIZE_MB` |
-| `shared/delivery_config.yaml` | Add/remove groups, change recipients, adjust schedules |
 | `current/config.py` | `SLA_DAYS` values only (requires service restart) |
 | `current/deploy/vuln-reports.service` | `WorkingDirectory`, `User`, `EnvironmentFile` if paths change |
+
+**`shared/delivery_config.yaml` and `shared/config/` (contacts + deliveries)
+are NOT server-side hand-edits.** Recipients, groups, and schedules are
+changed in the private corporate config repo via PR → CODEOWNERS review →
+CI gate → merge, then the merged commit is manually copied to the server
+and stamped with `scripts/stamp_config_provenance.py`. See [Delivery
+Config — Reviewed-Repo Cutover](#delivery-config--reviewed-repo-cutover).
+This table intentionally no longer lists delivery config as a direct-edit
+file — that is the change this cutover makes.
 
 ---
 
