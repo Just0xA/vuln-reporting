@@ -26,6 +26,7 @@ Shared utilities
 - ``deduplicate_assets_by_name``  — remove duplicate hostnames, keep most-recent
 - ``identify_on_time_assets``     — split into on-time / not-on-time subsets
 - ``extract_owner``               — add ``owner`` + ``application`` columns from Owner/Application tags
+- ``exclude_risk_managed``        — drop ACCEPTED/RECASTED rows from a findings DataFrame
 - ``compute_per_bu_breakdown``    — per-owner numerator/denominator/percentage table
 - ``compute_bu_risk_scores``      — weighted Risk Score per owner for qualifying assets
 - ``sla_status_from_thresholds``  — classify a value as green/yellow/red/no_data
@@ -308,6 +309,48 @@ def extract_owner(
 
 
 # ===========================================================================
+# Risk-managed finding exclusion
+# ===========================================================================
+
+def exclude_risk_managed(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Drop rows whose ``severity_modification_type`` is ACCEPTED or RECASTED.
+
+    Risk-accepted and recast findings remain ``state=open`` in Tenable, so
+    KPI modules that count "open" findings would otherwise be inflated by a
+    population the operator has already dispositioned. This helper is the
+    single point of exclusion applied at the top of a module's ``compute()``.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Findings DataFrame. May or may not contain a
+        ``severity_modification_type`` column.
+
+    Returns
+    -------
+    pd.DataFrame
+        A fresh ``.copy()`` of ``df`` with ACCEPTED/RECASTED rows removed.
+        Empty input or a missing ``severity_modification_type`` column is
+        returned unchanged (still a ``.copy()`` where empty; original frame
+        when the column is absent — no error is raised in either case).
+
+    Notes
+    -----
+    Matching is case-insensitive (``"accepted"``, ``"Recasted"``, ``"ACCEPTED"``
+    all match). Values other than ACCEPTED/RECASTED (``"NONE"``, ``""``,
+    ``None``, or anything else) are kept. Returns a ``.copy()`` so callers can
+    safely ``.assign()`` onto the result without chaining through the caller's
+    frame (Hard Rule 5).
+    """
+    if df.empty or "severity_modification_type" not in df.columns:
+        return df
+
+    mod = df["severity_modification_type"].astype(str).str.upper()
+    return df[~mod.isin(["ACCEPTED", "RECASTED"])].copy()
+
+
+# ===========================================================================
 # Per-BU percentage breakdown
 # ===========================================================================
 
@@ -466,7 +509,7 @@ def compute_bu_risk_scores(
         BUs with no qualifying assets are absent from the result.
     """
     if not qualifying_uuids or vulns_df.empty:
-        return pd.Series(dtype=int)
+        return pd.Series(dtype=int, index=pd.Index([], name="owner"))
 
     mask = (
         vulns_df["asset_uuid"].isin(qualifying_uuids)
@@ -476,7 +519,7 @@ def compute_bu_risk_scores(
     risk_vulns.loc[:, "severity"] = risk_vulns["severity"].str.lower()
 
     if risk_vulns.empty:
-        return pd.Series(dtype=int)
+        return pd.Series(dtype=int, index=pd.Index([], name="owner"))
 
     risk_vulns.loc[:, "weighted"] = risk_vulns["severity"].map(weights).fillna(0)
     asset_scores = risk_vulns.groupby("asset_uuid")["weighted"].sum().astype(int)
