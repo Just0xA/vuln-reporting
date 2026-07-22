@@ -21,21 +21,24 @@ For field-by-field definitions of the underlying Tenable data, see [`tenable_vul
 7. [Metric 2 — Critical Remediation SLA](#7-metric-2--critical-remediation-sla)
 8. [Metric 3 — High-Risk Assets](#8-metric-3--high-risk-assets)
 9. [Metric 4 — Aged Vulnerability Assets](#9-metric-4--aged-vulnerability-assets)
-10. [Data-Quality Notes](#10-data-quality-notes)
+10. [Metric 5 — Accepted/Recast by Owner](#10-metric-5--acceptedrecast-by-owner)
+11. [Data-Quality Notes](#11-data-quality-notes)
 
 ---
 
 ## 1. Data Sources
 
-The board summary draws from three Tenable exports, pulled fresh on the day the report runs:
+The board summary draws from Tenable exports plus two local supplemental sources, pulled fresh on the day the report runs:
 
 | Data | Source | Used by | Notes |
 |------|--------|---------|-------|
-| Open vulnerabilities | Tenable vulnerability export, state = open, all severities | All four metrics | Each row is one (plugin × asset) finding currently detected on the asset. |
-| Asset inventory | Tenable asset export | All four metrics | Full asset inventory including licensing and last-scan timestamps. |
+| Open vulnerabilities | Tenable vulnerability export, state = open, all severities | All five metrics | Each row is one (plugin × asset) finding currently detected on the asset. |
+| Asset inventory | Tenable asset export | All five metrics | Full asset inventory including licensing and last-scan timestamps. |
 | Fixed vulnerabilities | Tenable vulnerability export, state = fixed | Metric 2 only | Findings that were detected previously but are no longer present on the asset, used to measure remediation time. |
+| Recast/accept rules | Tenable `POST /v1/recast/rules/search`, fetched fail-soft | Metric 5 only | Active HOST recast/accept rules, used for the expired-rule cross-check. Absent (fetch failure or no credentials) → cross-check skipped, finding-level counts still computed. |
+| Trend snapshots | Local trend store (`data/trend/`), not Tenable | Metric 5 only | Prior-month accepted/recast counts, used for the month-over-month delta. |
 
-Each report run produces a point-in-time snapshot. The same input snapshot is reused across all four metrics so the counts on every metric page can be reconciled against the same population.
+Each report run produces a point-in-time snapshot. The same input snapshot is reused across Metrics 1–4 so the counts on every metric page can be reconciled against the same population. Metric 5 additionally draws on the local trend store and recast rules.
 
 ---
 
@@ -71,6 +74,17 @@ Within the licensed population, an asset is classified as **on-time scanned** wh
 Metrics 3 and 4 use the **on-time** asset set as their denominator — they only evaluate assets that have been recently scanned, so unknown-state assets do not inflate or deflate the metric.
 
 Metric 2 uses fixed vulnerabilities (not the asset baseline) as its input population — see [Metric 2](#7-metric-2--critical-remediation-sla).
+
+### Exclusion of risk-managed findings (Metrics 3, 4, and 2's SLA population)
+
+Risk-accepted and recast findings (`severity_modification_type` in `{ACCEPTED, RECASTED}`) remain `state = open` in Tenable, so they would otherwise inflate metrics that count "open" findings against a population the operator has already dispositioned.
+
+- **Metric 3 (High-Risk Assets)** and **Metric 4 (Aged Vulnerability Assets)** exclude ACCEPTED/RECASTED open findings before evaluating the high-risk/aged classification.
+- **Metric 2 (Critical Remediation SLA)** excludes ACCEPTED/RECASTED findings from the *fixed* population before computing the SLA percentage and the "missed SLA" analyst drill-down.
+- **Metric 1 (Scan Coverage SLA)** is unaffected — it is assets-only and does not consume `vulns_df`.
+- **Metric 5 (Accepted/Recast by Owner)** intentionally does **not** apply this exclusion — risk-managed findings are exactly what it reports on.
+
+All three exclusions are applied via the shared `exclude_risk_managed()` helper (`reports/modules/board_report_utils.py`).
 
 ---
 
@@ -368,7 +382,75 @@ Only findings on on-time assets are evaluated.
 
 ---
 
-## 10. Data-Quality Notes
+## 10. Metric 5 — Accepted/Recast by Owner
+
+**Module:** `reports/modules/accepted_recast_module.py` (`accepted_recast`)
+**Direction:** Lower exception rate is better
+**Target:** ≤ 5% green / ≤ 15% amber / > 15% red (overridable via module options)
+
+### What it measures
+
+The count of open findings that have been formally risk-managed by an analyst — either accepted as residual risk or had their severity recast — cut by the asset's Owner tag. ACCEPTED and RECASTED findings are tracked **separately** (never aggregated into a single number), because they represent different operational decisions.
+
+- **Accepted** — `severity_modification_type == "ACCEPTED"` (risk acknowledged, no further action expected)
+- **Recasted** — `severity_modification_type == "RECASTED"` (severity adjusted by an analyst)
+
+Unlike Metrics 2–4, this module intentionally reads the **full** `vulns_df` — it is **not** filtered by `exclude_risk_managed()` (see [Exclusion of risk-managed findings](#exclusion-of-risk-managed-findings-metrics-3-4-and-2s-sla-population) above), since risk-managed findings are exactly the population it exists to surface.
+
+### Formula
+
+```
+open_df           = vulns WHERE state IN {"OPEN", "REOPENED"}
+total_open        = len(open_df)
+accepted_df       = open_df WHERE severity_modification_type.upper() == "ACCEPTED"
+recasted_df       = open_df WHERE severity_modification_type.upper() == "RECASTED"
+accepted_count    = len(accepted_df)   # after expiry cross-check, below
+recast_count      = len(recasted_df)   # after expiry cross-check, below
+total_exceptions  = accepted_count + recast_count
+exception_rate    = (total_exceptions / total_open) × 100   (None when total_open == 0)
+```
+
+### Expired-rule cross-check
+
+When `recast_rules_df` is available (fetched fail-soft from Tenable's recast/accept rules API), findings whose `recast_rule_uuid` maps to a rule with `expires_at` in the past are excluded from the current-period accepted/recast counts and flagged "pending re-evaluation" instead — an expired rule no longer represents an active risk decision. When `recast_rules_df` is absent (fetch failure or no credentials), the cross-check is skipped and finding-level counts are still computed from the raw classification.
+
+### Owner cut
+
+Counts are cut by the Owner tag category via `extract_owner()` — the same shared helper used by Metrics 3 and 4. Assets with no `Owner` tag are grouped under `Unassigned`.
+
+### Month-over-month delta
+
+The current-period accepted/recast counts are compared against the prior month's `accepted_count` / `recast_count` fields read from the local trend store (`read_trend("severity", tag_filter_label, months=13)`). Per the mandatory cold-start branch (Hard Rule 7): when the trend read reports `insufficient_data=True` or the prior month is absent, the delta arrow is omitted entirely — never rendered as "▲ 0%" or a NaN string.
+
+### Thresholds (exception rate)
+
+| Status | Condition |
+|--------|-----------|
+| Green | Exception rate ≤ 5% |
+| Amber | Exception rate ≤ 15% and > 5% |
+| Red | Exception rate > 15% |
+
+Both thresholds are overridable per delivery group via `green_exception_rate` / `yellow_exception_rate` module options.
+
+### Values reported
+
+| Value | Description |
+|-------|-------------|
+| Accepted count | Open ACCEPTED findings (post expiry cross-check). |
+| Recast count | Open RECASTED findings (post expiry cross-check). |
+| Total exceptions | Accepted count + Recast count. |
+| Exception rate | Total exceptions ÷ total open findings, as a percentage. |
+| Pending re-evaluation | Count of findings excluded due to an expired recast/accept rule. |
+
+### Edge cases
+
+- When `total_open` is 0, exception rate is `None` and status is "No Data".
+- `""`, `"NONE"`, and any value other than `ACCEPTED`/`RECASTED` are excluded from both counts (never silently aggregated).
+- Rule-level detail (rule name, action, original/new severity) appears only in the analyst drill-down tab — the headline metric is always a **finding** count, never a rule count.
+
+---
+
+## 11. Data-Quality Notes
 
 Common scenarios the team should recognise when reviewing the numbers:
 

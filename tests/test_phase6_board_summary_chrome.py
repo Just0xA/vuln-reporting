@@ -65,6 +65,7 @@ def _invoke_and_capture_pdf_chrome(**run_kwargs):
          patch.object(bs, "fetch_all_vulnerabilities", return_value=vulns_df), \
          patch.object(bs, "fetch_all_assets",          return_value=assets_df), \
          patch.object(bs, "fetch_fixed_vulnerabilities", return_value=fixed_df), \
+         patch.object(bs, "read_trend", return_value={"snapshots": [], "insufficient_data": True}), \
          patch.object(bs, "_render_pdf",               return_value=None):
         bs.run_report(tio=MagicMock(), run_id="t", **run_kwargs)
 
