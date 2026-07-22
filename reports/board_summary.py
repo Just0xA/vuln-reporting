@@ -1,7 +1,7 @@
 """
 reports/board_summary.py — Board-Level Vulnerability Metrics Summary.
 
-Computes four board-level security metrics using the module infrastructure
+Computes five board-level security metrics using the module infrastructure
 and assembles them into a PDF and Excel workbook.
 
 Metrics (in PDF/Excel order):
@@ -12,10 +12,15 @@ Metrics (in PDF/Excel order):
                                     open > 30 days (<= 0.5% target)
     4. Aged Vulnerability Assets  — % of on-time assets with >= 1 Med/High/Crit
                                     vuln open > 90 days (<= 2% target)
+    5. Accepted/Recast by Owner   — risk-managed (ACCEPTED/RECASTED) finding
+                                    counts per Owner tag, tracked separately
 
-All four metrics share a single "on-time scanned" asset baseline (assets with
+Metrics 1-4 share a single "on-time scanned" asset baseline (assets with
 last_licensed_scan_date within the last 30 days, deduplicated by hostname) so
-the denominator is consistent across the board report.
+the denominator is consistent across those four board metrics.
+Accepted/Recast by Owner (metric 5) intentionally reads the FULL vulns_df —
+it is NOT filtered by exclude_risk_managed, since risk-managed findings are
+exactly what it reports on.
 
 Usage
 -----
@@ -50,6 +55,7 @@ from data.fetchers import (
     fetch_all_vulnerabilities,
     fetch_fixed_vulnerabilities,
 )
+from data.trend_store import read_trend
 
 # Importing reports.modules triggers registry.discover() (see __init__.py),
 # which auto-imports every *_module.py file in reports/modules/ and executes
@@ -84,6 +90,7 @@ _BOARD_MODULE_CONFIGS: list[ModuleConfig] = [
     ModuleConfig("critical_remediation_sla"),
     ModuleConfig("high_risk_assets"),
     ModuleConfig("aged_vulns_assets"),
+    ModuleConfig("accepted_recast"),
 ]
 
 _REPORT_TITLE   = "Board Vulnerability Metrics Summary"
@@ -113,7 +120,7 @@ def run_report(
     Generate the Board Vulnerability Metrics Summary.
 
     Fetches vulnerability and asset data (with parquet caching), optionally
-    scopes to a Tenable tag filter, runs the four board metric modules via
+    scopes to a Tenable tag filter, runs the five board metric modules via
     ReportComposer, and writes PDF and Excel outputs.
 
     Parameters
@@ -208,7 +215,10 @@ def run_report(
     # ------------------------------------------------------------------
     # Apply tag filter (exact token match on the tags string column)
     # ------------------------------------------------------------------
+    tag_filter_label: str = "all_assets"
     if tag_category and tag_value:
+        tag_filter_label = f"{tag_category}_{tag_value}"
+
         filtered_assets = _filter_assets_by_tag(assets_df, tag_category, tag_value)
         scoped_uuids    = set(filtered_assets["asset_uuid"].dropna())
 
@@ -230,11 +240,50 @@ def run_report(
         )
 
     # ------------------------------------------------------------------
-    # Run all four board modules via ReportComposer
+    # Trend read (feeds accepted_recast's MoM delta) — reads the LOCAL
+    # trend store, not Tenable (Hard Rule 1 safe). Tag-scoped groups
+    # cold-start MoM — pre-existing, mirrors management_summary's scope note.
+    # ------------------------------------------------------------------
+    trend_snapshots = read_trend(
+        "severity",
+        tag_filter_label,
+        months=13,
+    )
+    logger.info(
+        "board_summary: trend read (filter=%s) — %d snapshots, insufficient=%s",
+        tag_filter_label,
+        len(trend_snapshots.get("snapshots", [])),
+        trend_snapshots.get("insufficient_data", True),
+    )
+
+    # ------------------------------------------------------------------
+    # Deferred fail-soft recast rules fetch — accepted_recast is always in
+    # _BOARD_MODULE_CONFIGS, so fetch unconditionally but never fatally
+    # (mirrors management_summary's INT-WARN-2 pattern). recast_rules_df
+    # carries no asset_uuid column (rule_id, rule_name, plugin_id, action,
+    # new_severity, original_severity, expires_at, created_at), so it is
+    # NOT tag-scoped — consistent with management_summary.
+    # ------------------------------------------------------------------
+    recast_rules_df = None
+    try:
+        from data.fetchers import fetch_recast_rules  # noqa: PLC0415
+        logger.info("board_summary: fetching recast rules …")
+        recast_rules_df = fetch_recast_rules(tio, cache_dir)
+    except Exception as _recast_exc:  # noqa: BLE001
+        logger.error(
+            "board_summary: recast rules fetch failed (non-fatal): %s",
+            _recast_exc, exc_info=True,
+        )
+        recast_rules_df = None
+
+    # ------------------------------------------------------------------
+    # Run all five board modules via ReportComposer
     #
-    # fixed_vulns_df is forwarded via **kwargs to every module's compute().
-    # Only CriticalRemediationSLAModule consumes it; the other three ignore
-    # the kwarg silently (their compute() signature accepts **kwargs).
+    # fixed_vulns_df, trend_snapshots, and recast_rules_df are forwarded via
+    # **kwargs to every module's compute(). CriticalRemediationSLAModule
+    # consumes fixed_vulns_df; AcceptedRecastModule consumes trend_snapshots
+    # and recast_rules_df. Non-consuming modules ignore unknown kwargs
+    # silently (their compute() signature accepts **kwargs).
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
     # Resolve subtitle (D-02 single source of truth): explicit
@@ -276,12 +325,14 @@ def run_report(
     )
 
     composer = ReportComposer(
-        vulns_df       = vulns_df,
-        assets_df      = assets_df,
-        report_date    = generated_at,
-        module_configs = _BOARD_MODULE_CONFIGS,
-        fixed_vulns_df = fixed_vulns_df,
-        pdf_chrome     = pdf_chrome_cfg,
+        vulns_df        = vulns_df,
+        assets_df       = assets_df,
+        report_date     = generated_at,
+        module_configs  = _BOARD_MODULE_CONFIGS,
+        fixed_vulns_df  = fixed_vulns_df,
+        pdf_chrome      = pdf_chrome_cfg,
+        trend_snapshots = trend_snapshots,
+        recast_rules_df = recast_rules_df,
     )
 
     results = composer.run_all()
