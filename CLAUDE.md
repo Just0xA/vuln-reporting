@@ -228,7 +228,7 @@ If the report needs group-config parameters beyond the standard set, add a slug-
 | `ops_remediation`    | Operations / Remediation          | Excel (7 tabs), PDF              | Overdue by plugin, risk acceptances, recurring vulns (legacy bespoke path)   |
 | `vuln_export`        | Operations + Analysts             | CSV only                         | Raw open findings, configurable `csv_severities`                             |
 | `management_summary` | Senior Management (Directors/VPs) | PDF, HTML email, Excel           | 7 modules on ReportComposer. See `docs/management_summary_calculations.md`   |
-| `board_summary`      | Board / Executive Leadership      | PDF, Excel                       | 4 board KPIs; modules-based. See `docs/board_summary_calculations.md`        |
+| `board_summary`      | Board / Executive Leadership      | PDF, Excel                       | 5 board metrics; modules-based. Incl. Accepted/Recast-by-Owner. See `docs/board_summary_calculations.md` |
 | `unscanned_assets`   | Analysts / IT Ops                 | Excel, CSV                       | Companion to Scan Coverage SLA                                               |
 | `composed_report`    | Any (YAML-defined)                | PDF, Excel, email, analyst wb    | Generic module composition — see section above                               |
 
