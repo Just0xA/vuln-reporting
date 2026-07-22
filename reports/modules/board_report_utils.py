@@ -509,7 +509,7 @@ def compute_bu_risk_scores(
         BUs with no qualifying assets are absent from the result.
     """
     if not qualifying_uuids or vulns_df.empty:
-        return pd.Series(dtype=int)
+        return pd.Series(dtype=int, index=pd.Index([], name="owner"))
 
     mask = (
         vulns_df["asset_uuid"].isin(qualifying_uuids)
@@ -519,7 +519,7 @@ def compute_bu_risk_scores(
     risk_vulns.loc[:, "severity"] = risk_vulns["severity"].str.lower()
 
     if risk_vulns.empty:
-        return pd.Series(dtype=int)
+        return pd.Series(dtype=int, index=pd.Index([], name="owner"))
 
     risk_vulns.loc[:, "weighted"] = risk_vulns["severity"].map(weights).fillna(0)
     asset_scores = risk_vulns.groupby("asset_uuid")["weighted"].sum().astype(int)

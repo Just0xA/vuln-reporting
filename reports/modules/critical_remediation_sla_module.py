@@ -52,6 +52,7 @@ from reports.modules.registry import register_module
 from reports.modules.board_pdf_layout import two_column_metric_section
 from reports.modules.board_report_utils import (
     compute_per_bu_breakdown,
+    exclude_risk_managed,
     extract_owner,
     identify_on_time_assets,
     sla_status_from_thresholds,
@@ -187,6 +188,10 @@ class CriticalRemediationSLAModule(BaseModule):
             fixed_vulns_df: pd.DataFrame = kwargs.get(
                 "fixed_vulns_df", pd.DataFrame()
             )
+            # Exclude risk-managed (ACCEPTED/RECASTED) findings from the
+            # FIXED population up front — they must not inflate/deflate the
+            # SLA metric (quick-260722-lx9).
+            fixed_vulns_df = exclude_risk_managed(fixed_vulns_df)
 
             # Phase 3 — explicit empty-input guard. When assets_df has no
             # rows or lacks required columns we cannot derive an on-time
@@ -313,9 +318,8 @@ class CriticalRemediationSLAModule(BaseModule):
                 # The same guard also tightens the email-panel driver
                 # narrative ("{missed_count} critical findings missed
                 # SLA.") since missed_count is derived from this slice.
-                if "severity_modification_type" in missed.columns:
-                    _smod = missed["severity_modification_type"].astype("string").str.lower()
-                    missed = missed[~_smod.isin(["accepted", "recasted"])].copy()
+                # Exclusion now happens upstream via exclude_risk_managed(fixed_vulns_df)
+                # at compute() entry (quick-260722-lx9).
                 if not missed.empty:
                     # Derive owner_tag for each finding row via extract_owner.
                     # extract_owner operates on an assets-style DataFrame; findings

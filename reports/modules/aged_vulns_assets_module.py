@@ -37,6 +37,7 @@ from reports.modules.board_report_utils import (
     compute_bu_risk_scores,
     compute_per_bu_breakdown,
     deduplicate_assets_by_name,
+    exclude_risk_managed,
     extract_owner,
     identify_on_time_assets,
     sla_status_from_thresholds,
@@ -172,6 +173,11 @@ class AgedVulnsAssetsModule(BaseModule):
         )
 
         try:
+            # Exclude risk-managed (ACCEPTED/RECASTED) findings — they remain
+            # state=open but are already dispositioned and must not inflate
+            # this KPI (quick-260722-lx9).
+            vulns_df = exclude_risk_managed(vulns_df)
+
             # ---- Step 1: derive on-time asset set ----
             on_time, _ = identify_on_time_assets(assets_df, report_date)
             # [Rule 1] Defensive — when assets_df is empty (or has no
