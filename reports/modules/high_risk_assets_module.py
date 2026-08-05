@@ -35,6 +35,7 @@ from reports.modules.registry import register_module
 from reports.modules.board_pdf_layout import two_column_metric_section
 from config import RISK_WEIGHTS
 from reports.modules.board_report_utils import (
+    add_vpr_severity,
     compute_bu_risk_scores,
     compute_per_bu_breakdown,
     deduplicate_assets_by_name,
@@ -180,6 +181,11 @@ class HighRiskAssetsModule(BaseModule):
             # state=open but are already dispositioned and must not inflate
             # this KPI (quick-260722-lx9).
             vulns_df = exclude_risk_managed(vulns_df)
+
+            # quick-260805-ezo — tier findings from the board-local VPR-only
+            # `vpr_severity` column. A finding with no VPR score is "none",
+            # NOT its native-CVSS tier (D-01/D-02/D-03).
+            vulns_df = add_vpr_severity(vulns_df)
 
             # ---- Step 1: derive on-time asset set ----
             on_time, _ = identify_on_time_assets(assets_df, report_date)
@@ -933,7 +939,9 @@ class HighRiskAssetsModule(BaseModule):
                 "high_risk_count": (
                     f"Count of on-time assets where the number of open Critical or High "
                     f"findings with days_open > {_AGED_DAYS_THRESHOLD} is "
-                    f">= {_HIGH_RISK_COUNT}."
+                    f">= {_HIGH_RISK_COUNT}.  Critical/High is the board-local VPR-only "
+                    f"tier (vpr_severity), not the native Tenable severity string "
+                    f"(quick-260805-ezo)."
                 ),
                 "total_on_time": (
                     "Count of deduplicated assets where last_licensed_scan_date IS NOT NULL "
@@ -944,8 +952,12 @@ class HighRiskAssetsModule(BaseModule):
                     "produce NaT/NaN and are treated as 0 days (not counted as aged)."
                 ),
                 "severity_filter": (
-                    "severity IN ('critical', 'high').  Severity is VPR-derived "
-                    "(vpr_to_severity from config.py) as produced by fetch_all_vulnerabilities()."
+                    "vpr_severity IN ('critical', 'high').  quick-260805-ezo — the "
+                    "tier comes from the board-local VPR-only tiering "
+                    "(board_report_utils.vpr_severity_tier: Critical 9.0-10.0, "
+                    "High 7.0-8.9) with NO native-CVSS fallback.  A finding with no "
+                    "vpr_score is tiered 'none' and is excluded, even when its native "
+                    "Tenable severity string says critical or high."
                 ),
                 "BU_breakdown": (
                     "compute_per_bu_breakdown(higher_is_better=False) on on-time assets "
@@ -1018,7 +1030,9 @@ def _find_high_risk_assets(
     if vulns_df.empty:
         return set(), pd.Series(dtype=int), empty_frame
 
-    required = {"asset_uuid", "severity", "first_found"}
+    # quick-260805-ezo — vpr_severity (board-local VPR-only tiering) replaces
+    # severity as the required tiering column.
+    required = {"asset_uuid", "vpr_severity", "first_found"}
     if not required.issubset(vulns_df.columns):
         missing = required - set(vulns_df.columns)
         logger.warning(
@@ -1026,9 +1040,9 @@ def _find_high_risk_assets(
         )
         return set(), pd.Series(dtype=int), empty_frame
 
-    # Filter to on-time assets + Critical/High severity
+    # Filter to on-time assets + Critical/High severity (VPR-only tiers)
     on_time_mask  = vulns_df["asset_uuid"].isin(on_time_uuids)
-    severity_mask = vulns_df["severity"].str.lower().isin(["critical", "high"])
+    severity_mask = vulns_df["vpr_severity"].isin(["critical", "high"])
     relevant      = vulns_df[on_time_mask & severity_mask].copy()
 
     if relevant.empty:
@@ -1059,7 +1073,11 @@ def _build_metadata(report_date: Any) -> dict:
             f">={_HIGH_RISK_COUNT} Critical/High findings open "
             f">{_AGED_DAYS_THRESHOLD} days on an on-time-scanned asset."
         ),
-        "severity_scope":        "Critical (VPR 9.0–10.0) and High (VPR 7.0–8.9)",
+        # quick-260805-ezo — VPR-only, no native-CVSS fallback.
+        "severity_scope":        (
+            "Critical (VPR 9.0–10.0) and High (VPR 7.0–8.9), tiered by the "
+            "board-local vpr_severity_tier() with NO native-CVSS fallback"
+        ),
         "denominator_scope":     (
             f"On-time-scanned assets: last_licensed_scan_date IS NOT NULL "
             f"AND >= report_date − {ON_TIME_WINDOW_DAYS} days."

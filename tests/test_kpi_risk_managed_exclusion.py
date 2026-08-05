@@ -42,6 +42,9 @@ _REPORT_DATE = datetime.datetime(2026, 6, 11, tzinfo=datetime.timezone.utc)
 _AGED_FIRST_FOUND = "2020-01-01T00:00:00Z"
 # recent scan date so assets are "on-time" (within 30d of report date)
 _ON_TIME_SCAN_DATE = "2026-06-01T00:00:00Z"
+# recent last_found so open findings clear the quick-260805-ezo finding-level
+# staleness guard (last_found >= report_date - 30d)
+_RECENT_LAST_FOUND = "2026-06-05T00:00:00Z"
 
 
 def _uuid(n: int) -> str:
@@ -49,17 +52,23 @@ def _uuid(n: int) -> str:
 
 
 def _make_vulns(rows: list[dict]) -> pd.DataFrame:
+    # quick-260805-ezo — board modules now tier from vpr_score (VPR-only),
+    # so every fixture row carries an explicit vpr_score. 9.5 = critical.
     defaults = {
         "asset_uuid":                  _uuid(1),
         "plugin_id":                   100001,
         "plugin_name":                 "Test Plugin",
         "severity":                    "critical",
+        "vpr_score":                   9.5,
         "first_found":                 _AGED_FIRST_FOUND,
+        "last_found":                  _RECENT_LAST_FOUND,
+        "state":                       "OPEN",
         "severity_modification_type":  "NONE",
     }
     records = [{**defaults, **r} for r in rows]
     df = pd.DataFrame(records, columns=list(defaults.keys()))
     df["first_found"] = pd.to_datetime(df["first_found"], utc=True)
+    df["last_found"]  = pd.to_datetime(df["last_found"],  utc=True)
     return df
 
 
@@ -169,6 +178,72 @@ class TestAgedVulnsAssetsExclusion:
         cfg       = ModuleConfig("aged_vulns_assets")
 
         result = mod.compute(vulns_df, assets_df, _REPORT_DATE, cfg)
+
+        assert result.error is None
+        assert result.metrics["aged_assets_count"] == 1
+
+
+# ===========================================================================
+# quick-260805-ezo — VPR-only severity tiering in the two asset-count modules
+# ===========================================================================
+
+class TestVprOnlySeverityTiering:
+    """
+    D-03 — high_risk_assets and aged_vulns_assets tier findings from the
+    board-local ``vpr_severity`` column, never from the native ``severity``
+    string. A null VPR is "none", NOT the native CVSS tier.
+    """
+
+    def test_high_risk_native_critical_without_vpr_not_counted(self):
+        # 12 findings that the NATIVE severity string calls "critical" but
+        # which carry no VPR score at all. Under VPR-only tiering they are
+        # "none" and must not push the asset over the >=10 high-risk bar.
+        vulns_df = _make_vulns([
+            {"plugin_id": 100000 + i, "severity": "critical", "vpr_score": None}
+            for i in range(12)
+        ])
+        result = HighRiskAssetsModule().compute(
+            vulns_df, _make_assets([{}]), _REPORT_DATE,
+            ModuleConfig("high_risk_assets"),
+        )
+
+        assert result.error is None
+        assert result.metrics["high_risk_count"] == 0
+
+    def test_high_risk_native_medium_with_critical_vpr_is_counted(self):
+        # Native severity says "medium" but VPR 9.5 is Critical — VPR wins.
+        vulns_df = _make_vulns([
+            {"plugin_id": 100000 + i, "severity": "medium", "vpr_score": 9.5}
+            for i in range(10)
+        ])
+        result = HighRiskAssetsModule().compute(
+            vulns_df, _make_assets([{}]), _REPORT_DATE,
+            ModuleConfig("high_risk_assets"),
+        )
+
+        assert result.error is None
+        assert result.metrics["high_risk_count"] == 1
+
+    def test_aged_vulns_native_critical_without_vpr_not_counted(self):
+        vulns_df = _make_vulns([
+            {"plugin_id": 100001, "severity": "critical", "vpr_score": None},
+        ])
+        result = AgedVulnsAssetsModule().compute(
+            vulns_df, _make_assets([{}]), _REPORT_DATE,
+            ModuleConfig("aged_vulns_assets"),
+        )
+
+        assert result.error is None
+        assert result.metrics["aged_assets_count"] == 0
+
+    def test_aged_vulns_native_low_with_critical_vpr_is_counted(self):
+        vulns_df = _make_vulns([
+            {"plugin_id": 100001, "severity": "low", "vpr_score": 9.5},
+        ])
+        result = AgedVulnsAssetsModule().compute(
+            vulns_df, _make_assets([{}]), _REPORT_DATE,
+            ModuleConfig("aged_vulns_assets"),
+        )
 
         assert result.error is None
         assert result.metrics["aged_assets_count"] == 1
