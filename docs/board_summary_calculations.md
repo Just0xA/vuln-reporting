@@ -80,7 +80,7 @@ Metric 2 uses fixed vulnerabilities (not the asset baseline) as its input popula
 Risk-accepted and recast findings (`severity_modification_type` in `{ACCEPTED, RECASTED}`) remain `state = open` in Tenable, so they would otherwise inflate metrics that count "open" findings against a population the operator has already dispositioned.
 
 - **Metric 3 (High-Risk Assets)** and **Metric 4 (Aged Vulnerability Assets)** exclude ACCEPTED/RECASTED open findings before evaluating the high-risk/aged classification.
-- **Metric 2 (Critical Remediation SLA)** excludes ACCEPTED/RECASTED findings from the *fixed* population before computing the SLA percentage and the "missed SLA" analyst drill-down.
+- **Metric 2 (Critical Remediation SLA)** excludes ACCEPTED/RECASTED findings from **both** the *open* and the *fixed* population before computing the SLA percentage and the "missed SLA" analyst drill-down. (Until 2026-08-05 the exclusion was applied to the fixed population only; it is now symmetric, matching Metrics 3 and 4.)
 - **Metric 1 (Scan Coverage SLA)** is unaffected — it is assets-only and does not consume `vulns_df`.
 - **Metric 5 (Accepted/Recast by Owner)** intentionally does **not** apply this exclusion — risk-managed findings are exactly what it reports on.
 
@@ -98,8 +98,13 @@ Severity is derived from the **VPR (Vulnerability Priority Rating)** score, not 
 | High | 7.0 – 8.9 | 30 days |
 | Medium | 4.0 – 6.9 | 90 days |
 | Low | 0.1 – 3.9 | 180 days |
+| None | 0.0, negative, or absent | n/a |
 
-A finding with no `vpr_score` falls back to the native Tenable `severity` field.
+**Board modules are VPR-only (changed 2026-08-05).** Metrics 2, 3 and 4 tier every finding through a board-local `vpr_severity` column (`reports/modules/board_report_utils.vpr_severity_tier`) with **no native-CVSS fallback**. A finding whose `vpr_score` is `0.0`, negative, absent, or unparseable is tiered **`none`** and is excluded from those metrics — even when its native Tenable `severity` string says `critical`.
+
+`none` is a distinct concept from the native-CVSS `info` tier and must not be conflated with it. The board analyst workbook carries a **VPR Severity Distribution** tab (see [Metric 2](#7-metric-2--critical-remediation-sla)) that reports the `none` population explicitly so the size of this exclusion is always visible.
+
+**Suite-wide behaviour is unchanged.** Every non-board report still tiers through `config.vpr_to_severity(vpr_score, fallback=native)`, where a finding with no `vpr_score` **does** fall back to the native Tenable `severity` field. The VPR-only rule is scoped to the board modules only.
 
 ---
 
@@ -233,27 +238,60 @@ Where:
 
 ### What it measures
 
-The percentage of Critical vulnerabilities (VPR 9.0–10.0) that were **fixed within their 15-day SLA** during the last 30 days. Only findings on assets that were scanned on time (within the last 30 days) are included.
+Of the Critical vulnerabilities whose 15-day SLA clock has **expired**, what percentage were remediated in time?
+
+The cohort is **VPR 9.0–10.0 only** (`vpr_severity == "critical"`, no native-CVSS fallback — see [section 3](#3-severity-classification-vpr)), with risk-accepted and recast findings excluded from **both** the open and the fixed population.
+
+The metric counts remediation *outcome*, not just remediation *activity*: a Critical still sitting open 200 days past its SLA counts as a breach, exactly as a Critical that was eventually fixed 200 days late does.
 
 ### Formula
 
-> **Remediation SLA % = (fixed within SLA ÷ total Critical fixed in window) × 100**
+Four populations, derived at report date `rd`:
 
-Where:
+| # | Population | Definition |
+|---|------------|------------|
+| A | `fixed_in_window` | `state == FIXED` AND `last_fixed ≥ rd − 30d` |
+| B | `open_past_due` | open/reopened, `last_found ≥ rd − 30d`, asset scanned on time, `(rd − clock_start).days > 15` |
+| C | `open_not_due` | as B, but `(rd − clock_start).days ≤ 15` |
 
-- **Total Critical fixed in window** = Critical findings with `last_fixed` ≥ report date − 30 days, on on-time assets.
-- **Fixed within SLA** = the subset of the above where days to fix ≤ 15.
+From those:
+
+```
+compliant   = |A where days_to_fix ≤ 15|
+fixed_late  = |A where days_to_fix > 15|
+breached    = fixed_late + |B|
+denominator = compliant + breached
+```
+
+> **Remediation SLA % = (compliant ÷ denominator) × 100**
+
+**C is excluded from the denominator.** Those findings are still inside their 15-day clock, so they have not yet had the chance to meet or miss the SLA. They are reported separately as *Not yet due*, and `total_critical_open = |B| + |C|` discloses the full in-scope open Critical workload.
+
+#### Scoping asymmetry
+
+| Side | Asset-level on-time gate | Finding-level staleness guard |
+|------|--------------------------|-------------------------------|
+| A (fixed) | **not applied** | n/a |
+| B, C (open) | applied (`last_licensed_scan_date ≥ rd − 30d`) | applied (`last_found ≥ rd − 30d`) |
+
+The asset-level gate was removed from the fixed side because it dropped credit for fixes on assets that were decommissioned — and therefore stopped being scanned — *after* the remediation landed. The open side keeps the asset gate and adds a finding-level guard so a finding no scanner has actually seen in the last 30 days can never be reported as overdue.
 
 ### Days-to-fix derivation
 
-For each fixed finding, days-to-fix is derived as follows:
+```
+clock_start  = COALESCE(resurfaced_date, first_found)
+days_to_fix  = (last_fixed − clock_start).days, clipped at 0
+```
 
-1. **Primary source:** `time_taken_to_fix` (seconds) ÷ 86,400, when the field is populated and numeric. This is Tenable's authoritative remediation duration.
-2. **Fallback:** `(last_fixed − first_found)` expressed in whole days, when `time_taken_to_fix` is missing or unparseable.
+Tenable's `time_taken_to_fix` field is **deliberately not used**. It measures from the *original* discovery straight through a reopen, so a finding that was fixed, resurfaced, and re-fixed within days is reported as months old. The same reopened-aware clock is used by `mttr_trend_module` (D-16-02); both modules ship in the same board PDF and must agree.
 
-Findings where days-to-fix cannot be computed are **excluded from the SLA count entirely** (neither numerator nor denominator). This prevents division bias from incomplete data.
+For the open populations the same clock start is used, with the age measured to the report date: `(rd − clock_start).days`.
+
+Fixed findings where days-to-fix cannot be computed (NaT `clock_start` or NaT `last_fixed`) are **excluded from the SLA count entirely** — neither numerator nor denominator. This prevents division bias from incomplete data.
 
 ### Thresholds
+
+Unchanged.
 
 | Status | Condition |
 |--------|-----------|
@@ -263,18 +301,33 @@ Findings where days-to-fix cannot be computed are **excluded from the SLA count 
 
 ### Values reported
 
-| Value | Description |
-|-------|-------------|
-| Remediation SLA % | SLA compliance percentage to one decimal place, or "No Data". |
-| Fixed within SLA | Count of Critical findings fixed within 15 days. |
-| Fixed outside SLA | Count of Critical findings fixed but outside the 15-day SLA. |
-| Total fixed last month | Total Critical findings fixed in the 30-day window. |
+| Metric key | Description |
+|------------|-------------|
+| `remediation_sla_pct` | SLA compliance percentage to one decimal place, or "No Data". |
+| `compliant` | Criticals fixed within 15 days (population A, `days_to_fix ≤ 15`). |
+| `fixed_late` | Criticals fixed but outside the 15-day SLA (population A, `days_to_fix > 15`). |
+| `open_past_due` | Criticals still open past their 15-day SLA (population B). |
+| `open_not_due` | Criticals still open inside their 15-day SLA (population C) — excluded from the calculation. |
+| `breached` | `fixed_late + open_past_due`. |
+| `denominator` | `compliant + breached`. |
+| `total_critical_open` | `open_past_due + open_not_due`. |
+| `status` | green / yellow / red / no_data. |
+
+The PDF page, the Excel tab, and the email driver narrative all disclose the four components plus Total Critical Open. The per-owner tables carry the same components; the Excel owner table adds every component column, while the PDF Top-5 table stays at four columns (Owner / Compliant / Denominator / SLA Compliance %) to avoid a page bleed.
+
+### Analyst workbook tabs
+
+| Tab | Contents |
+|-----|----------|
+| Critical Remediation Detail | Every finding that missed the SLA — the union of A rows fixed late and B rows still open past due. `days overdue` is `days_to_fix − 15` for A rows and `(rd − clock_start).days − 15` for B rows; `remediation due_date` is `clock_start + 15d` for both. Sorted by days overdue descending. |
+| VPR Severity Distribution | Open findings counted by `vpr_severity` (critical / high / medium / low / none, plus TOTAL). Scope is on-time assets with risk-managed findings excluded; the 30-day finding-level staleness guard is deliberately **not** applied here so the tab reconciles against the Tenable console. The `none` row makes the size of the VPR-only exclusion visible. |
 
 ### Edge cases
 
-- If no Critical findings were fixed in the last 30 days in scope → status is "No Data". This is a legitimate state (no remediation activity), not an error.
-- If the fixed-vulnerability data set is empty or unavailable → status is "No Data".
-- Findings where days-to-fix is negative (a data error in the source feed) are treated as within SLA (effectively a same-day fix).
+- `denominator == 0` → `remediation_sla_pct` is `None` and the status is "No Data" — **even when `open_not_due > 0`**. Nothing has met or missed the SLA yet, so there is no ratio to report. This is a legitimate state, not an error.
+- A NaT `clock_start` on an open finding falls into **C** (`open_not_due`), never into B. A finding whose overdue-ness cannot be computed is not counted as a failure, and it still appears in Total Critical Open so `|B| + |C|` always equals the in-scope open Critical count.
+- Findings where the date math is negative (a data error in the source feed) are clipped to 0 days and therefore counted as compliant (effectively a same-day fix).
+- If both the fixed-vulnerability data set and the open Critical population are empty → status is "No Data".
 
 ---
 
@@ -300,7 +353,7 @@ Where:
 
 An asset qualifies as high-risk when it meets **all three** of the following conditions:
 
-1. **Severity filter:** The finding has VPR-derived severity of `critical` or `high` (VPR ≥ 7.0).
+1. **Severity filter:** The finding has board-local VPR-only severity of `critical` or `high` (VPR ≥ 7.0). No native-CVSS fallback — a finding with no `vpr_score` is tiered `none` and does not count, even when its native Tenable `severity` string says `critical` or `high` (see [section 3](#3-severity-classification-vpr)).
 2. **Age filter:** Days open is **strictly greater than 30** (a finding open exactly 30 days is **not** counted).
 3. **Count threshold:** The asset has **≥ 10** qualifying findings meeting both conditions above.
 
@@ -352,7 +405,7 @@ Where:
 
 An asset qualifies as aged when it has **at least one** finding meeting **both** of the following conditions:
 
-1. **Severity filter:** VPR-derived severity is `medium`, `high`, or `critical` (VPR ≥ 4.0).
+1. **Severity filter:** Board-local VPR-only severity is `medium`, `high`, or `critical` (VPR ≥ 4.0). No native-CVSS fallback — a finding with no `vpr_score` is tiered `none` and does not count (see [section 3](#3-severity-classification-vpr)).
 2. **Age filter:** Days open is **strictly greater than 90** (a finding open exactly 90 days is **not** counted).
 
 Only findings on on-time assets are evaluated.
@@ -463,7 +516,7 @@ The report ran but found no licensed, on-time assets. Typical causes:
 
 ### Metric 2 shows "No Data" while others have values
 
-No Critical findings were fixed in the last 30 days within the scoped asset population. This is a **valid** data state (no Critical remediation activity in the window). It may also occur if the fixed-vulnerability feed for the run was empty or the scope filter excluded all assets carrying fixed Critical findings.
+The denominator (`compliant + breached`) is zero: no Critical findings were fixed in the last 30 days within scope **and** none are open past their 15-day SLA. This is a **valid** data state — including the case where Criticals are open but all of them are still inside their 15-day clock (`open_not_due > 0`, denominator still 0). It may also occur if the fixed-vulnerability feed for the run was empty or the scope filter excluded all assets carrying Critical findings.
 
 ### Business-unit breakdown is entirely "Untagged"
 

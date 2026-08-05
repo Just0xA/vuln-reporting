@@ -71,6 +71,8 @@ from reports.modules.rag_utils import (  # noqa: F401
 # board_report_utils.py.
 from reports.modules.board_report_utils import (  # noqa: F401
     populate_rag_strip, exclude_risk_managed,
+    # quick-260805-ezo — board-local VPR-only severity tiering
+    add_vpr_severity, vpr_severity_tier, VPR_NONE_LABEL,
 )
 
 # Composition utilities
@@ -102,4 +104,7 @@ __all__ = [
     # Board-helpers re-export
     "populate_rag_strip",
     "exclude_risk_managed",
+    "add_vpr_severity",
+    "vpr_severity_tier",
+    "VPR_NONE_LABEL",
 ]

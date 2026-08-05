@@ -27,6 +27,8 @@ Shared utilities
 - ``identify_on_time_assets``     — split into on-time / not-on-time subsets
 - ``extract_owner``               — add ``owner`` + ``application`` columns from Owner/Application tags
 - ``exclude_risk_managed``        — drop ACCEPTED/RECASTED rows from a findings DataFrame
+- ``vpr_severity_tier``           — map a single VPR score to a board severity tier
+- ``add_vpr_severity``            — add a board-local ``vpr_severity`` column to a findings DataFrame
 - ``compute_per_bu_breakdown``    — per-owner numerator/denominator/percentage table
 - ``compute_bu_risk_scores``      — weighted Risk Score per owner for qualifying assets
 - ``sla_status_from_thresholds``  — classify a value as green/yellow/red/no_data
@@ -58,6 +60,11 @@ _DEFAULT_UNASSIGNED_LABEL: str = "Unassigned"
 
 #: Default scan-recency window in days for the on-time filter.
 ON_TIME_WINDOW_DAYS: int = 30
+
+#: Label for findings that carry no usable VPR score (quick-260805-ezo).
+#: VPR "none" is a DISTINCT concept from the native-CVSS "info" tier (D-02);
+#: never conflate the two.
+VPR_NONE_LABEL: str = "none"
 
 
 # ===========================================================================
@@ -351,6 +358,138 @@ def exclude_risk_managed(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ===========================================================================
+# VPR severity tiering (quick-260805-ezo)
+# ===========================================================================
+
+def vpr_severity_tier(score) -> str:
+    """
+    Map a single VPR score to a board severity tier — VPR only, no fallback.
+
+    This is the board-local tiering rule (D-01/D-02/D-03). It deliberately
+    does NOT call :func:`config.vpr_to_severity`, because that helper falls
+    back to the native Tenable CVSS severity string when ``vpr_score`` is
+    absent. For board metrics an absent VPR means "not VPR-tiered", which is
+    a distinct state from the native-CVSS ``info`` tier and must not be
+    promoted into ``critical`` / ``high`` / ``medium`` / ``low``.
+
+    Boundary table
+    --------------
+    =====================  ==========
+    VPR score              Tier
+    =====================  ==========
+    9.0 – 10.0             critical
+    7.0 – 8.9              high
+    4.0 – 6.9              medium
+    0.1 – 3.9              low
+    0.0, negative, absent  none
+    =====================  ==========
+
+    Parameters
+    ----------
+    score : Any
+        Raw ``vpr_score`` cell value. May be a float, an ``int``, a numeric
+        string (parquet round-trips can yield object dtype), ``None``,
+        ``NaN`` / ``pd.NA``, an empty string, or an unparseable string.
+
+    Returns
+    -------
+    str
+        One of ``"critical"``, ``"high"``, ``"medium"``, ``"low"``, or
+        :data:`VPR_NONE_LABEL` (``"none"``).
+
+    Examples
+    --------
+    >>> vpr_severity_tier(9.5)
+    'critical'
+    >>> vpr_severity_tier("8.9")
+    'high'
+    >>> vpr_severity_tier(0.0)
+    'none'
+    >>> vpr_severity_tier(None)
+    'none'
+    """
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        return VPR_NONE_LABEL
+
+    # NaN never compares True to anything — catch it explicitly so the
+    # intent is readable rather than relying on fall-through.
+    if value != value:
+        return VPR_NONE_LABEL
+
+    if value >= 9.0:
+        return "critical"
+    if value >= 7.0:
+        return "high"
+    if value >= 4.0:
+        return "medium"
+    if value >= 0.1:
+        return "low"
+    return VPR_NONE_LABEL
+
+
+def add_vpr_severity(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return a copy of ``df`` carrying a board-local ``vpr_severity`` column.
+
+    The column is tiered purely from ``vpr_score`` using the same boundaries
+    as :func:`vpr_severity_tier`, with no native-CVSS fallback (D-01/D-02).
+    Only the board modules consume this column; every other report continues
+    to read the suite-wide ``severity`` column (D-03).
+
+    Implementation is vectorised (``pd.to_numeric`` + successive
+    :meth:`pandas.Series.mask` applications, coarsest tier first) rather than
+    a per-row ``.map(vpr_severity_tier)``; the unit tests assert the two
+    paths agree on every probed value.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Findings DataFrame. May or may not contain a ``vpr_score`` column,
+        and may be empty.
+
+    Returns
+    -------
+    pd.DataFrame
+        A NEW frame (built via ``.assign()`` per Hard Rule 5, so it is safe
+        to call on a filtered/sliced frame) with a ``vpr_severity`` column
+        appended. The caller's frame is never modified.
+
+        - Missing ``vpr_score`` column → a warning is logged and every row is
+          labelled :data:`VPR_NONE_LABEL`. No exception is raised (fail-soft,
+          mirroring :func:`extract_owner`).
+        - Empty frame → an empty frame that still carries the
+          ``vpr_severity`` column, so downstream column access is stable.
+    """
+    if "vpr_score" not in df.columns:
+        logger.warning(
+            "add_vpr_severity: column 'vpr_score' not present in DataFrame — "
+            "all findings will be tiered as %r.",
+            VPR_NONE_LABEL,
+        )
+        return df.assign(
+            vpr_severity=pd.Series(
+                VPR_NONE_LABEL, index=df.index, dtype="object"
+            )
+        )
+
+    numeric = pd.to_numeric(df["vpr_score"], errors="coerce")
+
+    # Start at "none" and promote upward. Applying the masks coarsest-first
+    # means each successive mask overwrites the tier below it, so the final
+    # value is the highest tier the score qualifies for. NaN comparisons are
+    # False throughout, so unparseable / absent scores stay at "none".
+    tiers = pd.Series(VPR_NONE_LABEL, index=df.index, dtype="object")
+    tiers = tiers.mask(numeric >= 0.1, "low")
+    tiers = tiers.mask(numeric >= 4.0, "medium")
+    tiers = tiers.mask(numeric >= 7.0, "high")
+    tiers = tiers.mask(numeric >= 9.0, "critical")
+
+    return df.assign(vpr_severity=tiers)
+
+
+# ===========================================================================
 # Per-BU percentage breakdown
 # ===========================================================================
 
@@ -498,7 +637,10 @@ def compute_bu_risk_scores(
     enriched : pd.DataFrame
         On-time assets with an ``owner`` column (from extract_owner).
     severities : frozenset[str]
-        Lower-cased severity labels to include (e.g. frozenset({"critical", "high"})).
+        Lower-cased ``vpr_severity`` tier labels to include
+        (e.g. frozenset({"critical", "high"})). Tiers come from the
+        board-local VPR-only tiering (:func:`vpr_severity_tier`) — NOT from
+        the native Tenable ``severity`` string (quick-260805-ezo, D-03).
     weights : dict[str, int]
         Severity → point value mapping (RISK_WEIGHTS from config).
 
@@ -511,17 +653,20 @@ def compute_bu_risk_scores(
     if not qualifying_uuids or vulns_df.empty:
         return pd.Series(dtype=int, index=pd.Index([], name="owner"))
 
+    # quick-260805-ezo — tier defensively here so the helper is correct
+    # regardless of whether the calling module already added the column.
+    vulns_df = add_vpr_severity(vulns_df)
+
     mask = (
         vulns_df["asset_uuid"].isin(qualifying_uuids)
-        & vulns_df["severity"].str.lower().isin(severities)
+        & vulns_df["vpr_severity"].isin(severities)
     )
-    risk_vulns = vulns_df.loc[mask, ["asset_uuid", "severity"]].copy()
-    risk_vulns.loc[:, "severity"] = risk_vulns["severity"].str.lower()
+    risk_vulns = vulns_df.loc[mask, ["asset_uuid", "vpr_severity"]].copy()
 
     if risk_vulns.empty:
         return pd.Series(dtype=int, index=pd.Index([], name="owner"))
 
-    risk_vulns.loc[:, "weighted"] = risk_vulns["severity"].map(weights).fillna(0)
+    risk_vulns.loc[:, "weighted"] = risk_vulns["vpr_severity"].map(weights).fillna(0)
     asset_scores = risk_vulns.groupby("asset_uuid")["weighted"].sum().astype(int)
 
     bu_map = (

@@ -1,9 +1,48 @@
 """
 reports/modules/critical_remediation_sla_module.py — Critical Vulnerability Remediation SLA.
 
-Measures the percentage of Critical vulnerabilities that were fixed within
-their 15-day SLA during the last 30 days, scoped to assets that have been
-scanned on time.
+Measures how much of the Critical remediation workload met its 15-day SLA,
+counting BOTH criticals fixed in the last 30 days AND criticals still open
+past their 15-day clock.
+
+quick-260805-ezo reformulation
+------------------------------
+Cohort (D-04)
+    ``vpr_severity == "critical"`` (board-local VPR-only tiering — no
+    native-CVSS fallback) AND not risk-managed (ACCEPTED / RECASTED).  The
+    cohort filter is applied to BOTH the open and the fixed population.
+
+Clock (D-05)
+    ``clock_start = COALESCE(resurfaced_date, first_found)``.  Tenable's
+    ``time_taken_to_fix`` is deliberately NOT consulted — it measures from the
+    original discovery across a reopen and therefore inflates the duration of
+    every reopened finding.  Same clock as ``mttr_trend_module`` (D-16-02);
+    both modules ship in the same PDF and must agree.
+
+Populations (``rd`` = report_date)
+    A  fixed_in_window : ``state == FIXED AND last_fixed >= rd - 30d``
+    B  open_past_due   : open/reopened, ``last_found >= rd - 30d``, asset
+                         on-time, ``(rd - clock_start).days > 15``
+    C  open_not_due    : as B but ``(rd - clock_start).days <= 15``
+
+Scoping asymmetry (D-06)
+    The asset-level on-time gate applies to the OPEN side only.  It was
+    removed from the FIXED side because it dropped credit for fixes on assets
+    that were decommissioned (and therefore stopped being scanned) after the
+    remediation landed.  The OPEN side additionally carries a finding-level
+    staleness guard (``last_found >= rd - 30d``) so a finding no scanner has
+    seen recently cannot be reported as overdue.
+
+Metric (D-07)
+    ``compliant   = |A where days_to_fix <= 15|``
+    ``fixed_late  = |A where days_to_fix > 15|``
+    ``breached    = fixed_late + |B|``
+    ``denominator = compliant + breached``
+    ``sla_pct     = compliant / denominator * 100``  (None when denominator 0)
+    ``total_critical_open = |B| + |C|``
+
+    C is excluded from the denominator: those findings have not yet had their
+    chance to meet or miss the SLA.
 
 Module ID:    critical_remediation_sla
 Display Name: Critical Vulnerability Remediation SLA
@@ -51,12 +90,14 @@ from reports.modules.base import BaseModule, ModuleConfig, ModuleData
 from reports.modules.registry import register_module
 from reports.modules.board_pdf_layout import two_column_metric_section
 from reports.modules.board_report_utils import (
+    add_vpr_severity,
     compute_per_bu_breakdown,
     exclude_risk_managed,
     extract_owner,
     identify_on_time_assets,
     sla_status_from_thresholds,
     ON_TIME_WINDOW_DAYS,
+    VPR_NONE_LABEL,
 )
 from reports.modules.chart_utils import draw_gauge
 from reports.modules.format_utils import safe_int, safe_pct
@@ -113,6 +154,16 @@ _FILL_HEADER = PatternFill("solid", fgColor="1F3864")
 # SLA for critical findings (days) — sourced from config.SLA_DAYS
 _CRITICAL_SLA_DAYS: int = SLA_DAYS["critical"]   # 15
 
+# quick-260805-ezo — fixed row order for the "VPR Severity Distribution"
+# analyst tab. The `none` row is the entire point of the tab, so it is always
+# emitted even when the count is zero.
+_VPR_DISTRIBUTION_TIERS: tuple[str, ...] = (
+    "critical", "high", "medium", "low", VPR_NONE_LABEL,
+)
+
+# States that count as "currently open" for the B / C populations.
+_OPEN_STATES: frozenset[str] = frozenset({"OPEN", "REOPENED"})
+
 
 # ===========================================================================
 # Module class
@@ -155,24 +206,36 @@ class CriticalRemediationSLAModule(BaseModule):
         **kwargs:    Any,
     ) -> ModuleData:
         """
-        Compute Critical remediation SLA compliance for the last 30 days.
+        Compute Critical remediation SLA compliance across four populations.
+
+        The cohort is VPR-only Critical (``vpr_severity == "critical"``) with
+        risk-managed (ACCEPTED / RECASTED) findings excluded from BOTH the
+        open and the fixed frame (D-04).  Duration is measured from
+        ``COALESCE(resurfaced_date, first_found)`` (D-05).  The denominator
+        counts criticals fixed in the last 30 days plus criticals still open
+        past their 15-day clock; criticals still inside that clock are
+        excluded (D-07).
 
         Parameters
         ----------
         vulns_df : pd.DataFrame
             Open / reopened findings from fetch_all_vulnerabilities().
-            Used to compute ``total_open_last_month``.
+            Source of the ``open_past_due`` (B) and ``open_not_due`` (C)
+            populations and of the VPR-distribution analyst tab.
         assets_df : pd.DataFrame
             Full asset inventory from fetch_all_assets().
-            Used to derive the on-time asset set and BU labels.
+            Used to derive the on-time asset set (OPEN side only) and the
+            owner labels for the per-owner breakdown.
         report_date : datetime
             UTC-aware report run timestamp.
         config : ModuleConfig
             Module configuration (no options consumed).
         **kwargs
             ``fixed_vulns_df`` (pd.DataFrame, optional): fixed findings from
-            fetch_fixed_vulnerabilities().  Required for the primary metric.
-            Returns ``"no_data"`` when absent or empty.
+            fetch_fixed_vulnerabilities().  Source of the ``compliant`` and
+            ``fixed_late`` components.  When absent or empty the metric can
+            still be computed from the open side alone; ``"no_data"`` is
+            returned only when the denominator is zero.
 
         Returns
         -------
@@ -188,10 +251,19 @@ class CriticalRemediationSLAModule(BaseModule):
             fixed_vulns_df: pd.DataFrame = kwargs.get(
                 "fixed_vulns_df", pd.DataFrame()
             )
-            # Exclude risk-managed (ACCEPTED/RECASTED) findings from the
-            # FIXED population up front — they must not inflate/deflate the
-            # SLA metric (quick-260722-lx9).
+            # Exclude risk-managed (ACCEPTED/RECASTED) findings from BOTH
+            # populations up front — they must not inflate/deflate the SLA
+            # metric (quick-260722-lx9; extended to the OPEN side by
+            # quick-260805-ezo D-04, matching high_risk_assets_module.py and
+            # aged_vulns_assets_module.py).
+            vulns_df       = exclude_risk_managed(vulns_df)
             fixed_vulns_df = exclude_risk_managed(fixed_vulns_df)
+
+            # quick-260805-ezo D-04 — cohort is the board-local VPR-only
+            # Critical tier; a finding with no VPR score is "none", never
+            # promoted from its native-CVSS severity string.
+            vulns_df       = add_vpr_severity(vulns_df)
+            fixed_vulns_df = add_vpr_severity(fixed_vulns_df)
 
             # Phase 3 — explicit empty-input guard. When assets_df has no
             # rows or lacks required columns we cannot derive an on-time
@@ -226,70 +298,108 @@ class CriticalRemediationSLAModule(BaseModule):
                 rd_ts = pd.Timestamp(report_date, tz="UTC")
             thirty_days_ago = rd_ts - pd.Timedelta(days=ON_TIME_WINDOW_DAYS)
 
-            # ---- Step 3: open critical findings on on-time assets ----
-            open_crit = _filter_critical(vulns_df, on_time_uuids)
-            total_open_last_month = len(open_crit)
+            # ---- Step 3: population A — criticals FIXED in the window ----
+            # quick-260805-ezo D-06 — no asset-level on-time gate here. The
+            # gate used to drop credit for fixes on assets that stopped being
+            # scanned (decommissioned) after the remediation landed.
+            fixed_crit = _filter_critical_vpr(fixed_vulns_df)
 
-            # ---- Step 4: fixed critical findings in the 30-day window ----
-            fixed_crit_all = _filter_critical(fixed_vulns_df, on_time_uuids)
-
-            if fixed_crit_all.empty:
-                fixed_in_window = pd.DataFrame()
+            if (
+                fixed_crit.empty
+                or "state" not in fixed_crit.columns
+                or "last_fixed" not in fixed_crit.columns
+            ):
+                fixed_in_window = fixed_crit.iloc[0:0].copy()
             else:
-                state_upper = fixed_crit_all["state"].str.upper()
-                lf_col      = fixed_crit_all["last_fixed"]
-                fixed_mask  = (
+                state_upper   = fixed_crit["state"].astype(str).str.upper()
+                last_fixed_ts = _coerce_ts(fixed_crit, "last_fixed")
+                fixed_mask    = (
                     (state_upper == "FIXED")
-                    & lf_col.notna()
-                    & (lf_col >= thirty_days_ago)
+                    & last_fixed_ts.notna()
+                    & (last_fixed_ts >= thirty_days_ago)
                 )
-                fixed_in_window = fixed_crit_all[fixed_mask].copy()
+                fixed_in_window = fixed_crit[fixed_mask].copy()
 
-            total_fixed_last_month = len(fixed_in_window)
+            # days_to_fix — reopened-aware COALESCE clock (D-05 / D-16-02).
+            # Hard Rule 5: .assign() only, never .loc[:, col] = ... on a slice.
+            if fixed_in_window.empty:
+                fixed_in_window = fixed_in_window.assign(
+                    days_to_fix=pd.Series(dtype="float64")
+                )
+            else:
+                days_to_fix = (
+                    _coerce_ts(fixed_in_window, "last_fixed")
+                    - _compute_clock_start(fixed_in_window)
+                ).dt.days.clip(lower=0)
+                fixed_in_window = fixed_in_window.assign(days_to_fix=days_to_fix)
 
-            # ---- Step 5: compute days_to_fix and count within-SLA ----
-            if total_fixed_last_month == 0:
+            dtf              = fixed_in_window["days_to_fix"]
+            compliant_mask   = dtf.notna() & (dtf <= _CRITICAL_SLA_DAYS)
+            fixed_late_mask  = dtf.notna() & (dtf > _CRITICAL_SLA_DAYS)
+            compliant        = int(compliant_mask.sum())
+            fixed_late       = int(fixed_late_mask.sum())
+
+            # ---- Step 4: populations B and C — criticals still OPEN ----
+            open_in_scope = _filter_open_in_scope(
+                _filter_critical_vpr(vulns_df), on_time_uuids, thirty_days_ago,
+            )
+
+            if open_in_scope.empty:
+                open_age_days   = pd.Series(dtype="float64")
+                past_due_mask   = pd.Series(dtype=bool)
+            else:
+                open_age_days = (
+                    rd_ts - _compute_clock_start(open_in_scope)
+                ).dt.days
+                # QT-02 — a NaT clock_start yields NaN age; such a finding is
+                # NOT counted as a failure, it falls into C (not yet due) and
+                # still appears in Total Critical Open.
+                past_due_mask = (
+                    open_age_days.notna()
+                    & (open_age_days > _CRITICAL_SLA_DAYS)
+                )
+
+            open_past_due = int(past_due_mask.sum())
+            open_not_due  = int(len(open_in_scope) - open_past_due)
+
+            # ---- Step 5: the metric (D-07 / D-08) ----
+            breached            = fixed_late + open_past_due
+            denominator         = compliant + breached
+            total_critical_open = open_past_due + open_not_due
+
+            if denominator == 0:
                 remediation_sla_pct = None
-                fixed_within_sla    = 0
-                status              = "no_data"
                 logger.debug(
-                    "%s no critical findings fixed in the last 30 days "
-                    "— returning no_data.",
+                    "%s denominator is zero (no criticals fixed in the window "
+                    "and none open past their SLA) — returning no_data.",
                     self._log_prefix(),
                 )
             else:
-                fixed_in_window = fixed_in_window.copy()
-                fixed_in_window.loc[:, "days_to_fix"] = fixed_in_window.apply(
-                    _compute_days_to_fix, axis=1
-                )
+                remediation_sla_pct = round(compliant / denominator * 100, 1)
 
-                within_sla_mask = (
-                    fixed_in_window["days_to_fix"].notna()
-                    & (fixed_in_window["days_to_fix"] <= _CRITICAL_SLA_DAYS)
-                )
-                fixed_within_sla    = int(within_sla_mask.sum())
-                remediation_sla_pct = round(
-                    fixed_within_sla / total_fixed_last_month * 100, 1
-                )
-                status = sla_status_from_thresholds(
-                    remediation_sla_pct,
-                    green_threshold  = _GREEN_THRESHOLD,
-                    yellow_threshold = _YELLOW_THRESHOLD,
-                    direction        = _DIRECTION,
-                )
+            # sla_status_from_thresholds() maps None -> "no_data" itself.
+            status = sla_status_from_thresholds(
+                remediation_sla_pct,
+                green_threshold  = _GREEN_THRESHOLD,
+                yellow_threshold = _YELLOW_THRESHOLD,
+                direction        = _DIRECTION,
+            )
 
-            # ---- Step 6: per-BU breakdown ----
-            # Scope: fixed critical findings in last 30 days, per on-time-asset BU
+            # ---- Step 6: per-owner breakdown over all four components ----
             bu_breakdown = _compute_bu_breakdown(
-                fixed_in_window, on_time, within_sla_mask
-                if total_fixed_last_month > 0 else None
+                fixed_in_window = fixed_in_window,
+                compliant_mask  = compliant_mask,
+                fixed_late_mask = fixed_late_mask,
+                open_in_scope   = open_in_scope,
+                past_due_mask   = past_due_mask,
+                assets_df       = assets_df,
             )
             table_data = bu_breakdown.to_dict("records")
 
             # ---- Step 7: narrative summary ----
             summary_text = _build_summary(
-                remediation_sla_pct, total_fixed_last_month,
-                fixed_within_sla, total_open_last_month, status,
+                remediation_sla_pct, compliant, fixed_late,
+                open_past_due, open_not_due, denominator, status,
             )
 
             computed_at = (
@@ -300,102 +410,45 @@ class CriticalRemediationSLAModule(BaseModule):
 
             # ===== Phase 3 contract fields =====
 
-            # Phase 3 D-10/D-11 — analyst rows for Critical Remediation SLA
-            # Source: fixed_in_window where days_to_fix > _CRITICAL_SLA_DAYS
-            # (the findings that missed the 15-day Critical SLA).
-            # D-13 — finding-level rows; NO dedup (each finding row is distinct).
-            if not fixed_in_window.empty and "days_to_fix" in fixed_in_window.columns:
-                missed = fixed_in_window[
-                    fixed_in_window["days_to_fix"] > _CRITICAL_SLA_DAYS
-                ].copy()
-                # WR-03 fix — exclude risk-managed findings (accepted /
-                # recasted) from the per-finding "missed Critical SLA"
-                # drill-down. fetch_fixed_vulnerabilities() returns the
-                # FIXED population, but Tenable also includes accepted /
-                # recasted findings in that cohort when the rule's state
-                # changes. Surfacing those rows as "missed SLA" misleads
-                # operators — they are risk-managed, not unremediated.
-                # The same guard also tightens the email-panel driver
-                # narrative ("{missed_count} critical findings missed
-                # SLA.") since missed_count is derived from this slice.
-                # Exclusion now happens upstream via exclude_risk_managed(fixed_vulns_df)
-                # at compute() entry (quick-260722-lx9).
-                if not missed.empty:
-                    # Derive owner_tag for each finding row via extract_owner.
-                    # extract_owner operates on an assets-style DataFrame; findings
-                    # carry a 'tags' column in the same "Cat=Val;Cat=Val" format, so
-                    # passing 'missed' directly produces an 'owner' column we rename
-                    # to 'owner_tag' for the analyst drill-down display.
-                    missed_with_owner = extract_owner(missed)
-                    missed = missed.assign(
-                        owner_tag=missed_with_owner["owner"].values,
-                        plugin=missed.apply(
-                            lambda r: f"{r.get('plugin_name', '')} ({r.get('plugin_id', '')})",
-                            axis=1,
-                        ),
-                        **{
-                            "days overdue": (
-                                missed["days_to_fix"] - _CRITICAL_SLA_DAYS
-                            ).clip(lower=0).round().astype("Int64"),
-                            "remediation due_date": (
-                                pd.to_datetime(
-                                    missed["first_found"], utc=True, errors="coerce"
-                                )
-                                + pd.Timedelta(days=_CRITICAL_SLA_DAYS)
-                            ),
-                        },
-                    )
-                    analyst_df = missed.reindex(columns=[
-                        "hostname",
-                        "plugin",
-                        "days overdue",
-                        "first_found",
-                        "owner_tag",
-                        "remediation due_date",
-                    ]).rename(columns={"hostname": "asset"})
-                    # D-11 — sort by days overdue desc
-                    analyst_df = analyst_df.sort_values(
-                        "days overdue", ascending=False, na_position="last",
-                    ).reset_index(drop=True)
-                    # T-03-03-02 — CSV-formula injection guard (text columns only)
-                    for _col in ("asset", "plugin", "owner_tag"):
-                        analyst_df.loc[:, _col] = (
-                            analyst_df[_col].astype("string").map(
-                                lambda s: ("'" + s)
-                                if isinstance(s, str) and s[:1] in ("=", "+", "-", "@")
-                                else s
-                            )
-                        )
-                    analyst_rows_payload: list = [
-                        ("Critical Remediation Detail", analyst_df)
-                    ]
-                else:
-                    analyst_rows_payload = []
-            else:
-                analyst_rows_payload = []
+            # Phase 3 D-10/D-11 — analyst rows for Critical Remediation SLA.
+            # quick-260805-ezo — the detail tab now unions BOTH kinds of
+            # missed-SLA finding: A rows fixed late AND B rows still open past
+            # their clock. D-13 — finding-level rows; NO dedup.
+            analyst_rows_payload: list = []
 
-            # Phase 3 D-06 — Critical Remediation SLA driver narrative
-            # Template (locked in plan 03-03):
-            #   "{fixed_within_sla} of {total_fixed_last_month} fixed within
-            #    {_CRITICAL_SLA_DAYS}-day window; {missed_count} critical findings
-            #    missed SLA."
-            # W5 — these are the actual local-variable names in compute() scope.
-            total_fixed_val      = (
-                int(total_fixed_last_month) if total_fixed_last_month is not None else 0
+            missed_detail_df = _build_missed_detail(
+                fixed_late_rows = fixed_in_window[fixed_late_mask],
+                open_past_due_rows = (
+                    open_in_scope[past_due_mask]
+                    if not open_in_scope.empty
+                    else open_in_scope
+                ),
+                rd_ts = rd_ts,
             )
-            fixed_within_sla_val = (
-                int(fixed_within_sla) if fixed_within_sla is not None else 0
-            )
-            if total_fixed_val > 0 or fixed_within_sla_val > 0 or analyst_rows_payload:
-                missed_count = (
-                    len(analyst_rows_payload[0][1])
-                    if analyst_rows_payload
-                    else 0
+            if not missed_detail_df.empty:
+                analyst_rows_payload.append(
+                    ("Critical Remediation Detail", missed_detail_df)
                 )
+
+            # quick-260805-ezo D-10 — VPR distribution of the OPEN population.
+            # Scope: on-time assets + risk-managed excluded ONLY; the 30-day
+            # finding-level staleness guard is deliberately NOT applied here so
+            # the tab reconciles against the operator's console counts. The
+            # `none` row is the entire point of the tab, so it is emitted even
+            # when the detail tab above is empty.
+            analyst_rows_payload.append((
+                "VPR Severity Distribution",
+                _build_vpr_distribution(vulns_df, on_time_uuids),
+            ))
+
+            # Item 3 — driver narrative disclosing all four components.
+            if denominator > 0 or total_critical_open > 0:
                 driver = (
-                    f"{safe_int(fixed_within_sla_val)} of {safe_int(total_fixed_val)} "
-                    f"fixed within {_CRITICAL_SLA_DAYS}-day window; "
-                    f"{safe_int(missed_count)} critical findings missed SLA."
+                    f"{safe_int(compliant)} of {safe_int(denominator)} criticals "
+                    f"met the {_CRITICAL_SLA_DAYS}-day SLA; "
+                    f"{safe_int(fixed_late)} fixed late, "
+                    f"{safe_int(open_past_due)} still overdue, "
+                    f"{safe_int(open_not_due)} not yet due."
                 )
             else:
                 driver = NO_DATA_DRIVER
@@ -436,12 +489,19 @@ class CriticalRemediationSLAModule(BaseModule):
             return ModuleData(
                 module_id    = self.MODULE_ID,
                 display_name = self.DISPLAY_NAME,
+                # quick-260805-ezo QT-01 — the four-component metrics contract.
+                # total_open_last_month / total_fixed_last_month /
+                # fixed_within_sla are REMOVED (no external reader).
                 metrics      = {
-                    "remediation_sla_pct":    remediation_sla_pct,
-                    "total_open_last_month":  total_open_last_month,
-                    "total_fixed_last_month": total_fixed_last_month,
-                    "fixed_within_sla":       fixed_within_sla,
-                    "status":                 status,
+                    "remediation_sla_pct": remediation_sla_pct,
+                    "compliant":           compliant,
+                    "fixed_late":          fixed_late,
+                    "open_past_due":       open_past_due,
+                    "open_not_due":        open_not_due,
+                    "breached":            breached,
+                    "denominator":         denominator,
+                    "total_critical_open": total_critical_open,
+                    "status":              status,
                 },
                 table_data   = table_data,
                 chart_data   = {
@@ -455,7 +515,12 @@ class CriticalRemediationSLAModule(BaseModule):
                 },
                 summary_text = summary_text,
                 metadata     = {
-                    "window":            f"Last {ON_TIME_WINDOW_DAYS} days from report_date",
+                    # quick-260805-ezo — window / scope / clock strings rewritten.
+                    "window": (
+                        f"Fixed: last_fixed >= report_date − {ON_TIME_WINDOW_DAYS}d; "
+                        f"Open: last_found >= report_date − {ON_TIME_WINDOW_DAYS}d "
+                        "(finding-level staleness guard)"
+                    ),
                     "critical_sla_days": _CRITICAL_SLA_DAYS,
                     "sla_source":        (
                         "Board-defined thresholds "
@@ -463,12 +528,14 @@ class CriticalRemediationSLAModule(BaseModule):
                         f"Amber ≥{_YELLOW_THRESHOLD}%, Red <{_YELLOW_THRESHOLD}%)"
                     ),
                     "on_time_scope": (
-                        "Only findings on assets with last_licensed_scan_date "
-                        f">= report_date − {ON_TIME_WINDOW_DAYS} days are included."
+                        "The asset-level on-time gate (last_licensed_scan_date "
+                        f">= report_date − {ON_TIME_WINDOW_DAYS} days) applies to "
+                        "the OPEN population only; the FIXED population carries "
+                        "no asset-level gate."
                     ),
                     "days_to_fix_source": (
-                        "time_taken_to_fix / 86400 when available; "
-                        "fallback: (last_fixed − first_found).days"
+                        "(last_fixed − COALESCE(resurfaced_date, first_found)).days, "
+                        "clipped at 0; time_taken_to_fix is deliberately NOT used"
                     ),
                     "computed_at":      computed_at,
                     "email_gauge_b64":  email_gauge_b64,
@@ -505,8 +572,12 @@ class CriticalRemediationSLAModule(BaseModule):
         Layout (two-column row via ``two_column_metric_section`` to avoid the
         page bleed a stacked explanation caused):
         - Section heading (full width)
-        - Left column: gauge with 95 / 85 colour zones, status badge, and three
-          bold support numbers (Open Last Month | Fixed Last Month | Fixed in SLA)
+        - Left column: gauge with 95 / 85 colour zones, status badge, and the
+          five bold support numbers disclosing every metric component
+          (Compliant | Fixed late | Still open, overdue | Not yet due |
+          Total Critical Open) — quick-260805-ezo Item 3.  They stay in ONE
+          table row: a second row re-introduces the page bleed this layout
+          was created to fix.
         - Right column: explanatory paragraph (left-aligned)
         - Below, full width: Top-5 worst-performing BUs table
         """
@@ -517,12 +588,14 @@ class CriticalRemediationSLAModule(BaseModule):
                 f"</div>"
             )
 
-        m                    = data.metrics
-        sla_pct              = m.get("remediation_sla_pct")
-        total_open           = m.get("total_open_last_month", 0)
-        total_fixed          = m.get("total_fixed_last_month", 0)
-        fixed_within_sla     = m.get("fixed_within_sla", 0)
-        status               = m.get("status", "no_data")
+        m                   = data.metrics
+        sla_pct             = m.get("remediation_sla_pct")
+        compliant           = m.get("compliant", 0)
+        fixed_late          = m.get("fixed_late", 0)
+        open_past_due       = m.get("open_past_due", 0)
+        open_not_due        = m.get("open_not_due", 0)
+        total_critical_open = m.get("total_critical_open", 0)
+        status              = m.get("status", "no_data")
 
         # ---- Gauge ----
         gauge_value = sla_pct if sla_pct is not None else 0.0
@@ -564,24 +637,37 @@ class CriticalRemediationSLAModule(BaseModule):
             f'</p>'
         )
 
-        # ---- Three support numbers ----
+        # ---- Five support numbers (quick-260805-ezo Item 3) ----
+        # ONE row, narrower cells + smaller type. A second row re-creates the
+        # page bleed recorded in the module docstring.
+        _cell_css = (
+            "text-align:center; padding:1.5mm 2mm; vertical-align:middle;"
+        )
+        _div_css  = _cell_css + " border-right:0.5pt solid #ddd;"
+        _num_css  = "font-size:11pt; font-weight:bold;"
+        _lbl_css  = "font-size:6pt; color:#777;"
         support_html = f"""
-<table style="width:65%; margin:0 auto 6mm auto; border-collapse:collapse;">
+<table style="width:100%; margin:0 auto 6mm auto; border-collapse:collapse;">
   <tr>
-    <td style="text-align:center; padding:2mm 5mm;
-               border-right:0.5pt solid #ddd; vertical-align:middle;">
-      <span style="font-size:13pt; font-weight:bold; color:#555;">{total_open:,}</span>
-      <br><span style="font-size:7pt; color:#777;">Open Last Month</span>
+    <td style="{_div_css}">
+      <span style="{_num_css} color:#388e3c;">{compliant:,}</span>
+      <br><span style="{_lbl_css}">Compliant (&le;{_CRITICAL_SLA_DAYS}d)</span>
     </td>
-    <td style="text-align:center; padding:2mm 5mm;
-               border-right:0.5pt solid #ddd; vertical-align:middle;">
-      <span style="font-size:13pt; font-weight:bold; color:#1F3864;">{total_fixed:,}</span>
-      <br><span style="font-size:7pt; color:#777;">Fixed Last Month</span>
+    <td style="{_div_css}">
+      <span style="{_num_css} color:#d32f2f;">{fixed_late:,}</span>
+      <br><span style="{_lbl_css}">Fixed late (&gt;{_CRITICAL_SLA_DAYS}d)</span>
     </td>
-    <td style="text-align:center; padding:2mm 5mm; vertical-align:middle;">
-      <span style="font-size:13pt; font-weight:bold;
-             color:{status_color};">{fixed_within_sla:,}</span>
-      <br><span style="font-size:7pt; color:#777;">Fixed within SLA (≤{_CRITICAL_SLA_DAYS}d)</span>
+    <td style="{_div_css}">
+      <span style="{_num_css} color:#d32f2f;">{open_past_due:,}</span>
+      <br><span style="{_lbl_css}">Still open, overdue</span>
+    </td>
+    <td style="{_div_css}">
+      <span style="{_num_css} color:#555;">{open_not_due:,}</span>
+      <br><span style="{_lbl_css}">Not yet due</span>
+    </td>
+    <td style="{_cell_css}">
+      <span style="{_num_css} color:#1F3864;">{total_critical_open:,}</span>
+      <br><span style="{_lbl_css}">Total Critical Open</span>
     </td>
   </tr>
 </table>"""
@@ -611,8 +697,8 @@ class CriticalRemediationSLAModule(BaseModule):
   <thead>
     <tr>
       <th>Owner</th>
-      <th style="text-align:right;">Fixed in SLA</th>
-      <th style="text-align:right;">Fixed (30d)</th>
+      <th style="text-align:right;">Compliant</th>
+      <th style="text-align:right;">Denominator</th>
       <th style="text-align:right;">SLA Compliance %</th>
     </tr>
   </thead>
@@ -622,8 +708,8 @@ class CriticalRemediationSLAModule(BaseModule):
             bu_table_html = (
                 '<p class="explanatory-text" style="color:#888; font-style:italic;">'
                 'No owner breakdown available '
-                '(no critical findings fixed in the last 30 days, or '
-                'assets lack Owner tags).'
+                '(no critical findings fixed in the last 30 days and none open '
+                'past their SLA, or assets lack Owner tags).'
                 '</p>'
             )
 
@@ -634,15 +720,18 @@ class CriticalRemediationSLAModule(BaseModule):
         yellow_str = format(_YELLOW_THRESHOLD, ".0f")
         explain_html = f"""
 <p class="explanatory-text">
-  <strong>What this measures:</strong> Of Critical vulnerabilities (VPR 9.0&ndash;10.0)
-  that were fixed in the last 30 days on assets scanned on time, what percentage were
-  remediated within the {_CRITICAL_SLA_DAYS}-day SLA?  Only assets with a licensed scan
-  in the last {ON_TIME_WINDOW_DAYS} days are in scope — this prevents stale assets from
-  inflating the denominator.  Board target is &ge;{green_str}% (green).
-  &ge;{yellow_str}% is at-risk (amber).  Below {yellow_str}% is
-  off-target (red).
-  <em>Note: this metric approximates "open during the window" using fixed-finding data
-  combined with still-open findings; see the calculations document for detail.</em>
+  <strong>What this measures:</strong> Of the Critical vulnerabilities
+  (VPR 9.0&ndash;10.0, excluding risk-accepted and recast findings) whose
+  {_CRITICAL_SLA_DAYS}-day clock has expired, what percentage were remediated in time?
+  The {_CRITICAL_SLA_DAYS}-day clock runs from the resurface date when a finding has
+  reopened, otherwise from first discovery.  The denominator counts criticals fixed in
+  the last {ON_TIME_WINDOW_DAYS} days PLUS criticals still open past their
+  {_CRITICAL_SLA_DAYS}-day SLA; criticals still inside their {_CRITICAL_SLA_DAYS}-day
+  clock are excluded because they have not yet had the chance to meet or miss it.
+  Open findings are scoped to assets scanned in the last {ON_TIME_WINDOW_DAYS} days AND
+  to findings a scanner has actually seen in the last {ON_TIME_WINDOW_DAYS} days.
+  Board target is &ge;{green_str}% (green).  &ge;{yellow_str}% is at-risk (amber).
+  Below {yellow_str}% is off-target (red).
 </p>"""
 
         return two_column_metric_section(
@@ -694,12 +783,17 @@ class CriticalRemediationSLAModule(BaseModule):
                 ws["B1"] = data.error
                 return [tab_name]
 
-            m                = data.metrics
-            sla_pct          = m.get("remediation_sla_pct")
-            total_open       = m.get("total_open_last_month", 0)
-            total_fixed      = m.get("total_fixed_last_month", 0)
-            fixed_within_sla = m.get("fixed_within_sla", 0)
-            status           = m.get("status", "no_data")
+            # quick-260805-ezo Item 3 — the KPI block discloses all four
+            # components plus Total Critical Open and the denominator.
+            m                   = data.metrics
+            sla_pct             = m.get("remediation_sla_pct")
+            compliant           = m.get("compliant", 0)
+            fixed_late          = m.get("fixed_late", 0)
+            open_past_due       = m.get("open_past_due", 0)
+            open_not_due        = m.get("open_not_due", 0)
+            denominator         = m.get("denominator", 0)
+            total_critical_open = m.get("total_critical_open", 0)
+            status              = m.get("status", "no_data")
 
             # ---- Overall KPI block ----
             _xl_title(ws, "A1", "Critical Vulnerability Remediation SLA — 30-Day Window")
@@ -714,23 +808,37 @@ class CriticalRemediationSLAModule(BaseModule):
             _xl_kv(ws, 4, "Status:",
                    _STATUS_LABEL.get(status, status),
                    value_font=Font(bold=True, color=status_color_hex))
-            _xl_kv(ws, 5, "Open Last Month (Critical):", f"{total_open:,}")
-            _xl_kv(ws, 6, "Fixed Last Month (Critical):", f"{total_fixed:,}")
-            _xl_kv(ws, 7, f"Fixed within SLA (≤{_CRITICAL_SLA_DAYS}d):",
-                   f"{fixed_within_sla:,}")
-            _xl_kv(ws, 8, "Window:",
-                   f"Last {ON_TIME_WINDOW_DAYS} days (last_fixed >= report_date − 30d)")
-            _xl_kv(ws, 9, "SLA Thresholds:",
+            _xl_kv(ws, 5, f"Compliant (fixed ≤{_CRITICAL_SLA_DAYS}d):",
+                   f"{compliant:,}")
+            _xl_kv(ws, 6, f"Fixed late (>{_CRITICAL_SLA_DAYS}d):",
+                   f"{fixed_late:,}")
+            _xl_kv(ws, 7, f"Still open, overdue (>{_CRITICAL_SLA_DAYS}d):",
+                   f"{open_past_due:,}")
+            _xl_kv(ws, 8,
+                   f"Not yet due (≤{_CRITICAL_SLA_DAYS}d) "
+                   "(excluded from calculation):",
+                   f"{open_not_due:,}")
+            _xl_kv(ws, 9, "Total Critical Open:", f"{total_critical_open:,}")
+            _xl_kv(ws, 10, "Denominator:", f"{denominator:,}")
+            _xl_kv(ws, 11, "Window:",
+                   f"Fixed: last_fixed >= report_date − {ON_TIME_WINDOW_DAYS}d  |  "
+                   f"Open: last_found >= report_date − {ON_TIME_WINDOW_DAYS}d "
+                   "(finding-level staleness guard)")
+            _xl_kv(ws, 12, "SLA Thresholds:",
                    f"Green ≥{_GREEN_THRESHOLD:.0f}%  |  "  # safe: module-level int constant, never None
                    f"Amber ≥{_YELLOW_THRESHOLD:.0f}%  |  "  # safe: module-level int constant, never None
                    f"Red <{_YELLOW_THRESHOLD:.0f}%")  # safe: module-level int constant, never None
-            _xl_kv(ws, 10, "Scope:",
-                   "Assets with last_licensed_scan_date within last 30 days only")
+            _xl_kv(ws, 13, "Scope:",
+                   "Cohort: VPR 9.0–10.0 Critical, excluding risk-accepted / "
+                   "recast findings.  The asset-level on-time gate "
+                   f"(last_licensed_scan_date within {ON_TIME_WINDOW_DAYS}d) "
+                   "applies to the OPEN side only.")
 
             # ---- Owner breakdown table ----
-            header_row = 12
+            header_row = 15
             headers = [
-                "Owner", "Fixed in SLA", "Fixed (30d)", "SLA Compliance %"
+                "Owner", "Compliant", "Fixed late", "Still open, overdue",
+                "Not yet due", "Denominator", "SLA Compliance %",
             ]
             for col_idx, header in enumerate(headers, start=1):
                 cell           = ws.cell(row=header_row, column=col_idx, value=header)
@@ -747,15 +855,22 @@ class CriticalRemediationSLAModule(BaseModule):
                         value=str(row.get("owner", ""))).alignment = (
                     Alignment(horizontal="left")
                 )
-                ws.cell(row=data_row, column=2,
-                        value=int(row.get("numerator",   0))).alignment = (
-                    Alignment(horizontal="right")
-                )
-                ws.cell(row=data_row, column=3,
-                        value=int(row.get("denominator", 0))).alignment = (
-                    Alignment(horizontal="right")
-                )
-                pct_cell           = ws.cell(row=data_row, column=4,
+                # quick-260805-ezo — the per-owner component columns.
+                # "compliant" and "numerator" carry the same count; the
+                # component key is used so the sheet reads consistently with
+                # the KPI block above.
+                for _col_idx, _key in (
+                    (2, "compliant"),
+                    (3, "fixed_late"),
+                    (4, "open_past_due"),
+                    (5, "open_not_due"),
+                    (6, "denominator"),
+                ):
+                    ws.cell(row=data_row, column=_col_idx,
+                            value=int(row.get(_key, 0))).alignment = (
+                        Alignment(horizontal="right")
+                    )
+                pct_cell           = ws.cell(row=data_row, column=7,
                                              value=f"{bu_pct:.1f}%")  # safe: bu_pct non-None per compute_per_bu_breakdown contract
                 pct_cell.fill      = bu_fill
                 pct_cell.font      = Font(bold=True)
@@ -763,9 +878,12 @@ class CriticalRemediationSLAModule(BaseModule):
 
             # ---- Column widths ----
             ws.column_dimensions[get_column_letter(1)].width = 32
-            ws.column_dimensions[get_column_letter(2)].width = 16
-            ws.column_dimensions[get_column_letter(3)].width = 14
+            ws.column_dimensions[get_column_letter(2)].width = 12
+            ws.column_dimensions[get_column_letter(3)].width = 12
             ws.column_dimensions[get_column_letter(4)].width = 20
+            ws.column_dimensions[get_column_letter(5)].width = 13
+            ws.column_dimensions[get_column_letter(6)].width = 13
+            ws.column_dimensions[get_column_letter(7)].width = 18
 
             return [tab_name]
 
@@ -915,19 +1033,23 @@ class CriticalRemediationSLAModule(BaseModule):
         """
         Return three KPI tiles for the HTML email body.
 
+        quick-260805-ezo — repointed onto the QT-01 metric keys. The
+        CONTRACT-01 email panel and the CONTRACT-03 RAG strip are unchanged.
+
         Returns
         -------
         dict[str, str]
-            Keys: "Crit Remediation SLA", "Crit Fixed (30d)", "Crit Fixed in SLA".
+            Keys: "Crit Remediation SLA", "Crit Compliant (30d)",
+            "Crit Breached".
         """
         if "email" not in self.SUPPORTED_OUTPUTS or data.error:
             return {}
         m   = data.metrics
         pct = m.get("remediation_sla_pct")
         return {
-            "Crit Remediation SLA": f"{pct:.1f}%" if pct is not None else "N/A",
-            "Crit Fixed (30d)":     f"{m.get('total_fixed_last_month', 0):,}",
-            "Crit Fixed in SLA":    f"{m.get('fixed_within_sla', 0):,}",
+            "Crit Remediation SLA":  f"{pct:.1f}%" if pct is not None else "N/A",
+            "Crit Compliant (30d)":  f"{m.get('compliant', 0):,}",
+            "Crit Breached":         f"{m.get('breached', 0):,}",
         }
 
     # ------------------------------------------------------------------
@@ -938,37 +1060,85 @@ class CriticalRemediationSLAModule(BaseModule):
         """Return calculation documentation for audit and runbook records."""
         return {
             **super().get_audit_info(),
+            # quick-260805-ezo — every entry rewritten for the four-component
+            # formula, the reopened-aware clock, and the asymmetric scoping.
             "calculations": {
+                "cohort": (
+                    "vpr_severity == 'critical' (board-local VPR-only tiering, "
+                    "VPR 9.0–10.0, NO native-CVSS fallback) AND "
+                    "severity_modification_type NOT IN (ACCEPTED, RECASTED). "
+                    "Applied to BOTH the open and the fixed population "
+                    "(quick-260805-ezo D-04; previously fixed-only)."
+                ),
+                "days_to_fix": (
+                    "(last_fixed − clock_start).days, clipped at 0, where "
+                    "clock_start = COALESCE(resurfaced_date, first_found). "
+                    "Tenable's time_taken_to_fix field is deliberately NOT used: "
+                    "it measures from the original discovery straight through a "
+                    "reopen and inflates the duration of every reopened finding. "
+                    "Same clock as mttr_trend_module (D-16-02, quick-260805-ezo D-05)."
+                ),
+                "compliant": (
+                    f"Count of fixed_in_window rows with days_to_fix <= "
+                    f"{_CRITICAL_SLA_DAYS}. fixed_in_window = cohort rows where "
+                    f"state == 'FIXED' AND last_fixed >= report_date − "
+                    f"{ON_TIME_WINDOW_DAYS} days."
+                ),
+                "fixed_late": (
+                    f"Count of fixed_in_window rows with days_to_fix > "
+                    f"{_CRITICAL_SLA_DAYS}. Rows whose days_to_fix cannot be "
+                    "computed (NaT clock_start or NaT last_fixed) fall into "
+                    "neither compliant nor fixed_late and therefore never enter "
+                    "the denominator."
+                ),
+                "open_past_due": (
+                    f"Count of in-scope open/reopened cohort rows where "
+                    f"(report_date − clock_start).days > {_CRITICAL_SLA_DAYS}."
+                ),
+                "open_not_due": (
+                    f"Count of in-scope open/reopened cohort rows where "
+                    f"(report_date − clock_start).days <= {_CRITICAL_SLA_DAYS}, "
+                    "plus rows whose clock_start is NaT (QT-02 — a finding whose "
+                    "overdue-ness cannot be computed is not counted as a failure). "
+                    "EXCLUDED from the denominator: these findings have not yet "
+                    "had the chance to meet or miss the SLA."
+                ),
+                "breached": "fixed_late + open_past_due.",
+                "denominator": "compliant + breached.",
                 "remediation_sla_pct": (
-                    "fixed_within_sla / total_fixed_last_month × 100, "
-                    "rounded to 1 decimal. "
-                    "None when total_fixed_last_month == 0 (status → 'no_data')."
+                    "compliant / denominator × 100, rounded to 1 decimal. "
+                    "None when denominator == 0 (status → 'no_data'), even when "
+                    "open_not_due > 0."
                 ),
-                "total_open_last_month": (
-                    "Count of critical open/reopened findings on on-time assets. "
-                    "Represents findings that were open at the start of the window."
+                "total_critical_open": (
+                    "open_past_due + open_not_due — the in-scope open Critical "
+                    "population, disclosed alongside the percentage so the board "
+                    "sees the absolute workload behind the ratio."
                 ),
-                "total_fixed_last_month": (
-                    f"Count of critical findings where state == 'FIXED' AND "
-                    f"last_fixed >= report_date − {ON_TIME_WINDOW_DAYS} days, "
-                    "on on-time assets."
+                "open_scope": (
+                    "TWO gates. (1) Asset-level on-time gate: "
+                    "last_licensed_scan_date IS NOT NULL AND >= report_date − "
+                    f"{ON_TIME_WINDOW_DAYS} days. (2) Finding-level staleness "
+                    f"guard: last_found >= report_date − {ON_TIME_WINDOW_DAYS} "
+                    "days, so a finding no scanner has actually seen recently "
+                    "cannot be reported as overdue."
                 ),
-                "fixed_within_sla": (
-                    f"Subset of total_fixed_last_month where "
-                    f"days_to_fix <= {_CRITICAL_SLA_DAYS} (Critical SLA). "
-                    "days_to_fix = time_taken_to_fix / 86400 when available; "
-                    "fallback: (last_fixed − first_found).days."
-                ),
-                "on_time_scope": (
-                    f"last_licensed_scan_date IS NOT NULL AND "
-                    f">= report_date − {ON_TIME_WINDOW_DAYS} days. "
-                    "Applied to assets_df BEFORE filtering findings."
+                "fixed_scope": (
+                    f"last_fixed >= report_date − {ON_TIME_WINDOW_DAYS} days. "
+                    "NO asset-level on-time gate (quick-260805-ezo D-06): the "
+                    "gate dropped credit for fixes on assets that were "
+                    "decommissioned — and therefore stopped being scanned — "
+                    "after the remediation landed."
                 ),
                 "owner_breakdown": (
-                    "compute_per_bu_breakdown(higher_is_better=True) via _compute_bu_breakdown(). "
-                    "Per-owner: numerator = fixed within SLA; denominator = total fixed in last 30 days. "
-                    "Owner derived from Owner tag on on-time assets. "
-                    "affected = denominator − numerator (criticals NOT fixed within SLA). "
+                    "compute_per_bu_breakdown(higher_is_better=True) via "
+                    "_compute_bu_breakdown() over the union of the fixed-in-window, "
+                    "open-past-due and open-not-due rows. Per-owner: numerator = "
+                    "compliant; denominator = compliant + fixed_late + "
+                    "open_past_due (open_not_due contributes its component count "
+                    "but never the denominator). Owner is mapped from the Owner "
+                    "tag on the FULL asset frame — the fixed side has no "
+                    "asset-level gate. affected = denominator − numerator. "
                     "Primary sort: affected DESC (most missed-SLA criticals first). "
                     "Secondary sort: percentage ASC (worst compliance % among ties)."
                 ),
@@ -981,136 +1151,421 @@ class CriticalRemediationSLAModule(BaseModule):
 # ===========================================================================
 
 
-def _filter_critical(
-    df: pd.DataFrame,
-    on_time_uuids: set,
-) -> pd.DataFrame:
+def _coerce_ts(df: pd.DataFrame, column: str) -> "pd.Series":
     """
-    Return rows from ``df`` that are on an on-time asset and are Critical severity.
+    Return ``df[column]`` coerced to ``datetime64[ns, UTC]``, NaT-safe.
 
-    Assumes ``df.severity`` is already VPR-derived (as produced by fetchers.py).
-    Returns an empty DataFrame if ``df`` is empty or lacks required columns.
+    Mirrors the defensive pattern in ``mttr_trend_module.py`` (D-16-02,
+    Pitfall A): when the column is absent an all-NaT object Series of the
+    right length is coerced instead, so the caller can always subtract two
+    tz-aware series without a KeyError or a tz-mismatch.
+    """
+    source = (
+        df[column]
+        if column in df.columns
+        else pd.Series([pd.NaT] * len(df), index=df.index, dtype="object")
+    )
+    return pd.to_datetime(source, utc=True, errors="coerce")
+
+
+def _compute_clock_start(df: pd.DataFrame) -> "pd.Series":
+    """
+    Return the reopened-aware SLA clock start for each row.
+
+    ``clock_start = COALESCE(resurfaced_date, first_found)`` (D-05).
+
+    quick-260805-ezo — Tenable's ``time_taken_to_fix`` is deliberately NOT
+    consulted: it measures from the ORIGINAL discovery straight through a
+    reopen, so a finding that was fixed, resurfaced, and re-fixed within days
+    is reported as months old. Both this module and ``mttr_trend_module``
+    (D-16-02) ship in the same board PDF and must share one clock.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Findings frame. ``resurfaced_date`` and/or ``first_found`` may be
+        absent — each missing column is treated as all-NaT.
+
+    Returns
+    -------
+    pd.Series
+        ``datetime64[ns, UTC]`` series aligned with ``df.index``. NaT where
+        neither date is available.
+    """
+    resurfaced_ts  = _coerce_ts(df, "resurfaced_date")
+    first_found_ts = _coerce_ts(df, "first_found")
+    return resurfaced_ts.where(resurfaced_ts.notna(), other=first_found_ts)
+
+
+def _filter_critical_vpr(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return the VPR-Critical rows of ``df`` — cohort filter only, no asset gate.
+
+    quick-260805-ezo D-04/D-06 — the cohort is ``vpr_severity == "critical"``
+    (board-local VPR-only tiering, no native-CVSS fallback). No asset-level
+    scoping is applied here so the FIXED and OPEN sides can differ: the caller
+    layers the on-time asset gate onto the OPEN side only.
+
+    Returns an empty frame when ``df`` is empty or lacks the required columns
+    (fail-soft — no exception).
     """
     if df.empty:
         return df.copy()
 
-    if "asset_uuid" not in df.columns or "severity" not in df.columns:
+    if "asset_uuid" not in df.columns or "vpr_severity" not in df.columns:
+        logger.warning(
+            "_filter_critical_vpr: missing asset_uuid / vpr_severity column "
+            "— returning an empty frame."
+        )
         return pd.DataFrame()
 
+    return df[df["vpr_severity"] == "critical"].copy()
+
+
+def _filter_open_in_scope(
+    open_crit:       pd.DataFrame,
+    on_time_uuids:   set,
+    thirty_days_ago: "pd.Timestamp",
+) -> pd.DataFrame:
+    """
+    Scope the VPR-Critical open cohort down to populations B ∪ C.
+
+    Two gates apply on the OPEN side (D-06):
+
+    1. **Asset-level on-time gate** — ``asset_uuid`` must be in the on-time
+       scanned set.
+    2. **Finding-level staleness guard** — ``last_found >= report_date − 30d``,
+       so a finding no scanner has actually seen recently cannot be reported
+       as overdue.
+
+    Fail-soft: an absent ``state`` column means the frame came from the
+    open-findings fetch, so every row is treated as open. An absent
+    ``last_found`` column means there is no staleness signal at all — a
+    warning is logged and the guard is skipped rather than silently zeroing
+    the metric. A *present* ``last_found`` that is NaT excludes the row (its
+    freshness cannot be established).
+    """
+    if open_crit.empty:
+        return open_crit.copy()
+
+    if "state" in open_crit.columns:
+        state_mask = (
+            open_crit["state"].astype(str).str.upper().isin(_OPEN_STATES)
+        )
+    else:
+        state_mask = pd.Series(True, index=open_crit.index)
+
+    if "last_found" in open_crit.columns:
+        last_found_ts = _coerce_ts(open_crit, "last_found")
+        fresh_mask    = last_found_ts.notna() & (last_found_ts >= thirty_days_ago)
+    else:
+        logger.warning(
+            "_filter_open_in_scope: column 'last_found' not present — the "
+            "finding-level staleness guard is skipped for this run."
+        )
+        fresh_mask = pd.Series(True, index=open_crit.index)
+
     mask = (
-        df["asset_uuid"].isin(on_time_uuids)
-        & (df["severity"].str.lower() == "critical")
+        state_mask
+        & open_crit["asset_uuid"].isin(on_time_uuids)
+        & fresh_mask
     )
-    return df[mask].copy()
+    return open_crit[mask].copy()
 
 
-def _compute_days_to_fix(row: pd.Series) -> float | None:
+def _build_missed_detail(
+    fixed_late_rows:    pd.DataFrame,
+    open_past_due_rows: pd.DataFrame,
+    rd_ts:              "pd.Timestamp",
+) -> pd.DataFrame:
     """
-    Compute the number of days between first_found and last_fixed for a finding.
+    Build the "Critical Remediation Detail" analyst tab (A-late ∪ B).
 
-    Strategy:
-    1. Use ``time_taken_to_fix`` (seconds) ÷ 86400 when the field is available
-       and non-null (this is Tenable's own calculated field — most accurate).
-    2. Fallback: ``(last_fixed − first_found).days`` when both dates are present.
-    3. Return None when neither source is available.
+    Both populations "missed the 15-day SLA", so they share one tab
+    (quick-260805-ezo Item 4):
+
+    - **A rows (fixed late):** ``days overdue = days_to_fix − 15``
+    - **B rows (still open):** ``days overdue = (report_date − clock_start).days − 15``
+
+    ``remediation due_date`` is derived from ``clock_start + 15d`` for BOTH
+    populations — not ``first_found + 15d``, because the clock now restarts on
+    a resurface (D-05).
+
+    Returns an empty DataFrame when neither population has rows.
     """
-    ttf = row.get("time_taken_to_fix")
-    if ttf is not None and not pd.isna(ttf):
-        try:
-            return float(ttf) / 86400.0
-        except (TypeError, ValueError):
-            pass
+    def _project(rows: pd.DataFrame, days_overdue: "pd.Series") -> pd.DataFrame:
+        """
+        Reduce a population to the columns the tab actually renders.
 
-    lf = row.get("last_fixed")
-    ff = row.get("first_found")
-    if pd.notna(lf) and pd.notna(ff):
-        try:
-            delta = lf - ff
-            return float(delta.days)
-        except (TypeError, AttributeError):
-            pass
+        [Rule 1] quick-260805-ezo — projecting BEFORE the concat keeps the two
+        populations' column sets identical and drops the irrelevant all-NA
+        columns (``resurfaced_date`` on a never-reopened fixed frame,
+        ``last_fixed`` on the open frame) that made ``pd.concat`` emit the
+        "concatenation with empty or all-NA entries is deprecated" FutureWarning.
+        """
+        return pd.DataFrame({
+            "hostname":      rows.get("hostname",    pd.Series(index=rows.index, dtype="object")),
+            "plugin_name":   rows.get("plugin_name", pd.Series(index=rows.index, dtype="object")),
+            "plugin_id":     rows.get("plugin_id",   pd.Series(index=rows.index, dtype="object")),
+            "tags":          rows.get("tags",        pd.Series(index=rows.index, dtype="object")),
+            "first_found":   _coerce_ts(rows, "first_found"),
+            "_clock_start":  _compute_clock_start(rows),
+            "_days_overdue": days_overdue.astype("Float64"),
+        })
 
-    return None
+    frames: list[pd.DataFrame] = []
+
+    if not fixed_late_rows.empty:
+        frames.append(_project(
+            fixed_late_rows,
+            fixed_late_rows["days_to_fix"] - _CRITICAL_SLA_DAYS,
+        ))
+
+    if not open_past_due_rows.empty:
+        frames.append(_project(
+            open_past_due_rows,
+            (rd_ts - _compute_clock_start(open_past_due_rows)).dt.days
+            - _CRITICAL_SLA_DAYS,
+        ))
+
+    if not frames:
+        return pd.DataFrame(columns=[
+            "asset", "plugin", "days overdue", "first_found",
+            "owner_tag", "remediation due_date",
+        ])
+
+    missed = pd.concat(frames, ignore_index=True)
+
+    # Derive owner_tag for each finding row via extract_owner. extract_owner
+    # operates on an assets-style DataFrame; findings carry a 'tags' column in
+    # the same "Cat=Val;Cat=Val" format, so passing 'missed' directly produces
+    # an 'owner' column we rename to 'owner_tag' for the drill-down display.
+    missed_with_owner = extract_owner(missed)
+    missed = missed.assign(
+        owner_tag=missed_with_owner["owner"].values,
+        plugin=missed.apply(
+            lambda r: f"{r.get('plugin_name', '')} ({r.get('plugin_id', '')})",
+            axis=1,
+        ),
+        **{
+            "days overdue": (
+                missed["_days_overdue"].clip(lower=0).round().astype("Int64")
+            ),
+            "remediation due_date": (
+                missed["_clock_start"] + pd.Timedelta(days=_CRITICAL_SLA_DAYS)
+            ),
+        },
+    )
+
+    analyst_df = missed.reindex(columns=[
+        "hostname",
+        "plugin",
+        "days overdue",
+        "first_found",
+        "owner_tag",
+        "remediation due_date",
+    ]).rename(columns={"hostname": "asset"})
+
+    # D-11 — sort by days overdue desc
+    analyst_df = analyst_df.sort_values(
+        "days overdue", ascending=False, na_position="last",
+    ).reset_index(drop=True)
+
+    # T-03-03-02 / T-ezo-02 — CSV-formula injection guard on the text columns.
+    # This runs AFTER the A ∪ B union so the B rows are guarded too.
+    #
+    # [Rule 1] quick-260805-ezo — built via .assign() rather than
+    # `analyst_df.loc[:, col] = ...` (Hard Rule 5). When a source frame lacks
+    # `hostname`, reindex produces an all-NaN float64 `asset` column and the
+    # .loc setter fired a pandas "Setting an item of incompatible dtype is
+    # deprecated" FutureWarning that becomes an error under pandas 3.0.
+    def _guard(s):
+        return (
+            ("'" + s)
+            if isinstance(s, str) and s[:1] in ("=", "+", "-", "@")
+            else s
+        )
+
+    return analyst_df.assign(**{
+        _col: analyst_df[_col].astype("string").map(_guard)
+        for _col in ("asset", "plugin", "owner_tag")
+    })
+
+
+def _build_vpr_distribution(
+    vulns_df:      pd.DataFrame,
+    on_time_uuids: set,
+) -> pd.DataFrame:
+    """
+    Build the "VPR Severity Distribution" analyst tab.
+
+    Counts OPEN findings by board-local ``vpr_severity`` tier, scoped to
+    on-time assets with risk-managed findings already excluded. The 30-day
+    finding-level staleness guard is deliberately NOT applied — this scope is
+    what reconciles against the operator's console counts.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns ``VPR Severity`` / ``Open Findings``; six rows in fixed order
+        (critical, high, medium, low, none, TOTAL), zero-filled where a tier
+        is absent. All values are integers and all labels are fixed literals,
+        so no CSV-formula-injection guard is required (T-ezo-01).
+    """
+    counts = {tier: 0 for tier in _VPR_DISTRIBUTION_TIERS}
+
+    if (
+        not vulns_df.empty
+        and "vpr_severity" in vulns_df.columns
+        and "asset_uuid" in vulns_df.columns
+    ):
+        in_scope = vulns_df[vulns_df["asset_uuid"].isin(on_time_uuids)]
+        observed = in_scope["vpr_severity"].value_counts()
+        for tier in _VPR_DISTRIBUTION_TIERS:
+            counts[tier] = int(observed.get(tier, 0))
+
+    rows = [
+        {"VPR Severity": tier, "Open Findings": counts[tier]}
+        for tier in _VPR_DISTRIBUTION_TIERS
+    ]
+    rows.append({
+        "VPR Severity":  "TOTAL",
+        "Open Findings": int(sum(counts.values())),
+    })
+    return pd.DataFrame(rows, columns=["VPR Severity", "Open Findings"])
 
 
 def _compute_bu_breakdown(
-    fixed_in_window:  pd.DataFrame,
-    on_time_assets:   pd.DataFrame,
-    within_sla_mask:  "pd.Series[bool] | None",
+    fixed_in_window: pd.DataFrame,
+    compliant_mask:  "pd.Series[bool]",
+    fixed_late_mask: "pd.Series[bool]",
+    open_in_scope:   pd.DataFrame,
+    past_due_mask:   "pd.Series[bool]",
+    assets_df:       pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Build per-owner breakdown for the remediation SLA metric.
+    Build the per-owner breakdown across all four metric components.
 
-    Maps each finding in ``fixed_in_window`` to its asset's owner
-    using the on_time_assets enriched with the Owner tag.
+    quick-260805-ezo — the frame is the union of A (fixed in window), B (open
+    past due) and C (open, not yet due). Each row carries four boolean
+    component flags. The denominator mask deliberately EXCLUDES C, matching
+    the headline formula (D-07): C rows contribute to their component count
+    but never to the SLA percentage.
 
-    Returns an empty DataFrame if ``fixed_in_window`` is empty.
+    Owner is mapped from the FULL asset frame, not just the on-time subset —
+    the fixed side no longer carries an asset-level gate (D-06), so its rows
+    can belong to assets that are not on-time-scanned.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``compute_per_bu_breakdown`` output (owner / numerator / denominator /
+        percentage / affected) plus per-owner sums of the four components:
+        ``compliant`` / ``fixed_late`` / ``open_past_due`` / ``open_not_due``.
+        Empty (with the full column set) when neither population has rows.
     """
-    if fixed_in_window.empty:
-        return pd.DataFrame(
-            columns=["owner", "numerator", "denominator", "percentage", "affected"]
-        )
+    component_cols = [
+        "compliant", "fixed_late", "open_past_due", "open_not_due",
+    ]
+    empty_columns = [
+        "owner", "numerator", "denominator", "percentage", "affected",
+    ] + component_cols
 
-    # Enrich on-time assets with owner labels
-    enriched_assets = extract_owner(on_time_assets)
+    frames: list[pd.DataFrame] = []
+
+    if not fixed_in_window.empty:
+        frames.append(pd.DataFrame({
+            "asset_uuid":    fixed_in_window["asset_uuid"].values,
+            "compliant":     compliant_mask.reindex(
+                fixed_in_window.index, fill_value=False).values,
+            "fixed_late":    fixed_late_mask.reindex(
+                fixed_in_window.index, fill_value=False).values,
+            "open_past_due": False,
+            "open_not_due":  False,
+        }))
+
+    if not open_in_scope.empty:
+        past_due = past_due_mask.reindex(
+            open_in_scope.index, fill_value=False
+        ).values
+        frames.append(pd.DataFrame({
+            "asset_uuid":    open_in_scope["asset_uuid"].values,
+            "compliant":     False,
+            "fixed_late":    False,
+            "open_past_due": past_due,
+            "open_not_due":  ~past_due,
+        }))
+
+    if not frames:
+        return pd.DataFrame(columns=empty_columns)
+
+    fw = pd.concat(frames, ignore_index=True)
+
+    enriched_assets = extract_owner(assets_df)
     uuid_to_owner   = dict(
         zip(enriched_assets["asset_uuid"], enriched_assets["owner"])
     )
-
-    fw = fixed_in_window.copy()
     fw = fw.assign(
         owner=fw["asset_uuid"].map(uuid_to_owner).fillna("Unassigned")
     )
 
-    # CR-01 fix — defensively realign the within-SLA mask onto fw.index.
-    # The mask is constructed in compute() against fixed_in_window.index;
-    # today fw.index == fixed_in_window.index because nothing in between
-    # resets the index, but a future refactor that calls .reset_index() on
-    # fixed_in_window would silently make the mask un-alignable and
-    # compute_per_bu_breakdown would replace every True with False
-    # (zero numerator, 0% per-BU SLA) without raising. Reindexing here
-    # makes the helper own its own alignment so that class of silent
-    # data-loss can never recur.
-    if within_sla_mask is None:
-        within_sla_mask = pd.Series(False, index=fw.index)
-    else:
-        within_sla_mask = within_sla_mask.reindex(fw.index, fill_value=False)
+    # Masks are derived from fw itself, so they are index-aligned by
+    # construction; compute_per_bu_breakdown still reindexes defensively
+    # (the CR-01 guard) so a future refactor cannot silently zero them.
+    numerator_mask   = fw["compliant"]
+    denominator_mask = (
+        fw["compliant"] | fw["fixed_late"] | fw["open_past_due"]
+    )
 
-    denom_mask = pd.Series(True, index=fw.index)
+    breakdown = compute_per_bu_breakdown(
+        fw, numerator_mask, denominator_mask, higher_is_better=True,
+    )
 
-    return compute_per_bu_breakdown(fw, within_sla_mask, denom_mask, higher_is_better=True)
+    component_sums = (
+        fw.groupby("owner", dropna=False)[component_cols]
+        .sum()
+        .astype(int)
+        .reset_index()
+    )
+    breakdown = breakdown.merge(component_sums, on="owner", how="left")
+    return breakdown.assign(**{
+        col: breakdown[col].fillna(0).astype(int) for col in component_cols
+    })
 
 
 def _build_summary(
-    sla_pct:             float | None,
-    total_fixed:         int,
-    fixed_within_sla:    int,
-    total_open:          int,
-    status:              str,
+    sla_pct:       float | None,
+    compliant:     int,
+    fixed_late:    int,
+    open_past_due: int,
+    open_not_due:  int,
+    denominator:   int,
+    status:        str,
 ) -> str:
     """Build a plain-language narrative sentence for the email body."""
     if sla_pct is None:
-        if total_open == 0:
+        if open_not_due == 0:
             return (
-                "No Critical vulnerabilities were found on on-time-scanned assets — "
-                "remediation SLA compliance cannot be computed."
+                "No Critical vulnerabilities were fixed in the last 30 days and "
+                "none are open past their SLA — remediation SLA compliance "
+                "cannot be computed."
             )
         return (
-            f"There are {total_open:,} open Critical findings on assets scanned on time, "
-            "but none were fixed in the last 30 days — "
-            "remediation SLA compliance cannot be computed."
+            f"{safe_int(open_not_due)} open Critical findings are still inside "
+            f"their {_CRITICAL_SLA_DAYS}-day SLA and none have been fixed or "
+            "breached yet — remediation SLA compliance cannot be computed."
         )
 
     status_label = _STATUS_LABEL.get(status, status)
-    # WR-07 fix — use safe_pct() instead of an inline f-string format
-    # spec on a possibly-None value. The early-return guard above
-    # currently makes sla_pct non-None here, but safe_pct() makes the
-    # rule mechanical so a future refactor that breaks the guard cannot
-    # crash this line.
+    # WR-07 fix — use safe_pct() / safe_int() instead of inline f-string
+    # format specs on possibly-None values, so a future refactor that breaks
+    # the early-return guard above cannot crash this line.
     return (
         f"Critical remediation SLA compliance is {safe_pct(sla_pct)} — "
-        f"{fixed_within_sla:,} of {total_fixed:,} Critical vulnerabilities fixed "
-        f"in the last 30 days were remediated within the {_CRITICAL_SLA_DAYS}-day SLA. "
+        f"{safe_int(compliant)} of {safe_int(denominator)} Critical "
+        f"vulnerabilities met the {_CRITICAL_SLA_DAYS}-day SLA "
+        f"({safe_int(fixed_late)} fixed late, {safe_int(open_past_due)} still "
+        f"open past due; {safe_int(open_not_due)} not yet due are excluded). "
         f"Status: {status_label}."
     )
 
