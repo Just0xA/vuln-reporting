@@ -230,10 +230,12 @@ class TestCriticalRemediationSLANoDrift:
 
     def _run(self, fixed_df: pd.DataFrame):
         assets_df = _make_assets_df(n=5)
-        # open vulns_df — minimal; critical_remediation_sla uses it only for
-        # total_open_last_month (count of open critical on on-time assets)
+        # open vulns_df — deliberately empty. quick-260805-ezo:
+        # critical_remediation_sla derives the open_past_due / open_not_due
+        # components from this frame; keeping it empty isolates the assertion
+        # to the FIXED side, which is what the narrow-vs-wide gate tests.
         vulns_df = pd.DataFrame(columns=[
-            "asset_uuid", "severity", "state", "last_fixed", "first_found",
+            "asset_uuid", "vpr_severity", "state", "last_found", "first_found",
         ])
         module = CriticalRemediationSLAModule()
         config = _default_module_config()
@@ -245,13 +247,17 @@ class TestCriticalRemediationSLANoDrift:
             fixed_vulns_df=fixed_df,
         )
 
-    def test_narrow_vs_wide_total_fixed_last_month_identical(self):
+    def test_narrow_vs_wide_denominator_identical(self):
         """
-        total_fixed_last_month must be the same on narrow and wide frames.
+        denominator must be the same on narrow and wide frames.
 
         The narrow frame has 5 findings fixed within last 30 days.
         The wide frame adds 10 OLD findings (60-360 days ago) that should
         be excluded by the module's own last_fixed >= report_date - 30d filter.
+
+        quick-260805-ezo — repointed from total_fixed_last_month (removed by
+        QT-01) to denominator. The intent is unchanged: widening the fixed
+        fetch must not change the module's output.
         """
         narrow_data = self._run(_narrow_fixed_df())
         wide_data   = self._run(_wide_fixed_df())
@@ -259,12 +265,12 @@ class TestCriticalRemediationSLANoDrift:
         assert narrow_data.error is None, f"Narrow run errored: {narrow_data.error}"
         assert wide_data.error is None,   f"Wide run errored: {wide_data.error}"
 
-        narrow_fixed = narrow_data.metrics.get("total_fixed_last_month")
-        wide_fixed   = wide_data.metrics.get("total_fixed_last_month")
+        narrow_denom = narrow_data.metrics.get("denominator")
+        wide_denom   = wide_data.metrics.get("denominator")
 
-        assert narrow_fixed == wide_fixed, (
-            f"DRIFT DETECTED: total_fixed_last_month differs between narrow "
-            f"({narrow_fixed}) and wide ({wide_fixed}) frames.  "
+        assert narrow_denom == wide_denom, (
+            f"DRIFT DETECTED: denominator differs between narrow "
+            f"({narrow_denom}) and wide ({wide_denom}) frames.  "
             f"CriticalRemediationSLAModule is aggregating all returned fixed "
             f"rows instead of filtering to its own 30-day window (D-18-06 / "
             f"RESEARCH Pitfall 1)."
@@ -283,16 +289,21 @@ class TestCriticalRemediationSLANoDrift:
             f"({narrow_pct}%) and wide ({wide_pct}%) frames (D-18-06)."
         )
 
-    def test_narrow_vs_wide_fixed_within_sla_identical(self):
-        """fixed_within_sla count must be identical on both frames."""
+    def test_narrow_vs_wide_compliant_identical(self):
+        """
+        compliant count must be identical on both frames.
+
+        quick-260805-ezo — repointed from fixed_within_sla (removed by QT-01)
+        to compliant; same intent.
+        """
         narrow_data = self._run(_narrow_fixed_df())
         wide_data   = self._run(_wide_fixed_df())
 
-        narrow_ws = narrow_data.metrics.get("fixed_within_sla")
-        wide_ws   = wide_data.metrics.get("fixed_within_sla")
+        narrow_ws = narrow_data.metrics.get("compliant")
+        wide_ws   = wide_data.metrics.get("compliant")
 
         assert narrow_ws == wide_ws, (
-            f"DRIFT DETECTED: fixed_within_sla differs between narrow ({narrow_ws}) "
+            f"DRIFT DETECTED: compliant differs between narrow ({narrow_ws}) "
             f"and wide ({wide_ws}) frames (D-18-06)."
         )
 
@@ -527,7 +538,7 @@ class TestFetchFixedVulnerabilitiesHasLastFixedFilter:
 # the sweep will fail until they add it here and verify it has its own window.
 #
 # Audited result-computing consumers (receive fixed_vulns_df via kwargs):
-#   - CriticalRemediationSLAModule: applies last_fixed >= report_date - 30d (Step 4)
+#   - CriticalRemediationSLAModule: applies last_fixed >= report_date - 30d (Step 3)
 #   - MTTRTrendModule:              applies last_fixed >= report_date - window_days (D-16-02)
 #
 # EXCLUSION SCOPE for the static sweep (callers NOT flagged as violations):

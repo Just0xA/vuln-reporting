@@ -85,22 +85,33 @@ def _make_assets(rows: list[dict]) -> pd.DataFrame:
 
 
 def _make_fixed_vulns(rows: list[dict]) -> pd.DataFrame:
+    # quick-260805-ezo — vpr_score drives the cohort; resurfaced_date drives
+    # the reopened-aware clock; time_taken_to_fix is present but deliberately
+    # NOT consulted by the module any more.
     defaults = {
         "asset_uuid":                  _uuid(1),
         "plugin_id":                   100001,
         "plugin_name":                 "Test Plugin",
         "severity":                    "critical",
+        "vpr_score":                   9.5,
         "state":                       "FIXED",
         "first_found":                 "2026-05-20T00:00:00Z",
         "last_fixed":                  "2026-05-25T00:00:00Z",
+        "resurfaced_date":             None,
+        "time_taken_to_fix":           None,
         "severity_modification_type":  "NONE",
         "tags":                        "Owner=Engineering",
     }
     records = [{**defaults, **r} for r in rows]
     df = pd.DataFrame(records, columns=list(defaults.keys()))
-    df["first_found"] = pd.to_datetime(df["first_found"], utc=True)
-    df["last_fixed"]  = pd.to_datetime(df["last_fixed"],  utc=True)
+    for _col in ("first_found", "last_fixed", "resurfaced_date"):
+        df[_col] = pd.to_datetime(df[_col], utc=True)
     return df
+
+
+def _days_before(n: float) -> str:
+    """ISO-8601 UTC timestamp ``n`` days before the fixed report date."""
+    return (_REPORT_DATE - datetime.timedelta(days=n)).isoformat()
 
 
 # ===========================================================================
@@ -297,9 +308,348 @@ class TestCriticalRemediationSLAExclusion:
         )
 
         assert result.error is None
-        assert result.metrics["total_fixed_last_month"] == 2
-        assert result.metrics["fixed_within_sla"] == 2
+        # quick-260805-ezo — QT-01 metrics contract replaces
+        # total_fixed_last_month / fixed_within_sla with denominator / compliant.
+        assert result.metrics["denominator"] == 2
+        assert result.metrics["compliant"] == 2
+        assert result.metrics["fixed_late"] == 0
         assert result.metrics["remediation_sla_pct"] == 100.0
         # No "missed SLA" analyst rows — the two ACCEPTED/RECASTED 40-day
-        # findings are excluded before the missed-SLA slice is computed.
-        assert result.analyst_rows == []
+        # findings are excluded before the missed-SLA slice is computed —
+        # so only the always-present VPR distribution tab is returned.
+        assert [name for name, _ in result.analyst_rows] == [
+            "VPR Severity Distribution"
+        ]
+
+
+# ===========================================================================
+# quick-260805-ezo — critical_remediation_sla reformulation
+# ===========================================================================
+
+_CRIT_CFG = ModuleConfig("critical_remediation_sla")
+
+
+def _run_sla(vulns_df, assets_df, fixed_vulns_df):
+    return CriticalRemediationSLAModule().compute(
+        vulns_df, assets_df, _REPORT_DATE, _CRIT_CFG,
+        fixed_vulns_df=fixed_vulns_df,
+    )
+
+
+def _empty_open_df() -> pd.DataFrame:
+    return _make_vulns([]).iloc[0:0]
+
+
+def _empty_fixed_df() -> pd.DataFrame:
+    return _make_fixed_vulns([]).iloc[0:0]
+
+
+class TestCriticalRemediationSLACohortAndScoping:
+    """D-04 / D-06 — cohort membership and the asymmetric scoping rules."""
+
+    def test_fixed_finding_on_stale_asset_is_counted(self):
+        # D-06: the asset-level on-time gate is REMOVED from the FIXED side.
+        # This asset was last licensed-scanned 200 days ago.
+        assets_df = _make_assets([
+            {"last_licensed_scan_date": _days_before(200)},
+        ])
+        fixed_df = _make_fixed_vulns([
+            {"first_found": _days_before(20), "last_fixed": _days_before(10)},
+        ])
+
+        result = _run_sla(_empty_open_df(), assets_df, fixed_df)
+
+        assert result.error is None
+        assert result.metrics["compliant"] == 1
+        assert result.metrics["denominator"] == 1
+
+    def test_open_finding_with_stale_last_found_is_not_counted(self):
+        # D-06: finding-level staleness guard — last_found 45 days ago.
+        vulns_df = _make_vulns([
+            {"last_found": _days_before(45), "first_found": _days_before(400)},
+        ])
+
+        result = _run_sla(vulns_df, _make_assets([{}]), _empty_fixed_df())
+
+        assert result.error is None
+        assert result.metrics["open_past_due"] == 0
+        assert result.metrics["open_not_due"] == 0
+        assert result.metrics["total_critical_open"] == 0
+
+    def test_open_finding_on_not_on_time_asset_is_not_counted(self):
+        # The asset-level on-time gate is KEPT on the OPEN side.
+        assets_df = _make_assets([
+            {"last_licensed_scan_date": _days_before(200)},
+        ])
+        vulns_df = _make_vulns([
+            {"last_found": _days_before(2), "first_found": _days_before(400)},
+        ])
+
+        result = _run_sla(vulns_df, assets_df, _empty_fixed_df())
+
+        assert result.error is None
+        assert result.metrics["total_critical_open"] == 0
+
+    def test_accepted_excluded_from_both_populations(self):
+        vulns_df = _make_vulns([
+            {"plugin_id": 100001, "severity_modification_type": "ACCEPTED",
+             "last_found": _days_before(2), "first_found": _days_before(400)},
+        ])
+        fixed_df = _make_fixed_vulns([
+            {"plugin_id": 100002, "severity_modification_type": "ACCEPTED",
+             "first_found": _days_before(20), "last_fixed": _days_before(10)},
+        ])
+
+        result = _run_sla(vulns_df, _make_assets([{}]), fixed_df)
+
+        assert result.error is None
+        assert result.metrics["total_critical_open"] == 0
+        assert result.metrics["denominator"] == 0
+
+    def test_native_critical_with_non_critical_vpr_not_in_cohort(self):
+        # severity string says critical, VPR 6.0 says medium — VPR wins.
+        vulns_df = _make_vulns([
+            {"severity": "critical", "vpr_score": 6.0,
+             "last_found": _days_before(2), "first_found": _days_before(400)},
+        ])
+        fixed_df = _make_fixed_vulns([
+            {"severity": "critical", "vpr_score": 6.0,
+             "first_found": _days_before(20), "last_fixed": _days_before(10)},
+        ])
+
+        result = _run_sla(vulns_df, _make_assets([{}]), fixed_df)
+
+        assert result.error is None
+        assert result.metrics["total_critical_open"] == 0
+        assert result.metrics["denominator"] == 0
+
+
+class TestCriticalRemediationSLAClock:
+    """D-05 — COALESCE(resurfaced_date, first_found); no time_taken_to_fix."""
+
+    def test_reopened_clock_uses_resurfaced_date(self):
+        fixed_df = _make_fixed_vulns([
+            {
+                "first_found":     _days_before(100),
+                "resurfaced_date": _days_before(10),
+                "last_fixed":      _days_before(2),
+            },
+        ])
+
+        result = _run_sla(_empty_open_df(), _make_assets([{}]), fixed_df)
+
+        assert result.error is None
+        # 8 days from the resurface date, NOT 98 from first_found.
+        assert result.metrics["compliant"] == 1
+        assert result.metrics["fixed_late"] == 0
+
+    def test_time_taken_to_fix_is_ignored_when_it_contradicts_date_math(self):
+        fixed_df = _make_fixed_vulns([
+            {
+                "first_found":       _days_before(20),
+                "last_fixed":        _days_before(10),   # date math -> 10 days
+                # Tenable's own field claims 90 days. Date math must win.
+                "time_taken_to_fix": 90 * 86400.0,
+            },
+        ])
+
+        result = _run_sla(_empty_open_df(), _make_assets([{}]), fixed_df)
+
+        assert result.error is None
+        assert result.metrics["compliant"] == 1
+        assert result.metrics["fixed_late"] == 0
+
+    def test_last_fixed_before_clock_start_clips_to_zero(self):
+        fixed_df = _make_fixed_vulns([
+            {
+                "first_found": _days_before(5),
+                "last_fixed":  _days_before(10),   # negative delta
+            },
+        ])
+
+        result = _run_sla(_empty_open_df(), _make_assets([{}]), fixed_df)
+
+        assert result.error is None
+        assert result.metrics["compliant"] == 1
+        assert result.metrics["fixed_late"] == 0
+
+
+class TestCriticalRemediationSLAMetric:
+    """D-07 / D-08 — four-component formula and the excluded-C denominator."""
+
+    def test_four_component_arithmetic(self):
+        # A = 10 fixed (7 within 15d, 3 late), B = 5 open past due,
+        # C = 40 open not yet due.
+        fixed_rows = (
+            [{"plugin_id": 200000 + i,
+              "first_found": _days_before(20), "last_fixed": _days_before(10)}
+             for i in range(7)]
+            + [{"plugin_id": 210000 + i,
+                "first_found": _days_before(60), "last_fixed": _days_before(10)}
+               for i in range(3)]
+        )
+        open_rows = (
+            [{"plugin_id": 300000 + i,
+              "first_found": _days_before(100), "last_found": _days_before(1)}
+             for i in range(5)]
+            + [{"plugin_id": 310000 + i,
+                "first_found": _days_before(3), "last_found": _days_before(1)}
+               for i in range(40)]
+        )
+
+        result = _run_sla(
+            _make_vulns(open_rows), _make_assets([{}]),
+            _make_fixed_vulns(fixed_rows),
+        )
+
+        assert result.error is None
+        m = result.metrics
+        assert m["compliant"] == 7
+        assert m["fixed_late"] == 3
+        assert m["open_past_due"] == 5
+        assert m["open_not_due"] == 40
+        assert m["breached"] == 8
+        assert m["denominator"] == 15
+        assert m["remediation_sla_pct"] == 46.7
+        assert m["total_critical_open"] == 45
+        assert m["status"] == "red"
+
+    def test_removed_metric_keys_are_gone(self):
+        result = _run_sla(
+            _make_vulns([{"first_found": _days_before(3),
+                          "last_found": _days_before(1)}]),
+            _make_assets([{}]),
+            _make_fixed_vulns([{"first_found": _days_before(20),
+                                "last_fixed": _days_before(10)}]),
+        )
+        for removed in (
+            "total_open_last_month", "total_fixed_last_month", "fixed_within_sla",
+        ):
+            assert removed not in result.metrics, (
+                f"{removed} must be removed from the metrics contract (QT-01)"
+            )
+
+    def test_zero_denominator_is_no_data_even_with_open_not_due(self):
+        # C = 3 findings still inside their 15-day clock; nothing fixed,
+        # nothing overdue -> denominator 0 -> No Data.
+        open_rows = [
+            {"plugin_id": 300000 + i,
+             "first_found": _days_before(3), "last_found": _days_before(1)}
+            for i in range(3)
+        ]
+
+        result = _run_sla(
+            _make_vulns(open_rows), _make_assets([{}]), _empty_fixed_df(),
+        )
+
+        assert result.error is None
+        assert result.metrics["open_not_due"] == 3
+        assert result.metrics["denominator"] == 0
+        assert result.metrics["remediation_sla_pct"] is None
+        assert result.metrics["status"] == "no_data"
+
+    def test_open_past_due_alone_drives_the_metric_red(self):
+        open_rows = [
+            {"plugin_id": 300000 + i,
+             "first_found": _days_before(100), "last_found": _days_before(1)}
+            for i in range(4)
+        ]
+
+        result = _run_sla(
+            _make_vulns(open_rows), _make_assets([{}]), _empty_fixed_df(),
+        )
+
+        assert result.error is None
+        assert result.metrics["open_past_due"] == 4
+        assert result.metrics["breached"] == 4
+        assert result.metrics["denominator"] == 4
+        assert result.metrics["remediation_sla_pct"] == 0.0
+        assert result.metrics["status"] == "red"
+
+
+class TestCriticalRemediationSLAAnalystTabs:
+    """D-10 — analyst workbook tabs."""
+
+    def _tabs(self, result):
+        return CriticalRemediationSLAModule().render_analyst_tabs(
+            result, _CRIT_CFG,
+        )
+
+    def test_two_tabs_when_missed_rows_exist(self):
+        result = _run_sla(
+            _make_vulns([{"first_found": _days_before(100),
+                          "last_found": _days_before(1)}]),
+            _make_assets([{}]),
+            _make_fixed_vulns([{"first_found": _days_before(60),
+                                "last_fixed": _days_before(10)}]),
+        )
+        tabs = self._tabs(result)
+
+        assert [name for name, _ in tabs] == [
+            "Critical Remediation Detail", "VPR Severity Distribution",
+        ]
+        # Both the late-fixed row and the still-overdue open row appear.
+        assert len(tabs[0][1]) == 2
+
+    def test_one_tab_when_no_missed_rows(self):
+        result = _run_sla(
+            _empty_open_df(), _make_assets([{}]),
+            _make_fixed_vulns([{"first_found": _days_before(20),
+                                "last_fixed": _days_before(10)}]),
+        )
+        tabs = self._tabs(result)
+
+        assert [name for name, _ in tabs] == ["VPR Severity Distribution"]
+
+    def test_no_tabs_on_error(self):
+        result = _run_sla(
+            _empty_open_df(), _make_assets([{}]), _empty_fixed_df(),
+        )
+        result.error = "boom"
+
+        assert self._tabs(result) == []
+
+    def test_distribution_tab_shape_and_total(self):
+        open_rows = [
+            {"plugin_id": 400001, "vpr_score": 9.5,
+             "last_found": _days_before(1), "first_found": _days_before(3)},
+            {"plugin_id": 400002, "vpr_score": 7.5,
+             "last_found": _days_before(1), "first_found": _days_before(3)},
+            {"plugin_id": 400003, "vpr_score": 5.0,
+             "last_found": _days_before(1), "first_found": _days_before(3)},
+            {"plugin_id": 400004, "vpr_score": 1.0,
+             "last_found": _days_before(1), "first_found": _days_before(3)},
+            {"plugin_id": 400005, "vpr_score": None,
+             "last_found": _days_before(1), "first_found": _days_before(3)},
+        ]
+        result = _run_sla(
+            _make_vulns(open_rows), _make_assets([{}]), _empty_fixed_df(),
+        )
+        tabs   = dict(self._tabs(result))
+        dist   = tabs["VPR Severity Distribution"]
+
+        assert list(dist.columns) == ["VPR Severity", "Open Findings"]
+        assert list(dist["VPR Severity"]) == [
+            "critical", "high", "medium", "low", "none", "TOTAL",
+        ]
+        assert len(dist) == 6
+        assert list(dist["Open Findings"]) == [1, 1, 1, 1, 1, 5]
+        assert int(dist["Open Findings"].iloc[-1]) == int(
+            dist["Open Findings"].iloc[:-1].sum()
+        )
+
+    def test_distribution_tab_ignores_the_30_day_staleness_guard(self):
+        # The distribution tab scope is on-time assets + risk-managed excluded
+        # ONLY — the finding-level last_found guard is deliberately NOT applied.
+        open_rows = [
+            {"plugin_id": 400001, "vpr_score": 9.5,
+             "last_found": _days_before(200), "first_found": _days_before(400)},
+        ]
+        result = _run_sla(
+            _make_vulns(open_rows), _make_assets([{}]), _empty_fixed_df(),
+        )
+        dist = dict(self._tabs(result))["VPR Severity Distribution"]
+
+        assert int(dist["Open Findings"].iloc[-1]) == 1
+        # ...but the stale finding stays out of the SLA populations.
+        assert result.metrics["total_critical_open"] == 0
