@@ -11,6 +11,9 @@ different structure and audience focus:
   - Four-state SLA status: Overdue / Urgent / Warning / On Track
   - Unscanned asset identification and exclusion from vuln counts
   - No per-asset breakdown in output — plugin + asset count is sufficient
+  - Actionable metrics suppress unexpired ACCEPTED findings only; RECASTED
+    findings stay in the worklist at their recast severity (see
+    _suppress_risk_accepted / quick-260813-jaz)
 
 Outputs
 -------
@@ -1518,7 +1521,7 @@ def _build_summary_sheet(wb, summary: dict) -> None:
     expired   = summary.get("count_expired", 0)
     recurring = summary.get("count_recurring", 0)
 
-    _w(row, 1, "Accepted Findings (suppressed from counts)", font=_label_font, fill=_head_fill)
+    _w(row, 1, "Accepted Findings (suppressed unless expired)", font=_label_font, fill=_head_fill)
     _w(row, 2, accepted, font=_value_font,
        fill=_exploit_orange_fill if accepted > 0 else _exploit_green_fill)
     row += 1
@@ -1608,10 +1611,15 @@ def _extend_metadata_tab(
          "Includes last seen date, last licensed scan date, days since scan, and source. "
          "These assets are excluded from all vulnerability counts."),
         ("Risk Acceptances & Recasts",
-         "Active HOST-scoped risk rules from Tenable. Accepted findings are suppressed "
-         "from open vuln counts. Recast findings have had their severity changed from "
-         "the original value. Includes expiration dates and days until expiry. "
-         "Expired rules are highlighted red; rules expiring within 30 days are orange."),
+         "Active HOST-scoped risk rules from Tenable — this tab itself always reports "
+         "the FULL accepted+recast population, regardless of suppression. Accepted "
+         "findings ARE suppressed from the actionable counts elsewhere in this workbook "
+         "(Summary, Plugins, Overdue Detail, exploitability, priority plugins, "
+         "recurring) unless their rule has EXPIRED, in which case they return to those "
+         "actionable counts. Recast findings are NOT suppressed and remain in those "
+         "counts at their recast severity — only the severity value changed from the "
+         "original. Includes expiration dates and days until expiry. Expired rules are "
+         "highlighted red; rules expiring within 30 days are orange."),
         ("Recurring Vulnerabilities",
          "Findings that were previously remediated and have resurfaced. Detected via "
          "the resurfaced_date field in the Tenable export. Date Closed is an "
