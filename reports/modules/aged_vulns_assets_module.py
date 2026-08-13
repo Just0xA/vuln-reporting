@@ -176,8 +176,14 @@ class AgedVulnsAssetsModule(BaseModule):
         try:
             # Exclude risk-managed (ACCEPTED/RECASTED) findings — they remain
             # state=open but are already dispositioned and must not inflate
-            # this KPI (quick-260722-lx9).
-            vulns_df = exclude_risk_managed(vulns_df)
+            # this KPI (quick-260722-lx9).  quick-260813-ga2 — gated by the
+            # include_risk_managed module option (default False = today's
+            # behavior).
+            include_risk_managed = bool(
+                config.options.get("include_risk_managed", False)
+            )
+            if not include_risk_managed:
+                vulns_df = exclude_risk_managed(vulns_df)
 
             # quick-260805-ezo — tier findings from the board-local VPR-only
             # `vpr_severity` column. A finding with no VPR score is "none",
@@ -218,7 +224,10 @@ class AgedVulnsAssetsModule(BaseModule):
                         "No on-time-scanned assets were found — "
                         "aged vulnerability asset percentage cannot be computed."
                     ),
-                    metadata     = {**_build_metadata(report_date), "email_gauge_b64": ""},
+                    metadata     = {
+                        **_build_metadata(report_date, include_risk_managed),
+                        "email_gauge_b64": "",
+                    },
                     # ── Phase 3 contract fields (D-07/D-15) ──
                     driver_narrative = NO_DATA_DRIVER,
                     analyst_rows     = [],
@@ -473,7 +482,7 @@ class AgedVulnsAssetsModule(BaseModule):
                 },
                 summary_text = summary_text,
                 metadata     = {
-                    **_build_metadata(report_date),
+                    **_build_metadata(report_date, include_risk_managed),
                     "computed_at":     computed_at,
                     "email_gauge_b64": email_gauge_b64,
                 },
@@ -1086,9 +1095,18 @@ def _find_aged_assets(
     return aged_uuids, aged
 
 
-def _build_metadata(report_date: Any) -> dict:
+def _build_metadata(report_date: Any, include_risk_managed: bool) -> dict:
     """Return the standard metadata block for this module."""
     return {
+        # quick-260813-ga2 — states which population produced the numbers;
+        # literal strings kept identical across all three board modules.
+        "risk_managed_scope": (
+            "Includes risk-managed findings (severity_modification_type in "
+            "{ACCEPTED, RECASTED})"
+            if include_risk_managed else
+            "Excludes risk-managed findings (severity_modification_type in "
+            "{ACCEPTED, RECASTED})"
+        ),
         "aged_definition":   (
             f">={_MIN_AGED_COUNT} Medium/High/Critical finding open "
             f">{_AGED_DAYS_THRESHOLD} days on an on-time-scanned asset."

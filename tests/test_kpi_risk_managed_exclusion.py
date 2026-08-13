@@ -653,3 +653,258 @@ class TestCriticalRemediationSLAAnalystTabs:
         assert int(dist["Open Findings"].iloc[-1]) == 1
         # ...but the stale finding stays out of the SLA populations.
         assert result.metrics["total_critical_open"] == 0
+
+
+# ===========================================================================
+# quick-260813-ga2 — inverted include_risk_managed=True cases
+# ===========================================================================
+
+_SCOPE_KEY = "risk_managed_scope"
+
+
+class TestHighRiskAssetsIncludeRiskManaged:
+    def test_accepted_recast_rows_count_toward_threshold_when_included(self):
+        # Same fixture as the exclusion test (8 NONE + 3 ACCEPTED/RECASTED =
+        # 11 aged Crit/High findings) but with include_risk_managed=True the
+        # risk-managed rows must now count, pushing the asset over threshold.
+        vulns_rows = (
+            [{"plugin_id": 100000 + i, "severity_modification_type": "NONE"} for i in range(8)]
+            + [
+                {"plugin_id": 100100, "severity_modification_type": "ACCEPTED"},
+                {"plugin_id": 100101, "severity_modification_type": "RECASTED"},
+                {"plugin_id": 100102, "severity_modification_type": "accepted"},
+            ]
+        )
+        vulns_df  = _make_vulns(vulns_rows)
+        assets_df = _make_assets([{}])
+        mod       = HighRiskAssetsModule()
+        cfg       = ModuleConfig(
+            "high_risk_assets", options={"include_risk_managed": True},
+        )
+
+        result = mod.compute(vulns_df, assets_df, _REPORT_DATE, cfg)
+
+        assert result.error is None
+        assert result.metrics["high_risk_count"] == 1
+
+    def test_risk_managed_scope_differs_between_option_states(self):
+        vulns_df  = _make_vulns([{"plugin_id": 100001}])
+        assets_df = _make_assets([{}])
+
+        excluded = HighRiskAssetsModule().compute(
+            vulns_df, assets_df, _REPORT_DATE, ModuleConfig("high_risk_assets"),
+        )
+        included = HighRiskAssetsModule().compute(
+            vulns_df, assets_df, _REPORT_DATE,
+            ModuleConfig("high_risk_assets", options={"include_risk_managed": True}),
+        )
+
+        assert excluded.metadata[_SCOPE_KEY] != included.metadata[_SCOPE_KEY]
+        assert "Excludes" in excluded.metadata[_SCOPE_KEY]
+        assert "Includes" in included.metadata[_SCOPE_KEY]
+
+    def test_risk_managed_scope_populated_on_no_data_path(self):
+        # total_on_time == 0 -> the no_data early-return branch.
+        result = HighRiskAssetsModule().compute(
+            _make_vulns([{}]), pd.DataFrame(columns=["asset_uuid"]), _REPORT_DATE,
+            ModuleConfig("high_risk_assets", options={"include_risk_managed": True}),
+        )
+
+        assert result.metrics["status"] == "no_data"
+        assert result.metadata[_SCOPE_KEY] == (
+            "Includes risk-managed findings (severity_modification_type in "
+            "{ACCEPTED, RECASTED})"
+        )
+
+    @pytest.mark.parametrize(
+        "option_value,expect_included",
+        [
+            ("false", True),   # non-empty string -> truthy
+            (1,       True),
+            (0,       False),
+            ("",      False),
+            (None,    False),
+        ],
+    )
+    def test_garbage_option_values_behave_via_bool(self, option_value, expect_included):
+        vulns_rows = [
+            {"plugin_id": 100000 + i, "severity_modification_type": "NONE"}
+            for i in range(8)
+        ] + [
+            {"plugin_id": 100100, "severity_modification_type": "ACCEPTED"},
+            {"plugin_id": 100101, "severity_modification_type": "RECASTED"},
+            {"plugin_id": 100102, "severity_modification_type": "accepted"},
+        ]
+        vulns_df  = _make_vulns(vulns_rows)
+        assets_df = _make_assets([{}])
+        cfg = ModuleConfig(
+            "high_risk_assets", options={"include_risk_managed": option_value},
+        )
+
+        result = HighRiskAssetsModule().compute(vulns_df, assets_df, _REPORT_DATE, cfg)
+
+        assert result.error is None
+        assert result.metrics["high_risk_count"] == (1 if expect_included else 0)
+
+    def test_absent_option_defaults_to_excluded(self):
+        vulns_rows = [
+            {"plugin_id": 100000 + i, "severity_modification_type": "NONE"}
+            for i in range(8)
+        ] + [
+            {"plugin_id": 100100, "severity_modification_type": "ACCEPTED"},
+            {"plugin_id": 100101, "severity_modification_type": "RECASTED"},
+            {"plugin_id": 100102, "severity_modification_type": "accepted"},
+        ]
+        vulns_df  = _make_vulns(vulns_rows)
+        assets_df = _make_assets([{}])
+        cfg       = ModuleConfig("high_risk_assets")  # no options at all
+
+        result = HighRiskAssetsModule().compute(vulns_df, assets_df, _REPORT_DATE, cfg)
+
+        assert result.error is None
+        assert result.metrics["high_risk_count"] == 0
+
+
+class TestAgedVulnsAssetsIncludeRiskManaged:
+    def test_accepted_recast_only_finding_qualifies_when_included(self):
+        vulns_df  = _make_vulns([
+            {"plugin_id": 100001, "severity_modification_type": "ACCEPTED"},
+        ])
+        assets_df = _make_assets([{}])
+        mod       = AgedVulnsAssetsModule()
+        cfg       = ModuleConfig(
+            "aged_vulns_assets", options={"include_risk_managed": True},
+        )
+
+        result = mod.compute(vulns_df, assets_df, _REPORT_DATE, cfg)
+
+        assert result.error is None
+        assert result.metrics["aged_assets_count"] == 1
+
+    def test_risk_managed_scope_differs_between_option_states(self):
+        vulns_df  = _make_vulns([{"plugin_id": 100001}])
+        assets_df = _make_assets([{}])
+
+        excluded = AgedVulnsAssetsModule().compute(
+            vulns_df, assets_df, _REPORT_DATE, ModuleConfig("aged_vulns_assets"),
+        )
+        included = AgedVulnsAssetsModule().compute(
+            vulns_df, assets_df, _REPORT_DATE,
+            ModuleConfig("aged_vulns_assets", options={"include_risk_managed": True}),
+        )
+
+        assert excluded.metadata[_SCOPE_KEY] != included.metadata[_SCOPE_KEY]
+        assert "Excludes" in excluded.metadata[_SCOPE_KEY]
+        assert "Includes" in included.metadata[_SCOPE_KEY]
+
+    def test_risk_managed_scope_populated_on_no_data_path(self):
+        result = AgedVulnsAssetsModule().compute(
+            _make_vulns([{}]), pd.DataFrame(columns=["asset_uuid"]), _REPORT_DATE,
+            ModuleConfig("aged_vulns_assets", options={"include_risk_managed": True}),
+        )
+
+        assert result.metrics["status"] == "no_data"
+        assert result.metadata[_SCOPE_KEY] == (
+            "Includes risk-managed findings (severity_modification_type in "
+            "{ACCEPTED, RECASTED})"
+        )
+
+    @pytest.mark.parametrize(
+        "option_value,expect_included",
+        [
+            ("false", True),
+            (1,       True),
+            (0,       False),
+            ("",      False),
+            (None,    False),
+        ],
+    )
+    def test_garbage_option_values_behave_via_bool(self, option_value, expect_included):
+        vulns_df  = _make_vulns([
+            {"plugin_id": 100001, "severity_modification_type": "ACCEPTED"},
+        ])
+        assets_df = _make_assets([{}])
+        cfg = ModuleConfig(
+            "aged_vulns_assets", options={"include_risk_managed": option_value},
+        )
+
+        result = AgedVulnsAssetsModule().compute(vulns_df, assets_df, _REPORT_DATE, cfg)
+
+        assert result.error is None
+        assert result.metrics["aged_assets_count"] == (1 if expect_included else 0)
+
+
+class TestCriticalRemediationSLAIncludeRiskManaged:
+    def test_accepted_recast_rows_picked_up_in_both_populations_when_included(self):
+        vulns_df = _make_vulns([
+            {"plugin_id": 100001, "severity_modification_type": "ACCEPTED",
+             "last_found": _days_before(2), "first_found": _days_before(400)},
+        ])
+        fixed_df = _make_fixed_vulns([
+            {"plugin_id": 100002, "severity_modification_type": "ACCEPTED",
+             "first_found": _days_before(20), "last_fixed": _days_before(10)},
+        ])
+        cfg = ModuleConfig(
+            "critical_remediation_sla", options={"include_risk_managed": True},
+        )
+
+        result = CriticalRemediationSLAModule().compute(
+            vulns_df, _make_assets([{}]), _REPORT_DATE, cfg,
+            fixed_vulns_df=fixed_df,
+        )
+
+        assert result.error is None
+        # Open ACCEPTED row now counts as open_past_due; fixed ACCEPTED row
+        # now counts as compliant.
+        assert result.metrics["total_critical_open"] == 1
+        assert result.metrics["denominator"] == 2
+
+    def test_risk_managed_scope_differs_between_option_states(self):
+        vulns_df  = _make_vulns([{"plugin_id": 100001,
+                                   "last_found": _days_before(2),
+                                   "first_found": _days_before(400)}])
+        assets_df = _make_assets([{}])
+        fixed_df  = _empty_fixed_df()
+
+        excluded = CriticalRemediationSLAModule().compute(
+            vulns_df, assets_df, _REPORT_DATE, _CRIT_CFG,
+            fixed_vulns_df=fixed_df,
+        )
+        included = CriticalRemediationSLAModule().compute(
+            vulns_df, assets_df, _REPORT_DATE,
+            ModuleConfig("critical_remediation_sla",
+                          options={"include_risk_managed": True}),
+            fixed_vulns_df=fixed_df,
+        )
+
+        assert excluded.metadata[_SCOPE_KEY] != included.metadata[_SCOPE_KEY]
+        assert "Excludes" in excluded.metadata[_SCOPE_KEY]
+        assert "Includes" in included.metadata[_SCOPE_KEY]
+
+    @pytest.mark.parametrize(
+        "option_value,expect_included",
+        [
+            ("false", True),
+            (1,       True),
+            (0,       False),
+            ("",      False),
+            (None,    False),
+        ],
+    )
+    def test_garbage_option_values_behave_via_bool(self, option_value, expect_included):
+        vulns_df = _make_vulns([
+            {"plugin_id": 100001, "severity_modification_type": "ACCEPTED",
+             "last_found": _days_before(2), "first_found": _days_before(400)},
+        ])
+        cfg = ModuleConfig(
+            "critical_remediation_sla",
+            options={"include_risk_managed": option_value},
+        )
+
+        result = CriticalRemediationSLAModule().compute(
+            vulns_df, _make_assets([{}]), _REPORT_DATE, cfg,
+            fixed_vulns_df=_empty_fixed_df(),
+        )
+
+        assert result.error is None
+        assert result.metrics["total_critical_open"] == (1 if expect_included else 0)
