@@ -2812,10 +2812,17 @@ def run_report(
     scanned_ids   = set(scanned_df["asset_uuid"])
     vulns_scanned = vulns_df[vulns_df["asset_uuid"].isin(scanned_ids)]
 
-    plugin_df = _group_by_plugin(vulns_scanned)
+    # The actionable worklist is the scanned findings minus UNEXPIRED risk
+    # acceptances (ACCEPTED only — recasts stay; see _suppress_risk_accepted
+    # / quick-260813-jaz). vulns_scanned itself stays UNFILTERED below for
+    # _extract_risk_modifications (Tab 5), which must keep reporting the
+    # full accepted+recast population.
+    vulns_actionable = _suppress_risk_accepted(vulns_scanned, recast_rules_df, generated_at)
+
+    plugin_df = _group_by_plugin(vulns_actionable)
 
     summary = _compute_summary_metrics(
-        vulns_df     = vulns_scanned,
+        vulns_df     = vulns_actionable,
         plugin_df    = plugin_df,
         assets_df    = assets_df,
         unscanned_df = unscanned_df,
@@ -2824,12 +2831,12 @@ def run_report(
         as_of        = generated_at,
     )
 
-    _exploit_metrics = _compute_exploitability_metrics(vulns_scanned)
+    _exploit_metrics = _compute_exploitability_metrics(vulns_actionable)
     summary["known_exploit"]      = _exploit_metrics["known_exploit"]
     summary["exploit_functional"] = _exploit_metrics["functional"]
     summary["exploit_high"]       = _exploit_metrics["high_maturity"]
 
-    _priority_df = _get_top_priority_plugins(vulns_scanned)
+    _priority_df = _get_top_priority_plugins(vulns_actionable)
     summary["priority_plugins"] = _priority_df.to_dict("records")
 
     risk_mods_df  = _extract_risk_modifications(
@@ -2840,7 +2847,7 @@ def run_report(
         cache_dir       = cache_dir,
     )
     recurring_df = _extract_recurring_vulnerabilities(
-        vulns_df  = vulns_scanned,
+        vulns_df  = vulns_actionable,
         assets_df = assets_df,
     )
     summary["count_risk_accepted"]  = int((risk_mods_df["Modification Type"] == "Accepted").sum()) if not risk_mods_df.empty else 0
@@ -2883,7 +2890,7 @@ def run_report(
         )
 
     overdue_df = _enrich_with_assets(
-        vulns_scanned[vulns_scanned["ops_sla_status"] == OPS_SLA_OVERDUE]
+        vulns_actionable[vulns_actionable["ops_sla_status"] == OPS_SLA_OVERDUE]
     ).sort_values(
         ["severity", "days_open"],
         ascending=[True, False],
@@ -2909,7 +2916,7 @@ def run_report(
     pdf_path = output_dir / f"ops_remediation_{slug_str}.pdf"
 
     urgent_df = _enrich_with_assets(
-        vulns_scanned[vulns_scanned["ops_sla_status"] == OPS_SLA_URGENT]
+        vulns_actionable[vulns_actionable["ops_sla_status"] == OPS_SLA_URGENT]
     ).sort_values(
         ["severity", "days_remaining"],
         ascending=[True, True],
@@ -3021,10 +3028,16 @@ if __name__ == "__main__":
     _scanned_ids   = set(_scanned_df["asset_uuid"])
     _vulns_scanned = _vulns_df[_vulns_df["asset_uuid"].isin(_scanned_ids)]
 
-    _plugin_df = _group_by_plugin(_vulns_scanned)
+    # Mirrors run_report(): actionable = scanned minus UNEXPIRED risk
+    # acceptances. _vulns_scanned stays UNFILTERED for
+    # _extract_risk_modifications (Tab 5). See _suppress_risk_accepted /
+    # quick-260813-jaz.
+    _vulns_actionable = _suppress_risk_accepted(_vulns_scanned, _recast_rules_df, _as_of)
+
+    _plugin_df = _group_by_plugin(_vulns_actionable)
 
     _summary = _compute_summary_metrics(
-        vulns_df     = _vulns_scanned,
+        vulns_df     = _vulns_actionable,
         plugin_df    = _plugin_df,
         assets_df    = _assets_df,
         unscanned_df = _unscanned_df,
@@ -3033,12 +3046,12 @@ if __name__ == "__main__":
         as_of        = _as_of,
     )
 
-    _exploit_metrics_cli = _compute_exploitability_metrics(_vulns_scanned)
+    _exploit_metrics_cli = _compute_exploitability_metrics(_vulns_actionable)
     _summary["known_exploit"]      = _exploit_metrics_cli["known_exploit"]
     _summary["exploit_functional"] = _exploit_metrics_cli["functional"]
     _summary["exploit_high"]       = _exploit_metrics_cli["high_maturity"]
 
-    _priority_df_cli = _get_top_priority_plugins(_vulns_scanned)
+    _priority_df_cli = _get_top_priority_plugins(_vulns_actionable)
     _summary["priority_plugins"] = _priority_df_cli.to_dict("records")
 
     _risk_mods_df_cli = _extract_risk_modifications(
@@ -3049,7 +3062,7 @@ if __name__ == "__main__":
         cache_dir       = _cache_dir,
     )
     _recurring_df_cli = _extract_recurring_vulnerabilities(
-        vulns_df  = _vulns_scanned,
+        vulns_df  = _vulns_actionable,
         assets_df = _assets_df,
     )
     _summary["count_risk_accepted"] = int((_risk_mods_df_cli["Modification Type"] == "Accepted").sum()) if not _risk_mods_df_cli.empty else 0
@@ -3104,7 +3117,7 @@ if __name__ == "__main__":
 
     # --- Step 2: Build Excel ---
     _overdue_df = _enrich_cli(
-        _vulns_scanned[_vulns_scanned["ops_sla_status"] == OPS_SLA_OVERDUE]
+        _vulns_actionable[_vulns_actionable["ops_sla_status"] == OPS_SLA_OVERDUE]
     ).sort_values(
         ["severity", "days_open"],
         ascending=[True, False],
@@ -3131,7 +3144,7 @@ if __name__ == "__main__":
 
     # --- Step 3: Build PDF ---
     _urgent_df = _enrich_cli(
-        _vulns_scanned[_vulns_scanned["ops_sla_status"] == OPS_SLA_URGENT]
+        _vulns_actionable[_vulns_actionable["ops_sla_status"] == OPS_SLA_URGENT]
     ).sort_values(
         ["severity", "days_remaining"],
         ascending=[True, True],

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import re
 import warnings
 from datetime import datetime, timezone
 
@@ -41,7 +42,7 @@ import pytest
 pd.options.mode.copy_on_write = True
 
 import reports.ops_remediation as ops_remediation
-from reports.ops_remediation import _suppress_risk_accepted
+from reports.ops_remediation import _extract_risk_modifications, _suppress_risk_accepted
 
 _ASSET_PREFIX = "00000000-0000-0000-0000-00000000000"
 _RULE_PREFIX = "11111111-0000-0000-0000-00000000000"
@@ -309,3 +310,84 @@ class TestAdditionalGuarantees:
         assert result is not df
         result = result.assign(severity="MUTATED")
         assert df.iloc[0]["severity"] == "High"
+
+
+# ---------------------------------------------------------------------------
+# Behavior 8: must-not-change regression guard (Task 2)
+# ---------------------------------------------------------------------------
+
+
+class TestRegressionGuardTab5AndWiring:
+    def _full_population(self) -> pd.DataFrame:
+        return _findings([
+            {"asset_uuid": _ASSET_PREFIX + "1", "plugin_id": 100001,
+             "plugin_name": "Synthetic Plugin A", "severity": "Medium",
+             "severity_modification_type": "ACCEPTED",
+             "recast_rule_uuid": _RULE_PREFIX + "1",
+             "state": "OPEN", "first_found": "2026-01-01",
+             "vpr_score": 5.0},
+            {"asset_uuid": _ASSET_PREFIX + "2", "plugin_id": 100002,
+             "plugin_name": "Synthetic Plugin B", "severity": "High",
+             "severity_modification_type": "RECASTED",
+             "recast_rule_uuid": _RULE_PREFIX + "2",
+             "state": "OPEN", "first_found": "2026-01-01",
+             "vpr_score": 7.5},
+        ])
+
+    def test_extract_risk_modifications_unaffected_by_new_helper(self):
+        """_extract_risk_modifications (Tab 5) must keep reporting the FULL
+        accepted+recast population, regardless of the new suppression
+        helper (T-jaz-01 mitigation)."""
+        full_df = self._full_population()
+        rules = _rules([
+            {"rule_id": _RULE_PREFIX + "1", "expires_at": _FUTURE,
+             "original_severity": "High", "created_at": "2026-01-01", "filter_summary": ""},
+            {"rule_id": _RULE_PREFIX + "2", "expires_at": _FUTURE,
+             "original_severity": "Medium", "created_at": "2026-01-01", "filter_summary": ""},
+        ])
+
+        full_result = _extract_risk_modifications(
+            vulns_df=full_df, assets_df=pd.DataFrame(), recast_rules_df=rules, as_of=_AS_OF,
+        )
+        assert "Accepted" in set(full_result["Modification Type"])
+        assert "Recast" in set(full_result["Modification Type"])
+        assert len(full_result) == 2
+
+        # Proving the wiring choice is load-bearing: feeding the SUPPRESSED
+        # frame instead would yield strictly fewer rows.
+        suppressed_df = _suppress_risk_accepted(full_df, rules, _AS_OF)
+        suppressed_result = _extract_risk_modifications(
+            vulns_df=suppressed_df, assets_df=pd.DataFrame(), recast_rules_df=rules, as_of=_AS_OF,
+        )
+        assert len(suppressed_result) < len(full_result)
+
+    def test_run_report_source_wiring(self):
+        """Structural (source-level) wiring guard — a live run_report() call
+        is impossible under Hard Rule 1, so assert the identifier flow via
+        inspect.getsource instead. Tolerant of whitespace reformatting;
+        strict about which identifier reaches which callee."""
+        source = inspect.getsource(ops_remediation.run_report)
+        normalized = re.sub(r"[ \t]+", " ", source)
+
+        assert normalized.count("vulns_actionable = _suppress_risk_accepted(") == 1, (
+            "helper must be applied exactly once"
+        )
+
+        # Tab 5 must keep reading the unfiltered frame.
+        m = re.search(r"_extract_risk_modifications\(([^)]*)\)", normalized, re.S)
+        assert m is not None, "_extract_risk_modifications call not found"
+        assert "vulns_df=vulns_scanned" in re.sub(r"\s+", "", m.group(1)), (
+            "_extract_risk_modifications must keep the unfiltered vulns_scanned frame"
+        )
+
+        for fn in (
+            "_group_by_plugin(",
+            "_compute_exploitability_metrics(",
+            "_get_top_priority_plugins(",
+            "_extract_recurring_vulnerabilities(",
+        ):
+            call_match = re.search(re.escape(fn) + r"([^)]*)", normalized, re.S)
+            assert call_match is not None, f"{fn} call not found"
+            call_args = re.sub(r"\s+", "", call_match.group(1))
+            assert "vulns_actionable" in call_args, f"{fn} must be called with vulns_actionable"
+            assert "vulns_scanned" not in call_args, f"{fn} must NOT be called with vulns_scanned"
