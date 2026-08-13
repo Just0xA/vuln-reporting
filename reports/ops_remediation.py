@@ -544,6 +544,120 @@ def _get_top_priority_plugins(
     )
 
 
+# ===========================================================================
+# Risk-accepted suppression (ACCEPTED only — NOT recast; see quick-260813-jaz)
+# ===========================================================================
+
+
+def _suppress_risk_accepted(
+    vulns_df: pd.DataFrame,
+    recast_rules_df: Optional[pd.DataFrame],
+    as_of: datetime,
+) -> pd.DataFrame:
+    """
+    Drop ACCEPTED findings from the actionable worklist, unless expired.
+
+    Suppresses ONLY rows with ``severity_modification_type == "ACCEPTED"``.
+    RECASTED findings deliberately REMAIN in the returned frame — a recast
+    is still open work Operations owns, only the severity tier changed
+    (D-01). This intentionally does NOT reuse the board's shared
+    risk-managed row-drop helper in ``reports/modules/board_report_utils.py``,
+    which drops BOTH ACCEPTED and RECASTED and has no expiry awareness —
+    that helper matches the board's "risk-managed" convention, not ops'
+    "risk-accepted" one.
+
+    An ACCEPTED finding whose Tenable recast rule has ``expires_at`` in the
+    past (relative to *as_of*) is no longer suppressed and returns to the
+    actionable population (D-02). Rules with a null/absent/``"Never"``/
+    unparseable ``expires_at`` never expire and stay suppressed.
+
+    Degrades gracefully: if *recast_rules_df* is None, empty, or missing
+    the columns needed for the expiry cross-check, ALL ACCEPTED rows are
+    suppressed (the conservative direction) and a warning is logged —
+    this function never raises.
+
+    Parameters
+    ----------
+    vulns_df : pd.DataFrame
+        Scanned vulnerability rows, expected to carry
+        ``severity_modification_type`` and (when available)
+        ``recast_rule_uuid``.
+    recast_rules_df : Optional[pd.DataFrame]
+        Output of ``fetch_recast_rules()`` — expected to carry ``rule_id``
+        and ``expires_at`` when the expiry carve-out is to be applied.
+    as_of : datetime
+        Report generation timestamp used to evaluate rule expiry.
+
+    Returns
+    -------
+    pd.DataFrame
+        A fresh copy of *vulns_df* with suppressed rows removed. Returned
+        unchanged (same object) when there is nothing to suppress.
+    """
+    if vulns_df.empty or "severity_modification_type" not in vulns_df.columns:
+        logger.debug(
+            "[%s] Skipping risk-accepted suppression — empty frame or no "
+            "severity_modification_type column.",
+            REPORT_NAME,
+        )
+        return vulns_df
+
+    mod = vulns_df["severity_modification_type"].astype(str).str.upper()
+    accepted_mask = mod == "ACCEPTED"
+
+    if not accepted_mask.any():
+        logger.debug("[%s] No ACCEPTED findings to suppress.", REPORT_NAME)
+        return vulns_df
+
+    as_of_utc = as_of if as_of.tzinfo is not None else as_of.replace(tzinfo=timezone.utc)
+
+    if (
+        recast_rules_df is None
+        or recast_rules_df.empty
+        or not {"rule_id", "expires_at"}.issubset(recast_rules_df.columns)
+    ):
+        expired_ids: set = set()
+        logger.warning(
+            "[%s] Recast rules unavailable or malformed — suppressing ALL "
+            "%d ACCEPTED findings without an expiry cross-check.",
+            REPORT_NAME,
+            int(accepted_mask.sum()),
+        )
+    else:
+        _exp = pd.to_datetime(recast_rules_df["expires_at"], utc=True, errors="coerce")
+        _expired = _exp.notna() & (_exp < pd.Timestamp(as_of_utc))
+        expired_ids = {
+            str(v).strip()
+            for v in recast_rules_df.loc[_expired, "rule_id"]
+            if str(v).strip() and str(v).strip().lower() != "nan"
+        }
+
+    suppress_mask = accepted_mask
+    if expired_ids:
+        if "recast_rule_uuid" in vulns_df.columns:
+            _uuid = vulns_df["recast_rule_uuid"].fillna("").astype(str).str.strip()
+            suppress_mask = accepted_mask & ~_uuid.isin(expired_ids)
+        else:
+            logger.warning(
+                "[%s] Findings frame has no recast_rule_uuid column — "
+                "expiry carve-out cannot be applied; suppressing all "
+                "ACCEPTED findings.",
+                REPORT_NAME,
+            )
+
+    logger.info(
+        "[%s] Risk-accepted suppression | accepted=%d | suppressed=%d | "
+        "returned_by_expiry=%d | recast_kept=%d",
+        REPORT_NAME,
+        int(accepted_mask.sum()),
+        int(suppress_mask.sum()),
+        int(accepted_mask.sum() - suppress_mask.sum()),
+        int((mod == "RECASTED").sum()),
+    )
+
+    return vulns_df[~suppress_mask].copy()
+
+
 def _extract_risk_modifications(
     vulns_df: pd.DataFrame,
     assets_df: pd.DataFrame,
