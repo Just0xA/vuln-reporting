@@ -14,15 +14,16 @@ For field-by-field definitions of the underlying Tenable data, see [`tenable_vul
 
 1. [Data Sources](#1-data-sources)
 2. [Shared Baseline — On-Time Scanned Assets](#2-shared-baseline--on-time-scanned-assets)
-3. [Severity Classification (VPR)](#3-severity-classification-vpr)
-4. [Business-Unit Breakdown](#4-business-unit-breakdown)
-5. [RAG Status Logic](#5-rag-status-logic)
-6. [Metric 1 — Scan Coverage SLA](#6-metric-1--scan-coverage-sla)
-7. [Metric 2 — Critical Remediation SLA](#7-metric-2--critical-remediation-sla)
-8. [Metric 3 — High-Risk Assets](#8-metric-3--high-risk-assets)
-9. [Metric 4 — Aged Vulnerability Assets](#9-metric-4--aged-vulnerability-assets)
-10. [Metric 5 — Accepted/Recast by Owner](#10-metric-5--acceptedrecast-by-owner)
-11. [Data-Quality Notes](#11-data-quality-notes)
+3. [Two Report Variants — Excluding vs. Including Risk-Managed Findings](#3-two-report-variants--excluding-vs-including-risk-managed-findings)
+4. [Severity Classification (VPR)](#4-severity-classification-vpr)
+5. [Business-Unit Breakdown](#5-business-unit-breakdown)
+6. [RAG Status Logic](#6-rag-status-logic)
+7. [Metric 1 — Scan Coverage SLA](#7-metric-1--scan-coverage-sla)
+8. [Metric 2 — Critical Remediation SLA](#8-metric-2--critical-remediation-sla)
+9. [Metric 3 — High-Risk Assets](#9-metric-3--high-risk-assets)
+10. [Metric 4 — Aged Vulnerability Assets](#10-metric-4--aged-vulnerability-assets)
+11. [Metric 5 — Accepted/Recast by Owner](#11-metric-5--acceptedrecast-by-owner)
+12. [Data-Quality Notes](#12-data-quality-notes)
 
 ---
 
@@ -75,20 +76,61 @@ Metrics 3 and 4 use the **on-time** asset set as their denominator — they only
 
 Metric 2 uses fixed vulnerabilities (not the asset baseline) as its input population — see [Metric 2](#7-metric-2--critical-remediation-sla).
 
-### Exclusion of risk-managed findings (Metrics 3, 4, and 2's SLA population)
+### Exclusion of risk-managed findings — default variant (Metrics 3, 4, and 2's SLA population)
 
 Risk-accepted and recast findings (`severity_modification_type` in `{ACCEPTED, RECASTED}`) remain `state = open` in Tenable, so they would otherwise inflate metrics that count "open" findings against a population the operator has already dispositioned.
+
+This is the **default** (`board_summary` slug, `include_risk_managed=False`) behavior:
 
 - **Metric 3 (High-Risk Assets)** and **Metric 4 (Aged Vulnerability Assets)** exclude ACCEPTED/RECASTED open findings before evaluating the high-risk/aged classification.
 - **Metric 2 (Critical Remediation SLA)** excludes ACCEPTED/RECASTED findings from **both** the *open* and the *fixed* population before computing the SLA percentage and the "missed SLA" analyst drill-down. (Until 2026-08-05 the exclusion was applied to the fixed population only; it is now symmetric, matching Metrics 3 and 4.)
 - **Metric 1 (Scan Coverage SLA)** is unaffected — it is assets-only and does not consume `vulns_df`.
 - **Metric 5 (Accepted/Recast by Owner)** intentionally does **not** apply this exclusion — risk-managed findings are exactly what it reports on.
 
-All three exclusions are applied via the shared `exclude_risk_managed()` helper (`reports/modules/board_report_utils.py`).
+All three exclusions are applied via the shared `exclude_risk_managed()` helper (`reports/modules/board_report_utils.py`), gated behind the `include_risk_managed` module option. See [section 3](#3-two-report-variants--excluding-vs-including-risk-managed-findings) for the inclusive counterpart.
 
 ---
 
-## 3. Severity Classification (VPR)
+## 3. Two Report Variants — Excluding vs. Including Risk-Managed Findings
+
+As of quick-260813-ga2, every board delivery emails **two** PDFs and **two** main Excel workbooks — the same 5 metrics, computed twice:
+
+| Slug | Title suffix | Metrics 2/3/4 population |
+|------|---------------|---------------------------|
+| `board_summary` (default, unchanged numbers) | " (Excluding Risk-Accepted & Recast)" | `severity_modification_type NOT IN (ACCEPTED, RECASTED)` |
+| `board_summary_incl_risk_managed` | " (Including Risk-Accepted & Recast)" | Full population — no `severity_modification_type` filter |
+
+Both slugs map to the same `reports/board_summary.py` module and the same 5 module classes; only the `include_risk_managed` module option passed to Metrics 2, 3, and 4 differs (Metrics 1 and 5 are always variant-invariant — see the table below). The inclusive variant contributes **no** email panel and **no** inline chart images — `delivery/email_sender.py` selects the first non-empty panel set, and `templates/report_email.html` has one panel slot, so only one report's panels can ever reach the email body. The excluded variant's email body instead carries a one-line pointer to the attached inclusive PDF. The inclusive variant also skips the owner/application supplemental workbook (Metric 5's data is unfiltered either way, so writing it twice would be redundant work, and it is never emailed).
+
+### Measured impact — all-assets scope, `data/cache/2026-08-05`
+
+Aggregate counts and percentages only, produced by running the real modules with the exclusion toggled (no live pull). Risk-managed rows are **24,794 of 196,415 open findings (12.6%)** and do carry VPR scores (critical 712, high 2,112, medium 19,203, none 2,767) — the VPR-only board tiering does not discard them.
+
+| Metric | Excluding (today) | Including | Delta |
+|--------|--------------------|-----------|-------|
+| 1. Scan Coverage SLA | — | identical | none — asset-only, never reads `vulns_df` |
+| 2. Critical Remediation SLA | 81.8% (red) | 78.9% (red) | **−2.9 pp**; open criticals 3,308 → 4,019 |
+| 3. High-Risk Assets | 52 / 0.1% (green) | 52 / 0.1% (green) | **none on this snapshot** |
+| 4. Aged Vulnerability Assets | 5,585 / 15.4% (red) | 6,279 / 17.4% (red) | **+694 assets / +2.0 pp** |
+| 5. Accepted/Recast by Owner | — | identical | none — deliberately reads the full frame |
+
+Three things to know before reading a delivery with both variants attached, or the reports will be misread:
+
+1. **Metrics 1 and 5 are identical by construction**, and Metric 3 is unchanged on this snapshot. Metric 1 is assets-only and never reads `vulns_df`; Metric 5 deliberately reads the full, unfiltered frame either way. Metric 3's threshold is **≥10** Crit/High findings >30 days per asset, and the extra risk-managed findings are spread thinly across assets — the ≥7 / ≥8 / ≥9 near-threshold buckets are unchanged too on this snapshot. Three of five report pages will look like photocopies between the two PDFs. **That is correct, not a defect.**
+2. **The inclusive Metric 2 is not a comparable SLA rate.** Its numerator (`compliant`) is unchanged at 15,479 in both variants — the entire 2.9-point drop lands in `open_past_due`. Accepted findings are by definition never remediated, so the inclusive number reads as "SLA rate penalized by acceptance volume," not "remediation got worse."
+3. **"Including risk-accepted" delivers +712 criticals, not +15,610.** Under VPR-only tiering (see [section 4](#4-severity-classification-vpr)), 12,077 of the 15,610 natively-Critical accepted findings land in the *medium* VPR tier. A reader expecting the raw count of accepted-Critical findings to show up 1:1 in Metric 2's delta will be off by roughly 20×.
+
+### Metric 5 tie-out gap (known, non-urgent)
+
+`exclude_risk_managed()` (used to build the excluded variant) has no concept of rule expiry — it filters purely on `severity_modification_type`. `accepted_recast_module.py`'s expired-rule cross-check (used by Metric 5 in both variants) instead reclassifies findings under an *expired* recast/accept rule as "pending re-evaluation," removing them from the accepted/recast counts. As of this writing no recast rule has lapsed, so the two views tie out; the first rule expiry will make Metric 5's counts diverge from a naive `severity_modification_type` tally without either number being wrong. See the [Expired-rule cross-check](#expired-rule-cross-check) subsection.
+
+### Per-owner BU tables can re-rank between variants
+
+The Risk Score column under Metrics 3 and 4 (see [Risk Score broadening](#risk-score-broadening-metrics-3--4)) is computed on the **post-exclusion** frame for the excluded variant and the **full** frame for the inclusive variant. Even on a snapshot where the headline percentage is unchanged (Metric 3, this snapshot), the inclusive variant's risk-managed findings can shift an owner's Risk Score enough to change its rank position in the per-owner breakdown table, because the score sums severity-weighted counts across *all* open Critical/High(/Medium) findings on qualifying assets, not just the exclusion-filtered subset.
+
+---
+
+## 4. Severity Classification (VPR)
 
 Severity is derived from the **VPR (Vulnerability Priority Rating)** score, not the native Tenable CVSS-based severity field.
 
@@ -108,7 +150,7 @@ Severity is derived from the **VPR (Vulnerability Priority Rating)** score, not 
 
 ---
 
-## 4. Business-Unit Breakdown
+## 5. Business-Unit Breakdown
 
 Every metric page includes a per-business-unit breakdown table showing which BUs are performing best and worst on that metric.
 
@@ -155,7 +197,7 @@ This broadening is intentional. The Risk Score is meant to be a **holistic asset
 
 ---
 
-## 5. RAG Status Logic
+## 6. RAG Status Logic
 
 Each metric is classified into one of four states:
 
@@ -188,7 +230,7 @@ The thresholds differ per metric and direction. The rules:
 
 ---
 
-## 6. Metric 1 — Scan Coverage SLA
+## 7. Metric 1 — Scan Coverage SLA
 
 **Direction:** Higher is better
 **Target:** ≥ 95% green / ≥ 90% amber / < 90% red
@@ -231,7 +273,7 @@ Where:
 
 ---
 
-## 7. Metric 2 — Critical Remediation SLA
+## 8. Metric 2 — Critical Remediation SLA
 
 **Direction:** Higher is better
 **Target:** ≥ 95% green / ≥ 85% amber / < 85% red
@@ -240,7 +282,7 @@ Where:
 
 Of the Critical vulnerabilities whose 15-day SLA clock has **expired**, what percentage were remediated in time?
 
-The cohort is **VPR 9.0–10.0 only** (`vpr_severity == "critical"`, no native-CVSS fallback — see [section 3](#3-severity-classification-vpr)), with risk-accepted and recast findings excluded from **both** the open and the fixed population.
+The cohort is **VPR 9.0–10.0 only** (`vpr_severity == "critical"`, no native-CVSS fallback — see [section 4](#4-severity-classification-vpr)), with risk-accepted and recast findings excluded from **both** the open and the fixed population in the default (excluding) variant — see [section 3](#3-two-report-variants--excluding-vs-including-risk-managed-findings).
 
 The metric counts remediation *outcome*, not just remediation *activity*: a Critical still sitting open 200 days past its SLA counts as a breach, exactly as a Critical that was eventually fixed 200 days late does.
 
@@ -328,10 +370,11 @@ The PDF page, the Excel tab, and the email driver narrative all disclose the fou
 - A NaT `clock_start` on an open finding falls into **C** (`open_not_due`), never into B. A finding whose overdue-ness cannot be computed is not counted as a failure, and it still appears in Total Critical Open so `|B| + |C|` always equals the in-scope open Critical count.
 - Findings where the date math is negative (a data error in the source feed) are clipped to 0 days and therefore counted as compliant (effectively a same-day fix).
 - If both the fixed-vulnerability data set and the open Critical population are empty → status is "No Data".
+- The `include_risk_managed` module option (quick-260813-ga2, see [section 3](#3-two-report-variants--excluding-vs-including-risk-managed-findings)) selects which population feeds both A and B/C — the excluded and included variants never diverge between the open and fixed sides of a single run.
 
 ---
 
-## 8. Metric 3 — High-Risk Assets
+## 9. Metric 3 — High-Risk Assets
 
 **Direction:** Lower is better
 **Target:** ≤ 0.5% green / ≤ 1.0% amber / > 1.0% red
@@ -353,7 +396,7 @@ Where:
 
 An asset qualifies as high-risk when it meets **all three** of the following conditions:
 
-1. **Severity filter:** The finding has board-local VPR-only severity of `critical` or `high` (VPR ≥ 7.0). No native-CVSS fallback — a finding with no `vpr_score` is tiered `none` and does not count, even when its native Tenable `severity` string says `critical` or `high` (see [section 3](#3-severity-classification-vpr)).
+1. **Severity filter:** The finding has board-local VPR-only severity of `critical` or `high` (VPR ≥ 7.0). No native-CVSS fallback — a finding with no `vpr_score` is tiered `none` and does not count, even when its native Tenable `severity` string says `critical` or `high` (see [section 4](#4-severity-classification-vpr)).
 2. **Age filter:** Days open is **strictly greater than 30** (a finding open exactly 30 days is **not** counted).
 3. **Count threshold:** The asset has **≥ 10** qualifying findings meeting both conditions above.
 
@@ -380,10 +423,11 @@ Only findings on on-time assets contribute to the count.
 - If total on-time assets is zero → status is "No Data".
 - Assets with no open vulnerabilities cannot be high-risk (count = 0 < 10 threshold).
 - Days open is computed as `report date − first_found` in whole days. Findings where `first_found` cannot be parsed are excluded from the count.
+- The `include_risk_managed` module option (quick-260813-ga2, see [section 3](#3-two-report-variants--excluding-vs-including-risk-managed-findings)) determines whether ACCEPTED/RECASTED findings can contribute to the ≥10 count.
 
 ---
 
-## 9. Metric 4 — Aged Vulnerability Assets
+## 10. Metric 4 — Aged Vulnerability Assets
 
 **Direction:** Lower is better
 **Target:** ≤ 2% green / ≤ 5% amber / > 5% red
@@ -405,7 +449,7 @@ Where:
 
 An asset qualifies as aged when it has **at least one** finding meeting **both** of the following conditions:
 
-1. **Severity filter:** Board-local VPR-only severity is `medium`, `high`, or `critical` (VPR ≥ 4.0). No native-CVSS fallback — a finding with no `vpr_score` is tiered `none` and does not count (see [section 3](#3-severity-classification-vpr)).
+1. **Severity filter:** Board-local VPR-only severity is `medium`, `high`, or `critical` (VPR ≥ 4.0). No native-CVSS fallback — a finding with no `vpr_score` is tiered `none` and does not count (see [section 4](#4-severity-classification-vpr)).
 2. **Age filter:** Days open is **strictly greater than 90** (a finding open exactly 90 days is **not** counted).
 
 Only findings on on-time assets are evaluated.
@@ -432,10 +476,11 @@ Only findings on on-time assets are evaluated.
 - An asset is only counted once regardless of how many aged findings it has — this is asset-level membership, not finding-level.
 - Low-severity findings (VPR < 4.0) are excluded; they have a 180-day SLA and are not tracked by this board metric.
 - Days open is computed as `report date − first_found` in whole days. Findings where `first_found` cannot be parsed are excluded.
+- The `include_risk_managed` module option (quick-260813-ga2, see [section 3](#3-two-report-variants--excluding-vs-including-risk-managed-findings)) determines whether an ACCEPTED/RECASTED-only finding can qualify an asset as aged.
 
 ---
 
-## 10. Metric 5 — Accepted/Recast by Owner
+## 11. Metric 5 — Accepted/Recast by Owner
 
 **Module:** `reports/modules/accepted_recast_module.py` (`accepted_recast`)
 **Direction:** Lower exception rate is better
@@ -448,7 +493,7 @@ The count of open findings that have been formally risk-managed by an analyst �
 - **Accepted** — `severity_modification_type == "ACCEPTED"` (risk acknowledged, no further action expected)
 - **Recasted** — `severity_modification_type == "RECASTED"` (severity adjusted by an analyst)
 
-Unlike Metrics 2–4, this module intentionally reads the **full** `vulns_df` — it is **not** filtered by `exclude_risk_managed()` (see [Exclusion of risk-managed findings](#exclusion-of-risk-managed-findings-metrics-3-4-and-2s-sla-population) above), since risk-managed findings are exactly the population it exists to surface.
+Unlike Metrics 2–4, this module intentionally reads the **full** `vulns_df` — it is **not** filtered by `exclude_risk_managed()` (see [Exclusion of risk-managed findings — default variant](#exclusion-of-risk-managed-findings--default-variant-metrics-3-4-and-2s-sla-population) above), since risk-managed findings are exactly the population it exists to surface. This makes Metric 5 identical between the two report variants by construction — see [section 3](#3-two-report-variants--excluding-vs-including-risk-managed-findings).
 
 ### Formula
 
@@ -500,10 +545,11 @@ Both thresholds are overridable per delivery group via `green_exception_rate` / 
 - When `total_open` is 0, exception rate is `None` and status is "No Data".
 - `""`, `"NONE"`, and any value other than `ACCEPTED`/`RECASTED` are excluded from both counts (never silently aggregated).
 - Rule-level detail (rule name, action, original/new severity) appears only in the analyst drill-down tab — the headline metric is always a **finding** count, never a rule count.
+- The excluded-variant's `exclude_risk_managed()` filter and this module's expired-rule cross-check are two independent tie-out mechanisms that happen to agree today because no recast rule has lapsed — see [Metric 5 tie-out gap](#metric-5-tie-out-gap-known-non-urgent) in section 3.
 
 ---
 
-## 11. Data-Quality Notes
+## 12. Data-Quality Notes
 
 Common scenarios the team should recognise when reviewing the numbers:
 

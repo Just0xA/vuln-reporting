@@ -192,7 +192,7 @@ Shared utilities: `reports/modules/rag_utils.py` and `reports/modules/format_uti
 ### Adding a new module to an existing composed report
 
 1. Create `reports/modules/my_metric_module.py` following the pattern above.
-2. Add `ModuleConfig("my_metric")` to the report's module-config list (e.g. `_BOARD_MODULE_CONFIGS` in `board_summary.py`) — or, for `composed_report`, just list the MODULE_ID in the group's `modules:` YAML. Auto-discovery handles registration.
+2. Add `ModuleConfig("my_metric")` to the report's module-config list (e.g. the `_board_module_configs()` factory in `board_summary.py`) — or, for `composed_report`, just list the MODULE_ID in the group's `modules:` YAML. Auto-discovery handles registration.
 
 ### PDF assembly note
 
@@ -228,7 +228,8 @@ If the report needs group-config parameters beyond the standard set, add a slug-
 | `ops_remediation`    | Operations / Remediation          | Excel (7 tabs), PDF              | Overdue by plugin, risk acceptances, recurring vulns (legacy bespoke path)   |
 | `vuln_export`        | Operations + Analysts             | CSV only                         | Raw open findings, configurable `csv_severities`                             |
 | `management_summary` | Senior Management (Directors/VPs) | PDF, HTML email, Excel           | 7 modules on ReportComposer. See `docs/management_summary_calculations.md`   |
-| `board_summary`      | Board / Executive Leadership      | PDF, Excel                       | 5 board metrics; modules-based. Incl. Accepted/Recast-by-Owner. See `docs/board_summary_calculations.md` |
+| `board_summary`      | Board / Executive Leadership      | PDF, Excel                       | 5 board metrics; modules-based. Excludes risk-managed (ACCEPTED/RECASTED) findings from Metrics 2-4 (default). Incl. Accepted/Recast-by-Owner. See `docs/board_summary_calculations.md` |
+| `board_summary_incl_risk_managed` | Board / Executive Leadership | PDF, Excel                  | Same `reports/board_summary.py` module as `board_summary` (two-slugs-one-module mapping) — computes Metrics 2-4 over the full population including risk-managed findings. No email panels; see `docs/board_summary_calculations.md`'s "Two Report Variants" section. |
 | `unscanned_assets`   | Analysts / IT Ops                 | Excel, CSV                       | Companion to Scan Coverage SLA                                               |
 | `composed_report`    | Any (YAML-defined)                | PDF, Excel, email, analyst wb    | Generic module composition — see section above                               |
 

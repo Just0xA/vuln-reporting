@@ -43,6 +43,10 @@ A self-contained KPI/KRI implementation under `reports/modules/`, named `*_modul
 
 One entry under `groups:` in `delivery_config.yaml`. Bundles together: a schedule (weekly/monthly/on-demand), a tag filter, a list of reports (or modules for `composed_report`), and an email destination list. The unit a scheduler iterates over.
 
+## Risk-managed finding
+
+A finding whose `severity_modification_type` is `ACCEPTED` or `RECASTED` — an analyst has formally dispositioned it, but it remains `state = open` in Tenable. The codebase says "risk-managed" rather than "risk-accepted" because a recast (severity adjusted) is not the same operational decision as an acceptance (risk acknowledged, no further action expected); the two are tracked separately by `accepted_recast_module.py`. Filtered out of Metrics 2/3/4's default population by `exclude_risk_managed()` (`reports/modules/board_report_utils.py`); the `include_risk_managed` module option (quick-260813-ga2) lets a report variant include them instead. See `board_summary_calculations.md`'s "Two Report Variants" section.
+
 ## Slug
 
 A short, lowercase, underscore-separated identifier used in code and YAML to refer to a top-level report — e.g. `board_summary`, `executive_kpi`, `composed_report`. Listed in `run_all.py:_VALID_REPORTS` and the YAML schema's `reports` enum.
