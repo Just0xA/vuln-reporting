@@ -225,7 +225,7 @@ If the report needs group-config parameters beyond the standard set, add a slug-
 | `patch_compliance`   | IT / Remediation + Analysts       | Excel, PDF, chart                | Age buckets, % beyond SLA, oldest unpatched                                  |
 | `trend_analysis`     | Management + Analysts             | Excel, PDF, charts               | Weekly/monthly snapshots, MTTR trend                                         |
 | `plugin_cve`         | Analysts                          | Excel, PDF, charts               | Top plugins/CVEs, exploitable breakdown                                      |
-| `ops_remediation`    | Operations / Remediation          | Excel (7 tabs), PDF              | Overdue by plugin, risk acceptances, recurring vulns (legacy bespoke path)   |
+| `ops_remediation`    | Operations / Remediation          | Excel (7 tabs), PDF              | Overdue by plugin, risk acceptances, recurring vulns (legacy bespoke path). Suppresses unexpired ACCEPTED findings from actionable metrics (recasts kept).   |
 | `vuln_export`        | Operations + Analysts             | CSV only                         | Raw open findings, configurable `csv_severities`                             |
 | `management_summary` | Senior Management (Directors/VPs) | PDF, HTML email, Excel           | 7 modules on ReportComposer. See `docs/management_summary_calculations.md`   |
 | `board_summary`      | Board / Executive Leadership      | PDF, Excel                       | 5 board metrics; modules-based. Excludes risk-managed (ACCEPTED/RECASTED) findings from Metrics 2-4 (default). Incl. Accepted/Recast-by-Owner. See `docs/board_summary_calculations.md` |

@@ -11,6 +11,9 @@ different structure and audience focus:
   - Four-state SLA status: Overdue / Urgent / Warning / On Track
   - Unscanned asset identification and exclusion from vuln counts
   - No per-asset breakdown in output — plugin + asset count is sufficient
+  - Actionable metrics suppress unexpired ACCEPTED findings only; RECASTED
+    findings stay in the worklist at their recast severity (see
+    _suppress_risk_accepted / quick-260813-jaz)
 
 Outputs
 -------
@@ -542,6 +545,120 @@ def _get_top_priority_plugins(
         [["plugin_name", "vpr_score", "exploit_code_maturity", "affected_assets"]]
         .reset_index(drop=True)
     )
+
+
+# ===========================================================================
+# Risk-accepted suppression (ACCEPTED only — NOT recast; see quick-260813-jaz)
+# ===========================================================================
+
+
+def _suppress_risk_accepted(
+    vulns_df: pd.DataFrame,
+    recast_rules_df: Optional[pd.DataFrame],
+    as_of: datetime,
+) -> pd.DataFrame:
+    """
+    Drop ACCEPTED findings from the actionable worklist, unless expired.
+
+    Suppresses ONLY rows with ``severity_modification_type == "ACCEPTED"``.
+    RECASTED findings deliberately REMAIN in the returned frame — a recast
+    is still open work Operations owns, only the severity tier changed
+    (D-01). This intentionally does NOT reuse the board's shared
+    risk-managed row-drop helper in ``reports/modules/board_report_utils.py``,
+    which drops BOTH ACCEPTED and RECASTED and has no expiry awareness —
+    that helper matches the board's "risk-managed" convention, not ops'
+    "risk-accepted" one.
+
+    An ACCEPTED finding whose Tenable recast rule has ``expires_at`` in the
+    past (relative to *as_of*) is no longer suppressed and returns to the
+    actionable population (D-02). Rules with a null/absent/``"Never"``/
+    unparseable ``expires_at`` never expire and stay suppressed.
+
+    Degrades gracefully: if *recast_rules_df* is None, empty, or missing
+    the columns needed for the expiry cross-check, ALL ACCEPTED rows are
+    suppressed (the conservative direction) and a warning is logged —
+    this function never raises.
+
+    Parameters
+    ----------
+    vulns_df : pd.DataFrame
+        Scanned vulnerability rows, expected to carry
+        ``severity_modification_type`` and (when available)
+        ``recast_rule_uuid``.
+    recast_rules_df : Optional[pd.DataFrame]
+        Output of ``fetch_recast_rules()`` — expected to carry ``rule_id``
+        and ``expires_at`` when the expiry carve-out is to be applied.
+    as_of : datetime
+        Report generation timestamp used to evaluate rule expiry.
+
+    Returns
+    -------
+    pd.DataFrame
+        A fresh copy of *vulns_df* with suppressed rows removed. Returned
+        unchanged (same object) when there is nothing to suppress.
+    """
+    if vulns_df.empty or "severity_modification_type" not in vulns_df.columns:
+        logger.debug(
+            "[%s] Skipping risk-accepted suppression — empty frame or no "
+            "severity_modification_type column.",
+            REPORT_NAME,
+        )
+        return vulns_df
+
+    mod = vulns_df["severity_modification_type"].astype(str).str.upper()
+    accepted_mask = mod == "ACCEPTED"
+
+    if not accepted_mask.any():
+        logger.debug("[%s] No ACCEPTED findings to suppress.", REPORT_NAME)
+        return vulns_df
+
+    as_of_utc = as_of if as_of.tzinfo is not None else as_of.replace(tzinfo=timezone.utc)
+
+    if (
+        recast_rules_df is None
+        or recast_rules_df.empty
+        or not {"rule_id", "expires_at"}.issubset(recast_rules_df.columns)
+    ):
+        expired_ids: set = set()
+        logger.warning(
+            "[%s] Recast rules unavailable or malformed — suppressing ALL "
+            "%d ACCEPTED findings without an expiry cross-check.",
+            REPORT_NAME,
+            int(accepted_mask.sum()),
+        )
+    else:
+        _exp = pd.to_datetime(recast_rules_df["expires_at"], utc=True, errors="coerce")
+        _expired = _exp.notna() & (_exp < pd.Timestamp(as_of_utc))
+        expired_ids = {
+            str(v).strip()
+            for v in recast_rules_df.loc[_expired, "rule_id"]
+            if str(v).strip() and str(v).strip().lower() != "nan"
+        }
+
+    suppress_mask = accepted_mask
+    if expired_ids:
+        if "recast_rule_uuid" in vulns_df.columns:
+            _uuid = vulns_df["recast_rule_uuid"].fillna("").astype(str).str.strip()
+            suppress_mask = accepted_mask & ~_uuid.isin(expired_ids)
+        else:
+            logger.warning(
+                "[%s] Findings frame has no recast_rule_uuid column — "
+                "expiry carve-out cannot be applied; suppressing all "
+                "ACCEPTED findings.",
+                REPORT_NAME,
+            )
+
+    logger.info(
+        "[%s] Risk-accepted suppression | accepted=%d | suppressed=%d | "
+        "returned_by_expiry=%d | recast_kept=%d",
+        REPORT_NAME,
+        int(accepted_mask.sum()),
+        int(suppress_mask.sum()),
+        int(accepted_mask.sum() - suppress_mask.sum()),
+        int((mod == "RECASTED").sum()),
+    )
+
+    return vulns_df[~suppress_mask].copy()
 
 
 def _extract_risk_modifications(
@@ -1404,7 +1521,7 @@ def _build_summary_sheet(wb, summary: dict) -> None:
     expired   = summary.get("count_expired", 0)
     recurring = summary.get("count_recurring", 0)
 
-    _w(row, 1, "Accepted Findings (suppressed from counts)", font=_label_font, fill=_head_fill)
+    _w(row, 1, "Accepted Findings (suppressed unless expired)", font=_label_font, fill=_head_fill)
     _w(row, 2, accepted, font=_value_font,
        fill=_exploit_orange_fill if accepted > 0 else _exploit_green_fill)
     row += 1
@@ -1494,10 +1611,15 @@ def _extend_metadata_tab(
          "Includes last seen date, last licensed scan date, days since scan, and source. "
          "These assets are excluded from all vulnerability counts."),
         ("Risk Acceptances & Recasts",
-         "Active HOST-scoped risk rules from Tenable. Accepted findings are suppressed "
-         "from open vuln counts. Recast findings have had their severity changed from "
-         "the original value. Includes expiration dates and days until expiry. "
-         "Expired rules are highlighted red; rules expiring within 30 days are orange."),
+         "Active HOST-scoped risk rules from Tenable — this tab itself always reports "
+         "the FULL accepted+recast population, regardless of suppression. Accepted "
+         "findings ARE suppressed from the actionable counts elsewhere in this workbook "
+         "(Summary, Plugins, Overdue Detail, exploitability, priority plugins, "
+         "recurring) unless their rule has EXPIRED, in which case they return to those "
+         "actionable counts. Recast findings are NOT suppressed and remain in those "
+         "counts at their recast severity — only the severity value changed from the "
+         "original. Includes expiration dates and days until expiry. Expired rules are "
+         "highlighted red; rules expiring within 30 days are orange."),
         ("Recurring Vulnerabilities",
          "Findings that were previously remediated and have resurfaced. Detected via "
          "the resurfaced_date field in the Tenable export. Date Closed is an "
@@ -2698,10 +2820,17 @@ def run_report(
     scanned_ids   = set(scanned_df["asset_uuid"])
     vulns_scanned = vulns_df[vulns_df["asset_uuid"].isin(scanned_ids)]
 
-    plugin_df = _group_by_plugin(vulns_scanned)
+    # The actionable worklist is the scanned findings minus UNEXPIRED risk
+    # acceptances (ACCEPTED only — recasts stay; see _suppress_risk_accepted
+    # / quick-260813-jaz). vulns_scanned itself stays UNFILTERED below for
+    # _extract_risk_modifications (Tab 5), which must keep reporting the
+    # full accepted+recast population.
+    vulns_actionable = _suppress_risk_accepted(vulns_scanned, recast_rules_df, generated_at)
+
+    plugin_df = _group_by_plugin(vulns_actionable)
 
     summary = _compute_summary_metrics(
-        vulns_df     = vulns_scanned,
+        vulns_df     = vulns_actionable,
         plugin_df    = plugin_df,
         assets_df    = assets_df,
         unscanned_df = unscanned_df,
@@ -2710,12 +2839,12 @@ def run_report(
         as_of        = generated_at,
     )
 
-    _exploit_metrics = _compute_exploitability_metrics(vulns_scanned)
+    _exploit_metrics = _compute_exploitability_metrics(vulns_actionable)
     summary["known_exploit"]      = _exploit_metrics["known_exploit"]
     summary["exploit_functional"] = _exploit_metrics["functional"]
     summary["exploit_high"]       = _exploit_metrics["high_maturity"]
 
-    _priority_df = _get_top_priority_plugins(vulns_scanned)
+    _priority_df = _get_top_priority_plugins(vulns_actionable)
     summary["priority_plugins"] = _priority_df.to_dict("records")
 
     risk_mods_df  = _extract_risk_modifications(
@@ -2726,7 +2855,7 @@ def run_report(
         cache_dir       = cache_dir,
     )
     recurring_df = _extract_recurring_vulnerabilities(
-        vulns_df  = vulns_scanned,
+        vulns_df  = vulns_actionable,
         assets_df = assets_df,
     )
     summary["count_risk_accepted"]  = int((risk_mods_df["Modification Type"] == "Accepted").sum()) if not risk_mods_df.empty else 0
@@ -2769,7 +2898,7 @@ def run_report(
         )
 
     overdue_df = _enrich_with_assets(
-        vulns_scanned[vulns_scanned["ops_sla_status"] == OPS_SLA_OVERDUE]
+        vulns_actionable[vulns_actionable["ops_sla_status"] == OPS_SLA_OVERDUE]
     ).sort_values(
         ["severity", "days_open"],
         ascending=[True, False],
@@ -2795,7 +2924,7 @@ def run_report(
     pdf_path = output_dir / f"ops_remediation_{slug_str}.pdf"
 
     urgent_df = _enrich_with_assets(
-        vulns_scanned[vulns_scanned["ops_sla_status"] == OPS_SLA_URGENT]
+        vulns_actionable[vulns_actionable["ops_sla_status"] == OPS_SLA_URGENT]
     ).sort_values(
         ["severity", "days_remaining"],
         ascending=[True, True],
@@ -2907,10 +3036,16 @@ if __name__ == "__main__":
     _scanned_ids   = set(_scanned_df["asset_uuid"])
     _vulns_scanned = _vulns_df[_vulns_df["asset_uuid"].isin(_scanned_ids)]
 
-    _plugin_df = _group_by_plugin(_vulns_scanned)
+    # Mirrors run_report(): actionable = scanned minus UNEXPIRED risk
+    # acceptances. _vulns_scanned stays UNFILTERED for
+    # _extract_risk_modifications (Tab 5). See _suppress_risk_accepted /
+    # quick-260813-jaz.
+    _vulns_actionable = _suppress_risk_accepted(_vulns_scanned, _recast_rules_df, _as_of)
+
+    _plugin_df = _group_by_plugin(_vulns_actionable)
 
     _summary = _compute_summary_metrics(
-        vulns_df     = _vulns_scanned,
+        vulns_df     = _vulns_actionable,
         plugin_df    = _plugin_df,
         assets_df    = _assets_df,
         unscanned_df = _unscanned_df,
@@ -2919,12 +3054,12 @@ if __name__ == "__main__":
         as_of        = _as_of,
     )
 
-    _exploit_metrics_cli = _compute_exploitability_metrics(_vulns_scanned)
+    _exploit_metrics_cli = _compute_exploitability_metrics(_vulns_actionable)
     _summary["known_exploit"]      = _exploit_metrics_cli["known_exploit"]
     _summary["exploit_functional"] = _exploit_metrics_cli["functional"]
     _summary["exploit_high"]       = _exploit_metrics_cli["high_maturity"]
 
-    _priority_df_cli = _get_top_priority_plugins(_vulns_scanned)
+    _priority_df_cli = _get_top_priority_plugins(_vulns_actionable)
     _summary["priority_plugins"] = _priority_df_cli.to_dict("records")
 
     _risk_mods_df_cli = _extract_risk_modifications(
@@ -2935,7 +3070,7 @@ if __name__ == "__main__":
         cache_dir       = _cache_dir,
     )
     _recurring_df_cli = _extract_recurring_vulnerabilities(
-        vulns_df  = _vulns_scanned,
+        vulns_df  = _vulns_actionable,
         assets_df = _assets_df,
     )
     _summary["count_risk_accepted"] = int((_risk_mods_df_cli["Modification Type"] == "Accepted").sum()) if not _risk_mods_df_cli.empty else 0
@@ -2990,7 +3125,7 @@ if __name__ == "__main__":
 
     # --- Step 2: Build Excel ---
     _overdue_df = _enrich_cli(
-        _vulns_scanned[_vulns_scanned["ops_sla_status"] == OPS_SLA_OVERDUE]
+        _vulns_actionable[_vulns_actionable["ops_sla_status"] == OPS_SLA_OVERDUE]
     ).sort_values(
         ["severity", "days_open"],
         ascending=[True, False],
@@ -3017,7 +3152,7 @@ if __name__ == "__main__":
 
     # --- Step 3: Build PDF ---
     _urgent_df = _enrich_cli(
-        _vulns_scanned[_vulns_scanned["ops_sla_status"] == OPS_SLA_URGENT]
+        _vulns_actionable[_vulns_actionable["ops_sla_status"] == OPS_SLA_URGENT]
     ).sort_values(
         ["severity", "days_remaining"],
         ascending=[True, True],
