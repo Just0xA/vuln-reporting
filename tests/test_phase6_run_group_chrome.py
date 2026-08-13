@@ -34,9 +34,15 @@ def test_chrome_aware_slugs_includes_both_modular_consumers():
     management_summary is added to _CHROME_AWARE_SLUGS in the same atomic
     commit that migrates run_report() onto ReportComposer and adds the chrome
     kwargs to its signature (Pitfall 3 / T-18-13). This test is updated in
-    the same Plan 04 Task 1 commit so it does not block the GREEN run."""
+    the same Plan 04 Task 1 commit so it does not block the GREEN run.
+
+    quick-260813-ga2 co-edit: board_summary_incl_risk_managed is added in
+    the same commit that registers the new slug — it maps to the same
+    reports/board_summary.py module and must not silently diverge in PDF
+    chrome from its sibling slug."""
     assert _CHROME_AWARE_SLUGS == frozenset({
         "board_summary",
+        "board_summary_incl_risk_managed",
         "composed_report",
         "management_summary",
     })

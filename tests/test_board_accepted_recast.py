@@ -10,7 +10,7 @@ All fixtures use synthetic data only (QUAL-05 / D-04-08):
 
 Key requirement coverage
 -------------------------
-- accepted_recast is present in board_summary._BOARD_MODULE_CONFIGS
+- accepted_recast is present in board_summary._board_module_configs() output
 - Running accepted_recast's compute() with synthetic board-style fixtures
   produces all four channels: a non-empty render_pdf_section, at least one
   analyst/excel tab, and a populated (non "No Data") rag_strip entry
@@ -79,8 +79,14 @@ def _make_recast_rules(rows: list[dict]) -> pd.DataFrame:
 
 class TestBoardModuleConfigs:
     def test_accepted_recast_present_in_board_module_configs(self):
-        module_ids = [cfg.module_id for cfg in bs._BOARD_MODULE_CONFIGS]
-        assert "accepted_recast" in module_ids
+        # quick-260813-ga2 — _BOARD_MODULE_CONFIGS became a per-call factory
+        # (_board_module_configs) so options never leak across runs.
+        for include_risk_managed in (False, True):
+            module_ids = [
+                cfg.module_id
+                for cfg in bs._board_module_configs(include_risk_managed)
+            ]
+            assert "accepted_recast" in module_ids
 
 
 class TestAcceptedRecastFourChannelInBoardContext:

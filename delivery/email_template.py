@@ -88,6 +88,11 @@ _REPORT_DESCRIPTIONS: dict[str, str] = {
     "plugin_cve":          "Plugin / CVE breakdown — top plugins, top CVEs, exploitable vulns, CVSS distribution",
     "ops_remediation":     "Operations remediation — plugin-grouped overdue findings, SLA state breakdown, unscanned assets",
     "management_summary":  "Management Executive Summary — program health, MTTR, SLA compliance, age distribution, and trend",
+    # quick-260813-ga2 — neither board slug had an entry before; the
+    # attachment list previously fell back to slug.replace("_", " ").title(),
+    # which reads the raw slug for the inclusive variant.
+    "board_summary":       "Board Vulnerability Metrics Summary — excluding risk-accepted & recast findings",
+    "board_summary_incl_risk_managed": "Board Vulnerability Metrics Summary — including risk-accepted & recast findings",
 }
 
 
