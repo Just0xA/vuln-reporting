@@ -141,8 +141,8 @@ existing group as a starting point and adjust the values:
 
 Valid report slugs: `executive_kpi`, `sla_remediation`, `asset_risk`,
 `patch_compliance`, `trend_analysis`, `plugin_cve`, `ops_remediation`,
-`management_summary`, `vuln_export`, `board_summary`, `unscanned_assets`,
-`composed_report`.
+`management_summary`, `vuln_export`, `board_summary`,
+`board_summary_incl_risk_managed`, `unscanned_assets`, `composed_report`.
 
 Run `--dry-run` to validate before the next scheduled run.
 

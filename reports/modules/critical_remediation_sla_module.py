@@ -255,9 +255,26 @@ class CriticalRemediationSLAModule(BaseModule):
             # populations up front — they must not inflate/deflate the SLA
             # metric (quick-260722-lx9; extended to the OPEN side by
             # quick-260805-ezo D-04, matching high_risk_assets_module.py and
-            # aged_vulns_assets_module.py).
-            vulns_df       = exclude_risk_managed(vulns_df)
-            fixed_vulns_df = exclude_risk_managed(fixed_vulns_df)
+            # aged_vulns_assets_module.py).  quick-260813-ga2 — gated by the
+            # include_risk_managed module option (default False = today's
+            # behavior); both populations must never diverge.
+            include_risk_managed = bool(
+                config.options.get("include_risk_managed", False)
+            )
+            if not include_risk_managed:
+                vulns_df       = exclude_risk_managed(vulns_df)
+                fixed_vulns_df = exclude_risk_managed(fixed_vulns_df)
+
+            # quick-260813-ga2 — auditor-facing scope string, precomputed so no
+            # inline conditional expression is needed in the f-strings below
+            # (Hard Rule 6).
+            risk_managed_scope = (
+                "Includes risk-managed findings (severity_modification_type in "
+                "{ACCEPTED, RECASTED})"
+                if include_risk_managed else
+                "Excludes risk-managed findings (severity_modification_type in "
+                "{ACCEPTED, RECASTED})"
+            )
 
             # quick-260805-ezo D-04 — cohort is the board-local VPR-only
             # Critical tier; a finding with no VPR score is "none", never
@@ -537,8 +554,9 @@ class CriticalRemediationSLAModule(BaseModule):
                         "(last_fixed − COALESCE(resurfaced_date, first_found)).days, "
                         "clipped at 0; time_taken_to_fix is deliberately NOT used"
                     ),
-                    "computed_at":      computed_at,
-                    "email_gauge_b64":  email_gauge_b64,
+                    "computed_at":         computed_at,
+                    "email_gauge_b64":     email_gauge_b64,
+                    "risk_managed_scope":  risk_managed_scope,
                 },
                 error            = None,
                 driver_narrative = driver,
@@ -718,10 +736,18 @@ class CriticalRemediationSLAModule(BaseModule):
         # multi-line HTML f-string below contains no inline format specs.
         green_str  = format(_GREEN_THRESHOLD,  ".0f")
         yellow_str = format(_YELLOW_THRESHOLD, ".0f")
+        # quick-260813-ga2 — the exclusion claim follows the module option
+        # instead of being asserted unconditionally.
+        include_risk_managed = bool(config.options.get("include_risk_managed", False))
+        risk_managed_clause = (
+            "including risk-accepted and recast findings"
+            if include_risk_managed else
+            "excluding risk-accepted and recast findings"
+        )
         explain_html = f"""
 <p class="explanatory-text">
   <strong>What this measures:</strong> Of the Critical vulnerabilities
-  (VPR 9.0&ndash;10.0, excluding risk-accepted and recast findings) whose
+  (VPR 9.0&ndash;10.0, {risk_managed_clause}) whose
   {_CRITICAL_SLA_DAYS}-day clock has expired, what percentage were remediated in time?
   The {_CRITICAL_SLA_DAYS}-day clock runs from the resurface date when a finding has
   reopened, otherwise from first discovery.  The denominator counts criticals fixed in
@@ -795,6 +821,17 @@ class CriticalRemediationSLAModule(BaseModule):
             total_critical_open = m.get("total_critical_open", 0)
             status              = m.get("status", "no_data")
 
+            # quick-260813-ga2 — the exclusion claim in the auditor-facing
+            # Scope: row follows the module option.
+            include_risk_managed = bool(
+                config.options.get("include_risk_managed", False)
+            )
+            risk_managed_clause = (
+                "including risk-accepted / recast findings"
+                if include_risk_managed else
+                "excluding risk-accepted / recast findings"
+            )
+
             # ---- Overall KPI block ----
             _xl_title(ws, "A1", "Critical Vulnerability Remediation SLA — 30-Day Window")
 
@@ -829,8 +866,8 @@ class CriticalRemediationSLAModule(BaseModule):
                    f"Amber ≥{_YELLOW_THRESHOLD:.0f}%  |  "  # safe: module-level int constant, never None
                    f"Red <{_YELLOW_THRESHOLD:.0f}%")  # safe: module-level int constant, never None
             _xl_kv(ws, 13, "Scope:",
-                   "Cohort: VPR 9.0–10.0 Critical, excluding risk-accepted / "
-                   "recast findings.  The asset-level on-time gate "
+                   f"Cohort: VPR 9.0–10.0 Critical, {risk_managed_clause}.  "
+                   "The asset-level on-time gate "
                    f"(last_licensed_scan_date within {ON_TIME_WINDOW_DAYS}d) "
                    "applies to the OPEN side only.")
 
@@ -1068,7 +1105,11 @@ class CriticalRemediationSLAModule(BaseModule):
                     "VPR 9.0–10.0, NO native-CVSS fallback) AND "
                     "severity_modification_type NOT IN (ACCEPTED, RECASTED). "
                     "Applied to BOTH the open and the fixed population "
-                    "(quick-260805-ezo D-04; previously fixed-only)."
+                    "(quick-260805-ezo D-04; previously fixed-only) — UNLESS the "
+                    "include_risk_managed module option is set, in which case "
+                    "the severity_modification_type filter is skipped and the "
+                    "full population (including ACCEPTED/RECASTED) is used "
+                    "(quick-260813-ga2)."
                 ),
                 "days_to_fix": (
                     "(last_fixed − clock_start).days, clipped at 0, where "

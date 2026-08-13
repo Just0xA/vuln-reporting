@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -85,17 +86,73 @@ logger = logging.getLogger(__name__)
 # Report-level constants
 # ---------------------------------------------------------------------------
 
-_BOARD_MODULE_CONFIGS: list[ModuleConfig] = [
-    ModuleConfig("scan_coverage_sla"),
-    ModuleConfig("critical_remediation_sla"),
-    ModuleConfig("high_risk_assets"),
-    ModuleConfig("aged_vulns_assets"),
-    ModuleConfig("accepted_recast"),
-]
+_REPORT_TITLE = "Board Vulnerability Metrics Summary"
 
-_REPORT_TITLE   = "Board Vulnerability Metrics Summary"
-_PDF_FILENAME   = "board_summary.pdf"
-_EXCEL_FILENAME = "board_summary.xlsx"
+
+@dataclass(frozen=True)
+class _BoardVariant:
+    """
+    One board_summary delivery variant — the excluded (default, today's
+    behavior) and included (quick-260813-ga2) cuts of the same 5 modules.
+    """
+    slug:                  str
+    title_suffix:          str
+    pdf_filename:          str
+    excel_filename:        str
+    include_risk_managed:  bool
+    write_supplemental:    bool
+    email_panels:          bool
+
+
+_VARIANT_EXCLUDED = _BoardVariant(
+    slug                 = "board_summary",
+    title_suffix         = " (Excluding Risk-Accepted & Recast)",
+    pdf_filename         = "board_summary.pdf",
+    excel_filename       = "board_summary.xlsx",
+    include_risk_managed = False,
+    write_supplemental   = True,
+    email_panels         = True,
+)
+
+_VARIANT_INCLUDED = _BoardVariant(
+    slug                 = "board_summary_incl_risk_managed",
+    title_suffix         = " (Including Risk-Accepted & Recast)",
+    pdf_filename         = "board_summary_incl_risk_managed.pdf",
+    excel_filename       = "board_summary_incl_risk_managed.xlsx",
+    include_risk_managed = True,
+    write_supplemental   = False,
+    email_panels         = False,
+)
+
+
+def _resolve_variant(include_risk_managed: bool) -> _BoardVariant:
+    return _VARIANT_INCLUDED if include_risk_managed else _VARIANT_EXCLUDED
+
+
+def _board_module_configs(include_risk_managed: bool) -> list[ModuleConfig]:
+    """
+    Build a FRESH list of ModuleConfig objects for one board_summary run.
+
+    Load-bearing, not stylistic: the previous module-level
+    ``_BOARD_MODULE_CONFIGS`` list was mutable and handed straight to the
+    composer — mutating it in place would leak the inclusive variant's
+    options into every subsequent ``board_summary`` run inside the same
+    long-lived ``scheduler.py --mode daemon`` process, with "the two
+    reports agree" as the only symptom. Building fresh objects per call
+    eliminates that leak by construction.
+
+    scan_coverage_sla and accepted_recast carry no options — documenting
+    that they are variant-invariant by construction (Metric 1 never reads
+    vulns_df; Metric 5 deliberately reads the full, unfiltered frame).
+    """
+    opts = {"include_risk_managed": include_risk_managed}
+    return [
+        ModuleConfig("scan_coverage_sla"),
+        ModuleConfig("critical_remediation_sla", options=opts),
+        ModuleConfig("high_risk_assets", options=opts),
+        ModuleConfig("aged_vulns_assets", options=opts),
+        ModuleConfig("accepted_recast"),
+    ]
 
 
 # ===========================================================================
@@ -115,6 +172,7 @@ def run_report(
     privacy_label: str = "Confidential",
     scope_subtitle: Optional[str] = None,
     report_title: Optional[str] = None,
+    include_risk_managed: bool = False,
 ) -> dict:
     """
     Generate the Board Vulnerability Metrics Summary.
@@ -140,6 +198,13 @@ def run_report(
         Defaults to ``OUTPUT_DIR / "board_summary"``.
     generated_at : datetime, optional
         UTC-aware report timestamp.  Defaults to UTC now.
+    include_risk_managed : bool, default False
+        quick-260813-ga2 — selects the report variant. ``False`` (default)
+        is today's behavior: Metrics 2/3/4 exclude ACCEPTED/RECASTED
+        findings, slug ``board_summary``. ``True`` computes those metrics
+        over the full population including risk-managed findings, slug
+        ``board_summary_incl_risk_managed`` — no email panels, no owner
+        supplemental.
     cache_dir : Path, optional
         Parquet cache directory.  Defaults to today's ``CACHE_DIR`` subfolder.
     analyst_detail : bool, default True
@@ -175,6 +240,8 @@ def run_report(
         Never raises — all exceptions are caught and reflected in the return
         dict and application log.
     """
+    variant = _resolve_variant(include_risk_managed)
+
     if generated_at is None:
         generated_at = datetime.now(tz=timezone.utc)
     if cache_dir is None:
@@ -312,8 +379,10 @@ def run_report(
     # via the optional pdf_chrome= kwarg landed in plan 06-01.
     # ------------------------------------------------------------------
     # YAML-driven cover title override (parity with composed_report).
-    # None / empty → fall back to the slug's canonical default.
-    effective_title = report_title or _REPORT_TITLE
+    # None / empty → fall back to the slug's canonical default. The variant
+    # suffix is appended so a group-level report_title still composes
+    # (quick-260813-ga2).
+    effective_title = (report_title or _REPORT_TITLE) + variant.title_suffix
 
     pdf_chrome_cfg = PdfChromeConfig(
         title         = effective_title,
@@ -328,7 +397,7 @@ def run_report(
         vulns_df        = vulns_df,
         assets_df       = assets_df,
         report_date     = generated_at,
-        module_configs  = _BOARD_MODULE_CONFIGS,
+        module_configs  = _board_module_configs(include_risk_managed),
         fixed_vulns_df  = fixed_vulns_df,
         pdf_chrome      = pdf_chrome_cfg,
         trend_snapshots = trend_snapshots,
@@ -347,7 +416,7 @@ def run_report(
     bundle = composer.run_full_pipeline(
         results,
         output_dir,
-        slug             = "board_summary",
+        slug             = variant.slug,
         report_date      = generated_at,
         generate_analyst = analyst_detail,    # Phase 4 (CONFIG-03 / D-04-03): YAML-driven opt-out
         pdf_title        = effective_title,
@@ -367,18 +436,24 @@ def run_report(
     # Combined Owner/Application supplemental (SEG-03, D-09).
     # Fail-soft: a supplemental error must not abort the board run.
     # Written to output_dir only (gitignored) — never to data/trend/.
+    # quick-260813-ga2 — skipped for the inclusive variant: it reads the
+    # unfiltered frames, so both variants would produce identical
+    # owner_segmentation.* output, and it is not emailed — writing it twice
+    # runs extract_owner + open_findings_at over the full population for
+    # nothing.
     # ------------------------------------------------------------------
     _supp_excel: Optional[Path] = None
     _supp_csv:   Optional[Path] = None
-    try:
-        from reports.owner_supplemental import write_owner_supplemental  # noqa: PLC0415
-        supp = write_owner_supplemental(assets_df, vulns_df, output_dir, report_date=generated_at)
-        _supp_excel = supp.get("supplemental_excel")
-        _supp_csv   = supp.get("supplemental_csv")
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "board_summary: supplemental writer failed (non-fatal): %s", exc, exc_info=True
-        )
+    if variant.write_supplemental:
+        try:
+            from reports.owner_supplemental import write_owner_supplemental  # noqa: PLC0415
+            supp = write_owner_supplemental(assets_df, vulns_df, output_dir, report_date=generated_at)
+            _supp_excel = supp.get("supplemental_excel")
+            _supp_csv   = supp.get("supplemental_csv")
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "board_summary: supplemental writer failed (non-fatal): %s", exc, exc_info=True
+            )
 
     # ------------------------------------------------------------------
     # PDF — bytes come from bundle["pdf_html"]; WeasyPrint render path
@@ -386,7 +461,7 @@ def run_report(
     # ------------------------------------------------------------------
     pdf_path: Optional[Path] = None
     try:
-        pdf_file = output_dir / _PDF_FILENAME
+        pdf_file = output_dir / variant.pdf_filename
         _render_pdf(bundle["pdf_html"], pdf_file)
         pdf_path = pdf_file
         logger.info("board_summary: PDF written → %s", pdf_file)
@@ -402,7 +477,7 @@ def run_report(
     excel_path: Optional[Path] = None
     try:
         wb         = bundle["excel_workbook"]
-        excel_file = output_dir / _EXCEL_FILENAME
+        excel_file = output_dir / variant.excel_filename
         wb.save(str(excel_file))
         excel_path = excel_file
         logger.info("board_summary: Excel written → %s", excel_file)
@@ -410,6 +485,26 @@ def run_report(
         logger.error(
             "board_summary: Excel generation failed: %s", exc, exc_info=True
         )
+
+    # ------------------------------------------------------------------
+    # quick-260813-ga2 — the inclusive variant contributes no email panels
+    # and no inline images: email_sender.py:425-434 selects panels with
+    # next(...) (first non-empty wins) and templates/report_email.html has
+    # a single panel slot, so only one report's panels can reach the body.
+    # The excluded variant's body instead carries a one-line pointer to the
+    # attached inclusive PDF.
+    # ------------------------------------------------------------------
+    if variant.email_panels:
+        _email_body_html = bundle["email_body_html"] + (
+            '\n<p style="font-size:10pt; color:#444; margin-top:12px;">'
+            "For metrics including risk-accepted &amp; recast findings, see "
+            "the attached <strong>Board Vulnerability Metrics Summary "
+            "(Including Risk-Accepted &amp; Recast)</strong> PDF.</p>"
+        )
+        _email_inline_images = bundle.get("email_inline_images", [])
+    else:
+        _email_body_html = ""
+        _email_inline_images = []
 
     result_dict: dict = {
         "pdf":    pdf_path,
@@ -423,10 +518,10 @@ def run_report(
         # NEW in Phase 2 (D-24, COMPOSER-04) — additive keys, do not
         # mutate any existing key shape:
         "analyst_excel":    bundle["analyst_workbook_path"],   # Path | None
-        "email_body_html":  bundle["email_body_html"],         # str (panels fragment)
+        "email_body_html":  _email_body_html,                  # str (panels fragment)
         # NEW in Phase 3 (D-04, Plan 03-01) — CID gauge entries for
         # email_sender.py to decode into MIMEImage parts:
-        "email_inline_images": bundle.get("email_inline_images", []),
+        "email_inline_images": _email_inline_images,
         # WR-01 fix — surface the legacy KPI dict at the bundle top level
         # so the email template's generic KPI-tile fallback path
         # (collect_email_kpis() → report_outputs[*]["email_kpis"]) can
@@ -601,6 +696,14 @@ Examples:
         default=None,
         help="Parquet cache key (default: today's local date, YYYY-MM-DD)",
     )
+    parser.add_argument(
+        "--include-risk-managed", action="store_true",
+        help=(
+            "quick-260813-ga2 — compute Metrics 2/3/4 over the full "
+            "population including ACCEPTED/RECASTED findings (the "
+            "board_summary_incl_risk_managed variant). Default: excluded."
+        ),
+    )
     return parser
 
 
@@ -636,11 +739,12 @@ def main() -> int:
         return 1
 
     result = run_report(
-        tio          = tio,
-        run_id       = run_id,
-        tag_category = args.tag_category,
-        tag_value    = args.tag_value,
-        output_dir   = output,
+        tio                   = tio,
+        run_id                = run_id,
+        tag_category          = args.tag_category,
+        tag_value             = args.tag_value,
+        output_dir            = output,
+        include_risk_managed  = args.include_risk_managed,
     )
 
     pdf   = result.get("pdf")

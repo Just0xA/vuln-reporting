@@ -102,17 +102,19 @@ def test_privacy_label_defaults_to_confidential():
 
 
 def test_report_title_defaults_to_slug_default():
-    """Omitted report_title falls back to the board_summary slug default."""
+    """Omitted report_title falls back to the board_summary slug default,
+    with the excluded variant's title suffix appended (quick-260813-ga2)."""
     cfg = _invoke_and_capture_pdf_chrome()
-    assert cfg.title == bs._REPORT_TITLE
+    assert cfg.title == bs._REPORT_TITLE + bs._VARIANT_EXCLUDED.title_suffix
 
 
 def test_report_title_override_propagates_to_chrome_title():
-    """YAML-driven report_title flows into PdfChromeConfig.title verbatim."""
+    """YAML-driven report_title flows into PdfChromeConfig.title, with the
+    variant suffix still appended (quick-260813-ga2)."""
     cfg = _invoke_and_capture_pdf_chrome(
         report_title="Executive Security Posture",
     )
-    assert cfg.title == "Executive Security Posture"
+    assert cfg.title == "Executive Security Posture" + bs._VARIANT_EXCLUDED.title_suffix
 
 
 def test_privacy_label_override_propagates():

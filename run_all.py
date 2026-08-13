@@ -85,6 +85,7 @@ _VALID_REPORTS: frozenset[str] = frozenset({
     "management_summary",
     "vuln_export",
     "board_summary",
+    "board_summary_incl_risk_managed",
     "unscanned_assets",
     "composed_report",
 })
@@ -99,8 +100,17 @@ _VALID_REPORTS: frozenset[str] = frozenset({
 # accept chrome kwargs.
 _CHROME_AWARE_SLUGS: frozenset[str] = frozenset({
     "board_summary",
+    "board_summary_incl_risk_managed",
     "composed_report",
     "management_summary",
+})
+
+# quick-260813-ga2 — both board_summary variants share the same
+# analyst_detail / include_risk_managed kwarg-injection block in
+# run_group() below; both map to reports/board_summary.py.
+_BOARD_SUMMARY_SLUGS: frozenset[str] = frozenset({
+    "board_summary",
+    "board_summary_incl_risk_managed",
 })
 
 _VALID_FREQUENCIES: frozenset[str] = frozenset({"weekly", "monthly", "on_demand"})
@@ -127,6 +137,11 @@ _REPORT_MODULE_MAP: dict[str, str] = {
     "management_summary":  "reports.management_summary",
     "vuln_export":         "reports.vuln_export",
     "board_summary":       "reports.board_summary",
+    # quick-260813-ga2 — intentional two-slugs-one-module mapping: the
+    # inclusive variant is a run_report() kwarg selection inside
+    # reports/board_summary.py, not a separate report file (see
+    # _board_module_configs / include_risk_managed).
+    "board_summary_incl_risk_managed": "reports.board_summary",
     "unscanned_assets":    "reports.unscanned_assets",
     "composed_report":     "reports.composed_report",
 }
@@ -847,13 +862,20 @@ def run_group(
                 csv_severities = group_config.get("csv_severities")
                 if csv_severities is not None:
                     report_kwargs["csv_severities"] = csv_severities
-            if slug == "board_summary":
+            if slug in _BOARD_SUMMARY_SLUGS:
                 # CONFIG-03 / D-04-03: optional opt-out for the analyst-detail
                 # companion workbook. Default true preserves Phase 3 behavior
                 # for groups without the field. jsonschema 4.x does not
                 # auto-inject schema defaults, so the Python-side .get() with
                 # True is the canonical injection point.
+                # quick-260813-ga2 — widened from `== "board_summary"` to
+                # `in _BOARD_SUMMARY_SLUGS` so analyst_detail is honored for
+                # BOTH board slugs, and include_risk_managed is keyed off
+                # which slug is being dispatched.
                 report_kwargs["analyst_detail"] = group_config.get("analyst_detail", True)
+                report_kwargs["include_risk_managed"] = (
+                    slug == "board_summary_incl_risk_managed"
+                )
             if slug == "unscanned_assets":
                 report_kwargs["scan_window_days"] = group_config.get("scan_window_days", 30)
             if slug == "composed_report":

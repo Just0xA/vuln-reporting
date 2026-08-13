@@ -68,6 +68,7 @@ definitions:
             - management_summary
             - vuln_export
             - board_summary
+            - board_summary_incl_risk_managed
             - unscanned_assets
             - composed_report
 
@@ -113,9 +114,12 @@ definitions:
       report_title:
         type: string
         description: |
-          Optional cover-page title override used only by composed_report.
-          Ignored by all other slugs. Defaults to "Composed Vulnerability
-          Report" when absent.
+          Optional cover-page title override, consumed by board_summary
+          (both variants), management_summary, and composed_report.
+          Ignored by all other slugs. Each consuming slug falls back to its
+          own canonical default title when absent (board_summary appends
+          its variant suffix after this override; composed_report defaults
+          to "Composed Vulnerability Report").
         minLength: 1
 
       privacy_label:
